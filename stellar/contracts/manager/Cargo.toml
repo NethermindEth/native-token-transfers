@@ -9,3 +9,4 @@ name = "stellar_ntt_manager"
 
 [dependencies]
 soroban-sdk = { workspace = true }
+wormhole-soroban-client = { workspace = true }

@@ -1424,6 +1424,7 @@ name = "stellar-ntt-manager"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "wormhole-soroban-client",
 ]
 
 [[package]]
@@ -1728,6 +1729,14 @@ dependencies = [
 name = "wormhole-interface"
 version = "0.1.0"
 source = "git+https://github.com/NethermindEth/wormhole?branch=feature%2Fmessage-posting#8d638d16f90c40b4d3648b8d0db22dc44a15a0d8"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "wormhole-soroban-client"
+version = "0.1.0"
+source = "git+https://github.com/NethermindEth/wormhole?branch=stellar#9f88e94e8047b3c320f58dd1dabdf6d6399159da"
 dependencies = [
  "soroban-sdk",
 ]

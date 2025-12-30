@@ -1,4 +1,12 @@
-use soroban_sdk::{contracttype, Bytes, Env};
+use soroban_sdk::{contracttype, Bytes, BytesN, Env};
+use wormhole_soroban_client::BytesReader;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[contracttype]
+pub enum Error {
+    MessageTooShort = 1,
+    InvalidPrefix = 2,
+}
 
 /// Normalized token amount for cross-chain compatibility.
 ///
@@ -139,5 +147,77 @@ impl TrimmedAmount {
             amount: self.amount.saturating_sub(other.amount),
             decimals: self.decimals,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[contracttype]
+pub struct NativeTokenTransfer {
+    pub amount: TrimmedAmount,
+    pub source_token: BytesN<32>,
+    pub to: BytesN<32>,
+    pub to_chain: u32,
+    pub additional_payload: Option<Bytes>,
+}
+
+impl NativeTokenTransfer {
+    pub const PREFIX: [u8; 4] = [0x99, 0x4E, 0x54, 0x54];
+    pub const MIN_SIZE: u32 = 4 + 1 + 8 + 32 + 32 + 2;
+
+    pub fn to_bytes(&self, env: &Env) -> Bytes {
+        let mut buf = Bytes::new(env);
+
+        buf.append(&Bytes::from_array(env, &Self::PREFIX));
+        buf.append(&self.amount.to_bytes(env));
+        buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
+        buf.append(&Bytes::from_array(env, &self.to.to_array()));
+        buf.append(&Bytes::from_array(env, &(self.to_chain as u16).to_be_bytes()));
+
+        if let Some(ref payload) = self.additional_payload {
+            let len = payload.len() as u16;
+            buf.append(&Bytes::from_array(env, &len.to_be_bytes()));
+            buf.append(payload);
+        }
+
+        buf
+    }
+
+    pub fn from_bytes(_env: &Env, bytes: &Bytes) -> Result<Self, Error> {
+        if bytes.len() < Self::MIN_SIZE {
+            return Err(Error::MessageTooShort);
+        }
+
+        let mut reader = BytesReader::new(bytes);
+
+        let prefix = reader.read_u32_be().map_err(|_| Error::MessageTooShort)?;
+        if prefix != u32::from_be_bytes(Self::PREFIX) {
+            return Err(Error::InvalidPrefix);
+        }
+
+        let decimals = reader.read_u8().map_err(|_| Error::MessageTooShort)?;
+        let amount_val = reader.read_u64_be().map_err(|_| Error::MessageTooShort)?;
+        let amount = TrimmedAmount::new(amount_val, decimals);
+
+        let source_token: BytesN<32> = reader.read_bytes_n().map_err(|_| Error::MessageTooShort)?;
+        let to: BytesN<32> = reader.read_bytes_n().map_err(|_| Error::MessageTooShort)?;
+        let to_chain = reader.read_u16_be().map_err(|_| Error::MessageTooShort)? as u32;
+
+        let additional_payload = if reader.remaining() > 0 {
+            let len = reader.read_u16_be().map_err(|_| Error::MessageTooShort)? as u32;
+            if reader.remaining() < len {
+                return Err(Error::MessageTooShort);
+            }
+            Some(reader.read_bytes(len).map_err(|_| Error::MessageTooShort)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            amount,
+            source_token,
+            to,
+            to_chain,
+            additional_payload,
+        })
     }
 }

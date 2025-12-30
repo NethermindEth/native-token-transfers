@@ -10,5 +10,5 @@ resolver = "3"
 soroban-sdk = "23"
 stellar-xdr = "25"
 wormhole-interface = { git = "https://github.com/NethermindEth/wormhole", branch = "feature/message-posting" }
-
+wormhole-soroban-client = { git = "https://github.com/NethermindEth/wormhole", branch = "stellar" }
 
