@@ -1,6 +1,7 @@
 #![no_std]
 
 mod messages;
+mod state;
 
 use soroban_sdk::{contract, contractimpl, Bytes, BytesN, Env};
 
