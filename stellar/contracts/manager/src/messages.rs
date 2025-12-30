@@ -254,3 +254,79 @@ impl NativeTokenTransfer {
         })
     }
 }
+
+/// Wrapper message that includes sender information and a unique ID.
+///
+/// This wraps `NativeTokenTransfer` with metadata required for message
+/// tracking and attestation across chains.
+///
+/// # Wire Format (66+ bytes)
+/// - `[32]` id (unique message identifier)
+/// - `[32]` sender (original sender, left-padded)
+/// - `[2]` payload_len (big-endian)
+/// - `[var]` payload (encoded `NativeTokenTransfer`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[contracttype]
+pub struct NttManagerMessage {
+    /// Unique message identifier, typically derived from sequence number.
+    pub id: BytesN<32>,
+    /// Original sender address, left-padded to 32 bytes.
+    pub sender: BytesN<32>,
+    /// The transfer payload.
+    pub payload: NativeTokenTransfer,
+}
+
+impl NttManagerMessage {
+    /// Minimum message size: 32 (id) + 32 (sender) + 2 (len).
+    pub const MIN_SIZE: u32 = 32 + 32 + 2;
+
+    /// Serializes to the cross-chain wire format.
+    pub fn to_bytes(&self, env: &Env) -> Bytes {
+        let mut buf = Bytes::new(env);
+
+        buf.append(&Bytes::from_array(env, &self.id.to_array()));
+        buf.append(&Bytes::from_array(env, &self.sender.to_array()));
+
+        let payload_bytes = self.payload.to_bytes(env);
+        let payload_len = payload_bytes.len() as u16;
+        buf.append(&Bytes::from_array(env, &payload_len.to_be_bytes()));
+        buf.append(&payload_bytes);
+
+        buf
+    }
+
+    /// Deserializes from the cross-chain wire format.
+    ///
+    /// Returns `Error::MessageTooShort` if the input is truncated, or propagates
+    /// errors from `NativeTokenTransfer::from_bytes`.
+    pub fn from_bytes(env: &Env, bytes: &Bytes) -> Result<Self, Error> {
+        if bytes.len() < Self::MIN_SIZE {
+            return Err(Error::MessageTooShort);
+        }
+
+        let mut reader = BytesReader::new(bytes);
+
+        let id: BytesN<32> = reader.read_bytes_n().map_err(|_| Error::MessageTooShort)?;
+        let sender: BytesN<32> = reader.read_bytes_n().map_err(|_| Error::MessageTooShort)?;
+
+        let payload_len = reader.read_u16_be().map_err(|_| Error::MessageTooShort)? as u32;
+        if reader.remaining() < payload_len {
+            return Err(Error::MessageTooShort);
+        }
+
+        let payload_bytes = reader.read_bytes(payload_len).map_err(|_| Error::MessageTooShort)?;
+        let payload = NativeTokenTransfer::from_bytes(env, &payload_bytes)?;
+
+        Ok(Self { id, sender, payload })
+    }
+
+    /// Computes the message digest for attestation tracking.
+    ///
+    /// `digest = sha256(source_chain_id || encoded_message)`
+    pub fn compute_digest(&self, env: &Env, source_chain: u16) -> BytesN<32> {
+        let mut data = Bytes::new(env);
+        data.append(&Bytes::from_array(env, &source_chain.to_be_bytes()));
+        data.append(&self.to_bytes(env));
+        env.crypto().sha256(&data).into()
+    }
+}
