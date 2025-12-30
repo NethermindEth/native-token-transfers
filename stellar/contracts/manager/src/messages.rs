@@ -1,10 +1,13 @@
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
 use wormhole_soroban_client::BytesReader;
 
+/// Errors that can occur during message parsing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
 pub enum Error {
+    /// Input bytes are shorter than the minimum required length.
     MessageTooShort = 1,
+    /// Message prefix does not match the expected magic bytes.
     InvalidPrefix = 2,
 }
 
@@ -150,20 +153,43 @@ impl TrimmedAmount {
     }
 }
 
+/// Core payload for cross-chain token transfers.
+///
+/// This is the inner payload of `NttManagerMessage`, containing the transfer
+/// details: amount, source token, recipient, and destination chain.
+///
+/// # Wire Format (79+ bytes)
+/// - `[4]` prefix: `0x994E5454`
+/// - `[1]` decimals
+/// - `[8]` amount (big-endian)
+/// - `[32]` source_token
+/// - `[32]` to (recipient)
+/// - `[2]` to_chain (big-endian)
+/// - `[2]` additional_payload_len (optional)
+/// - `[var]` additional_payload (optional)
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[contracttype]
 pub struct NativeTokenTransfer {
     pub amount: TrimmedAmount,
+    /// Source token address, left-padded to 32 bytes.
     pub source_token: BytesN<32>,
+    /// Recipient address on the destination chain.
     pub to: BytesN<32>,
+    /// Destination Wormhole chain ID. Stored as `u32` for Soroban compatibility,
+    /// serialized as `u16`.
     pub to_chain: u32,
+    /// Optional payload for custom integrations.
     pub additional_payload: Option<Bytes>,
 }
 
 impl NativeTokenTransfer {
+    /// NTT message prefix: `0x994E5454` ("™NTT").
     pub const PREFIX: [u8; 4] = [0x99, 0x4E, 0x54, 0x54];
+
+    /// Minimum message size without additional payload.
     pub const MIN_SIZE: u32 = 4 + 1 + 8 + 32 + 32 + 2;
 
+    /// Serializes to the cross-chain wire format.
     pub fn to_bytes(&self, env: &Env) -> Bytes {
         let mut buf = Bytes::new(env);
 
@@ -171,7 +197,10 @@ impl NativeTokenTransfer {
         buf.append(&self.amount.to_bytes(env));
         buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
         buf.append(&Bytes::from_array(env, &self.to.to_array()));
-        buf.append(&Bytes::from_array(env, &(self.to_chain as u16).to_be_bytes()));
+        buf.append(&Bytes::from_array(
+            env,
+            &(self.to_chain as u16).to_be_bytes(),
+        ));
 
         if let Some(ref payload) = self.additional_payload {
             let len = payload.len() as u16;
@@ -182,6 +211,10 @@ impl NativeTokenTransfer {
         buf
     }
 
+    /// Deserializes from the cross-chain wire format using `BytesReader`.
+    ///
+    /// Returns `Error::MessageTooShort` if the input is truncated, or
+    /// `Error::InvalidPrefix` if the magic bytes don't match.
     pub fn from_bytes(_env: &Env, bytes: &Bytes) -> Result<Self, Error> {
         if bytes.len() < Self::MIN_SIZE {
             return Err(Error::MessageTooShort);
