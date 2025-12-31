@@ -90,4 +90,43 @@ impl ManagerContract {
     ) {
         // TODO
     }
+
+    /// Initiates a two-step ownership transfer to a new admin.
+    ///
+    /// The current admin sets a pending admin, who must then call `accept_ownership`
+    /// to complete the transfer. This prevents accidental transfers to invalid addresses.
+    pub fn transfer_ownership(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &current_admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        Ok(())
+    }
+
+    /// Completes a pending ownership transfer.
+    ///
+    /// Must be called by the address set as pending admin in `transfer_ownership`.
+    /// Clears the pending admin after successful transfer.
+    pub fn accept_ownership(env: Env, pending_admin: Address) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        pending_admin.require_auth();
+
+        let stored_pending: Option<Address> =
+            env.storage().instance().get(&DataKey::PendingAdmin);
+        match stored_pending {
+            Some(stored) if stored == pending_admin => {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::Admin, &pending_admin);
+                env.storage().instance().remove(&DataKey::PendingAdmin);
+                Ok(())
+            }
+            _ => Err(NttManagerError::InvalidPendingAdmin),
+        }
+    }
 }
