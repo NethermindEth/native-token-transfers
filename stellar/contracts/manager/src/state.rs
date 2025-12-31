@@ -46,3 +46,16 @@ pub enum DataKey {
 
     Reentering,
 }
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct NttConfig {
+    pub mode: Mode,
+    pub token: Address,
+    pub token_decimals: u32,
+    pub chain_id: u32,
+    pub admin: Address,
+    pub paused: bool,
+    pub threshold: u32,
+    pub rate_limit_duration: u64,
+}
