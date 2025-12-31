@@ -1,9 +1,9 @@
 #![no_std]
 
+mod constants;
 mod errors;
 mod messages;
 mod state;
-mod constants;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
@@ -125,8 +125,7 @@ impl ManagerContract {
         extend_instance_ttl(&env);
         pending_admin.require_auth();
 
-        let stored_pending: Option<Address> =
-            env.storage().instance().get(&DataKey::PendingAdmin);
+        let stored_pending: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
         match stored_pending {
             Some(stored) if stored == pending_admin => {
                 env.storage()
