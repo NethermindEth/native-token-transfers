@@ -111,3 +111,21 @@ pub fn require_admin(env: &Env, caller: &Address) -> Result<(), NttManagerError>
     }
     Ok(())
 }
+
+/// Returns whether the contract is currently paused.
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Ensures the contract is not paused.
+///
+/// Returns `ContractPaused` if the contract is currently paused.
+pub fn require_not_paused(env: &Env) -> Result<(), NttManagerError> {
+    if is_paused(env) {
+        return Err(NttManagerError::ContractPaused);
+    }
+    Ok(())
+}

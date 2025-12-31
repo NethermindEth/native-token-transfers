@@ -129,4 +129,29 @@ impl ManagerContract {
             _ => Err(NttManagerError::InvalidPendingAdmin),
         }
     }
+
+    /// Pauses the contract, blocking transfers and redemptions.
+    ///
+    /// Only callable by the admin. Use `unpause` to resume operations.
+    pub fn pause(env: Env, admin: Address) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Ok(())
+    }
+
+    /// Unpauses the contract, resuming normal operations.
+    ///
+    /// Only callable by the admin.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&DataKey::Paused, &false);
+        Ok(())
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        state::is_paused(&env)
+    }
 }

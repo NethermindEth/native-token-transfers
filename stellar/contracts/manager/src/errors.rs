@@ -18,4 +18,7 @@ pub enum NttManagerError {
     Unauthorized = 10,
     /// No pending admin set, or caller does not match the pending admin address.
     InvalidPendingAdmin = 11,
+
+    /// Contract is paused; transfers and redemptions are blocked.
+    ContractPaused = 12,
 }
