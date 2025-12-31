@@ -3,9 +3,8 @@
 mod constants;
 mod errors;
 mod messages;
-mod state;
-mod constants;
 mod rate_limit;
+mod state;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
@@ -165,12 +164,13 @@ impl ManagerContract {
         state::is_paused(&env)
     }
 
-
-    pub fn set_outbound_limit(
-        env: Env,
-        admin: Address,
-        limit: u64,
-    ) -> Result<(), NttManagerError> {
+    /// Updates the outbound rate limit.
+    ///
+    /// Adjusts the maximum transfer capacity proportionally. When reducing
+    /// the limit, available capacity decreases by the difference.
+    ///
+    /// Only callable by the admin.
+    pub fn set_outbound_limit(env: Env, admin: Address, limit: u64) -> Result<(), NttManagerError> {
         extend_instance_ttl(&env);
         require_admin(&env, &admin)?;
 
