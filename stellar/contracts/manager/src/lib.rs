@@ -2,6 +2,7 @@
 
 mod messages;
 mod state;
+mod errors;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
 use state::{DataKey, Mode};

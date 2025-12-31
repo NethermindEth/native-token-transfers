@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, Address, BytesN};
+use soroban_sdk::{contracttype, Address, BytesN, Env};
+
+use crate::errors::NttManagerError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
@@ -58,4 +60,20 @@ pub struct NttConfig {
     pub paused: bool,
     pub threshold: u32,
     pub rate_limit_duration: u64,
+}
+
+pub fn get_admin(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("admin not set")
+}
+
+pub fn require_admin(env: &Env, caller: &Address) -> Result<(), NttManagerError> {
+    caller.require_auth();
+    let admin = get_admin(env);
+    if *caller != admin {
+        return Err(NttManagerError::Unauthorized);
+    }
+    Ok(())
 }
