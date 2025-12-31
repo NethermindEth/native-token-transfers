@@ -17,3 +17,32 @@ impl Mode {
         matches!(self, Mode::Burning)
     }
 }
+
+
+#[derive(Clone)]
+#[contracttype]
+pub enum DataKey {
+    Admin,
+    PendingAdmin,
+    Token,
+    TokenDecimals,
+    Mode,
+    ChainId,
+    Paused,
+    Threshold,
+    NextSequence,
+    Version,
+    TransceiverCount,
+    EnabledBitmap,
+    RateLimitDuration,
+    OutboundRateLimit,
+
+    Peer(u32),
+    Transceiver(u32),
+    TransceiverIndex(Address),
+    Attestation(BytesN<32>),
+    OutboundQueue(u64),
+    InboundQueue(BytesN<32>),
+
+    Reentering,
+}
