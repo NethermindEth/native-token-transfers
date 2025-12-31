@@ -3,15 +3,15 @@
 mod errors;
 mod messages;
 mod state;
+mod constants;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
 use state::{require_admin, DataKey, Mode};
 
-/// TTL threshold in ledgers (~1 day at 5s/ledger) before extending.
-const INSTANCE_TTL_THRESHOLD: u32 = 17280;
-/// TTL extension in ledgers (~30 days at 5s/ledger).
-const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
+use constants::{
+    INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
+};
 
 /// Queries the decimal precision of a token contract.
 fn get_token_decimals(env: &Env, token: &Address) -> u32 {
@@ -24,6 +24,15 @@ fn extend_instance_ttl(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+}
+
+/// Extends the TTL for a specific persistent storage key.
+///
+/// Used for per-chain/per-message data like peers, attestations, and queues.
+fn extend_persistent_ttl(env: &Env, key: &DataKey) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
 /// NTT Manager contract for cross-chain native token transfers.
