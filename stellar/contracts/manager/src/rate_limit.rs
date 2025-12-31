@@ -82,3 +82,45 @@ impl RateLimitParams {
         self.capacity_at(now, duration)
     }
 }
+
+
+pub fn get_rate_limit_duration(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::RateLimitDuration)
+        .unwrap_or(DEFAULT_RATE_LIMIT_DURATION)
+}
+
+pub fn get_outbound_rate_limit(env: &Env) -> RateLimitParams {
+    env.storage()
+        .instance()
+        .get(&DataKey::OutboundRateLimit)
+        .unwrap_or_else(|| RateLimitParams::new(u64::MAX, env.ledger().timestamp()))
+}
+
+pub fn consume_or_queue_outbound(env: &Env, amount: u64) -> RateLimitResult {
+    let duration = get_rate_limit_duration(env);
+    let now = env.ledger().timestamp();
+
+    let mut rate_limit = get_outbound_rate_limit(env);
+    let result = rate_limit.consume_or_delay(amount, now, duration);
+
+    if matches!(result, RateLimitResult::Consumed) {
+        env.storage()
+            .instance()
+            .set(&DataKey::OutboundRateLimit, &rate_limit);
+    }
+
+    result
+}
+
+pub fn refill_outbound(env: &Env, amount: u64) {
+    let duration = get_rate_limit_duration(env);
+    let now = env.ledger().timestamp();
+
+    let mut rate_limit = get_outbound_rate_limit(env);
+    rate_limit.refill(amount, now, duration);
+    env.storage()
+        .instance()
+        .set(&DataKey::OutboundRateLimit, &rate_limit);
+}

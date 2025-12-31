@@ -164,4 +164,26 @@ impl ManagerContract {
     pub fn is_paused(env: Env) -> bool {
         state::is_paused(&env)
     }
+
+
+    pub fn set_outbound_limit(
+        env: Env,
+        admin: Address,
+        limit: u64,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+
+        let duration = rate_limit::get_rate_limit_duration(&env);
+        let now = env.ledger().timestamp();
+
+        let mut rate_limit_params = rate_limit::get_outbound_rate_limit(&env);
+        rate_limit_params.set_limit(limit, now, duration);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::OutboundRateLimit, &rate_limit_params);
+
+        Ok(())
+    }
 }

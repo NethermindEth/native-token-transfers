@@ -8,3 +8,6 @@ pub const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
 pub const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
 /// TTL extension for persistent storage (~30 days at 5s/ledger).
 pub const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
+
+/// Default rate limit duration in seconds (24 hours).
+pub const DEFAULT_RATE_LIMIT_DURATION: u64 = 86400;
