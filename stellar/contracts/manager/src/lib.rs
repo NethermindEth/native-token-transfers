@@ -1,8 +1,8 @@
 #![no_std]
 
+mod errors;
 mod messages;
 mod state;
-mod errors;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
@@ -69,9 +69,7 @@ impl ManagerContract {
         env.storage()
             .instance()
             .set(&DataKey::TransceiverCount, &0u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::EnabledBitmap, &0u64);
+        env.storage().instance().set(&DataKey::EnabledBitmap, &0u64);
         env.storage()
             .instance()
             .set(&DataKey::RateLimitDuration, &rate_limit_duration);

@@ -214,25 +214,43 @@ impl NativeTokenTransfer {
 
         let mut reader = BytesReader::new(bytes);
 
-        let prefix = reader.read_u32_be().map_err(|_| NttManagerError::MessageTooShort)?;
+        let prefix = reader
+            .read_u32_be()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
         if prefix != u32::from_be_bytes(Self::PREFIX) {
             return Err(NttManagerError::InvalidPrefix);
         }
 
-        let decimals = reader.read_u8().map_err(|_| NttManagerError::MessageTooShort)?;
-        let amount_val = reader.read_u64_be().map_err(|_| NttManagerError::MessageTooShort)?;
+        let decimals = reader
+            .read_u8()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let amount_val = reader
+            .read_u64_be()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
         let amount = TrimmedAmount::new(amount_val, decimals);
 
-        let source_token: BytesN<32> = reader.read_bytes_n().map_err(|_| NttManagerError::MessageTooShort)?;
-        let to: BytesN<32> = reader.read_bytes_n().map_err(|_| NttManagerError::MessageTooShort)?;
-        let to_chain = reader.read_u16_be().map_err(|_| NttManagerError::MessageTooShort)? as u32;
+        let source_token: BytesN<32> = reader
+            .read_bytes_n()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let to: BytesN<32> = reader
+            .read_bytes_n()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let to_chain = reader
+            .read_u16_be()
+            .map_err(|_| NttManagerError::MessageTooShort)? as u32;
 
         let additional_payload = if reader.remaining() > 0 {
-            let len = reader.read_u16_be().map_err(|_| NttManagerError::MessageTooShort)? as u32;
+            let len = reader
+                .read_u16_be()
+                .map_err(|_| NttManagerError::MessageTooShort)? as u32;
             if reader.remaining() < len {
                 return Err(NttManagerError::MessageTooShort);
             }
-            Some(reader.read_bytes(len).map_err(|_| NttManagerError::MessageTooShort)?)
+            Some(
+                reader
+                    .read_bytes(len)
+                    .map_err(|_| NttManagerError::MessageTooShort)?,
+            )
         } else {
             None
         };
@@ -298,18 +316,30 @@ impl NttManagerMessage {
 
         let mut reader = BytesReader::new(bytes);
 
-        let id: BytesN<32> = reader.read_bytes_n().map_err(|_| NttManagerError::MessageTooShort)?;
-        let sender: BytesN<32> = reader.read_bytes_n().map_err(|_| NttManagerError::MessageTooShort)?;
+        let id: BytesN<32> = reader
+            .read_bytes_n()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let sender: BytesN<32> = reader
+            .read_bytes_n()
+            .map_err(|_| NttManagerError::MessageTooShort)?;
 
-        let payload_len = reader.read_u16_be().map_err(|_| NttManagerError::MessageTooShort)? as u32;
+        let payload_len = reader
+            .read_u16_be()
+            .map_err(|_| NttManagerError::MessageTooShort)? as u32;
         if reader.remaining() < payload_len {
             return Err(NttManagerError::MessageTooShort);
         }
 
-        let payload_bytes = reader.read_bytes(payload_len).map_err(|_| NttManagerError::MessageTooShort)?;
+        let payload_bytes = reader
+            .read_bytes(payload_len)
+            .map_err(|_| NttManagerError::MessageTooShort)?;
         let payload = NativeTokenTransfer::from_bytes(env, &payload_bytes)?;
 
-        Ok(Self { id, sender, payload })
+        Ok(Self {
+            id,
+            sender,
+            payload,
+        })
     }
 
     /// Computes the message digest for attestation tracking.
