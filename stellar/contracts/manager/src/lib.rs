@@ -50,7 +50,7 @@ impl ManagerContract {
     /// Called automatically at contract deployment (Protocol 22+). Sets up:
     /// - Admin and token configuration
     /// - Operating mode (locking or burning)
-    /// - Rate limiting parameters
+    /// - Rate limiting parameters (uses fixed 24-hour duration)
     /// - Initial sequence number and counters
     ///
     /// The token's decimal precision is queried and stored for amount normalization.
@@ -60,7 +60,6 @@ impl ManagerContract {
         token: Address,
         mode: Mode,
         chain_id: u32,
-        rate_limit_duration: u64,
         outbound_limit: u64,
     ) {
         let token_decimals = get_token_decimals(&env, &token);
@@ -80,17 +79,15 @@ impl ManagerContract {
             .instance()
             .set(&DataKey::TransceiverCount, &0u32);
         env.storage().instance().set(&DataKey::EnabledBitmap, &0u64);
+
+        let rate_limit_params = rate_limit::RateLimitParams::new(outbound_limit, &env);
         env.storage()
             .instance()
-            .set(&DataKey::RateLimitDuration, &rate_limit_duration);
-        env.storage()
-            .instance()
-            .set(&DataKey::OutboundRateLimit, &outbound_limit);
+            .set(&DataKey::OutboundRateLimit, &rate_limit_params);
 
         extend_instance_ttl(&env);
     }
 
-    // Called by Transceiver after wormhole verification + peer transceiver check
     pub fn receive_wormhole_message(
         _env: Env,
         _emitter_chain: u32,
@@ -174,11 +171,8 @@ impl ManagerContract {
         extend_instance_ttl(&env);
         require_admin(&env, &admin)?;
 
-        let duration = rate_limit::get_rate_limit_duration(&env);
-        let now = env.ledger().timestamp();
-
         let mut rate_limit_params = rate_limit::get_outbound_rate_limit(&env);
-        rate_limit_params.set_limit(limit, now, duration);
+        rate_limit_params.set_limit(limit, &env);
 
         env.storage()
             .instance()

@@ -51,7 +51,6 @@ pub enum DataKey {
     TransceiverCount,
     /// Bitmap of enabled transceivers (bit N = transceiver index N is enabled).
     EnabledBitmap,
-    RateLimitDuration,
     OutboundRateLimit,
 
     // Persistent storage - per-chain/message data
@@ -85,7 +84,6 @@ pub struct NttConfig {
     pub admin: Address,
     pub paused: bool,
     pub threshold: u32,
-    pub rate_limit_duration: u64,
 }
 
 /// Retrieves the current admin address.
