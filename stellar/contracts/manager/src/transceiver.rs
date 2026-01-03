@@ -1,13 +1,28 @@
+//! Transceiver registry for managing cross-chain message relayers.
+//!
+//! Transceivers are responsible for sending and receiving messages across chains.
+//! This module provides a bitmap-based registry that tracks up to 64 transceivers,
+//! along with threshold-based attestation requirements.
 use soroban_sdk::{contracttype, Address};
 
+/// Metadata for a registered transceiver.
+///
+/// Once registered, a transceiver's index is permanent and never reused,
+/// even if the transceiver is later disabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[contracttype]
 pub struct TransceiverInfo {
+    /// Contract address of the transceiver.
     pub address: Address,
+    /// Whether the transceiver is currently enabled for attestations.
     pub enabled: bool,
+    /// Permanent index in the bitmap (0-63). Never reused after assignment.
     pub index: u32,
 }
 
+/// Retrieves the bitmap of currently enabled transceivers.
+///
+/// Returns an empty bitmap if not initialized.
 pub fn get_enabled_bitmap(env: &Env) -> Bitmap {
     let raw: u64 = env
         .storage()
@@ -17,6 +32,9 @@ pub fn get_enabled_bitmap(env: &Env) -> Bitmap {
     Bitmap(raw)
 }
 
+/// Retrieves the current attestation threshold.
+///
+/// Returns 0 if no transceivers have been registered.
 pub fn get_threshold(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -24,16 +42,25 @@ pub fn get_threshold(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
+/// Retrieves transceiver info by its permanent index.
+///
+/// Returns `None` if no transceiver exists at the given index.
 pub fn get_transceiver(env: &Env, index: u32) -> Option<TransceiverInfo> {
     env.storage().persistent().get(&DataKey::Transceiver(index))
 }
 
+/// Looks up a transceiver's index by its contract address.
+///
+/// Returns `None` if the address is not registered.
 pub fn get_transceiver_index(env: &Env, address: &Address) -> Option<u32> {
     env.storage()
         .persistent()
         .get(&DataKey::TransceiverIndex(address.clone()))
 }
 
+/// Checks whether a transceiver is currently enabled.
+///
+/// Returns `false` if the address is not registered or is disabled.
 pub fn is_transceiver_enabled(env: &Env, address: &Address) -> bool {
     if let Some(index) = get_transceiver_index(env, address) {
         if let Some(info) = get_transceiver(env, index) {
@@ -43,6 +70,9 @@ pub fn is_transceiver_enabled(env: &Env, address: &Address) -> bool {
     false
 }
 
+/// Returns a list of all currently enabled transceiver addresses.
+///
+/// Iterates through all registered transceivers and filters by the enabled bitmap.
 pub fn get_enabled_transceivers(env: &Env) -> Vec<Address> {
     let bitmap = get_enabled_bitmap(env);
     let count: u32 = env
@@ -62,6 +92,11 @@ pub fn get_enabled_transceivers(env: &Env) -> Vec<Address> {
     result
 }
 
+/// Validates threshold invariants after registry modifications.
+///
+/// Enforces:
+/// - INV-023: `threshold <= enabled_count`
+/// - INV-024: `threshold > 0` when transceivers exist
 fn check_threshold_invariants(env: &Env) -> Result<(), NttManagerError> {
     let threshold = get_threshold(env);
     let enabled_count = get_enabled_bitmap(env).count_ones() as u32;
@@ -77,6 +112,18 @@ fn check_threshold_invariants(env: &Env) -> Result<(), NttManagerError> {
     Ok(())
 }
 
+/// Registers a new transceiver or re-enables an existing one.
+///
+/// If the transceiver is already registered but disabled, it will be re-enabled
+/// at its original index. New transceivers are assigned the next available index.
+///
+/// Automatically sets threshold to 1 when the first transceiver is registered.
+///
+/// Returns the transceiver's index on success.
+///
+/// # Errors
+/// - `MaxTransceiversReached` if 64 transceivers are already registered
+/// - `TransceiverNotRegistered` if index lookup fails (internal error)
 pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManagerError> {
     let existing_index = get_transceiver_index(env, &transceiver);
 
@@ -151,6 +198,16 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
     Ok(index)
 }
 
+/// Disables a transceiver, excluding it from attestation voting.
+///
+/// The transceiver remains registered at its index but is no longer counted
+/// toward attestation thresholds. If disabling would violate the threshold
+/// invariant, the threshold is automatically reduced.
+///
+/// No-op if the transceiver is already disabled.
+///
+/// # Errors
+/// - `TransceiverNotRegistered` if the address is not registered
 pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttManagerError> {
     let index: u32 = get_transceiver_index(env, transceiver)
         .ok_or(NttManagerError::TransceiverNotRegistered)?;
@@ -193,6 +250,14 @@ pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttMan
     Ok(())
 }
 
+/// Sets the minimum number of attestations required for inbound transfers.
+///
+/// The threshold must be at least 1 and cannot exceed the number of enabled
+/// transceivers.
+///
+/// # Errors
+/// - `ZeroThreshold` if threshold is 0
+/// - `ThresholdTooHigh` if threshold exceeds enabled transceiver count
 pub fn set_threshold_value(env: &Env, threshold: u32) -> Result<(), NttManagerError> {
     if threshold == 0 {
         return Err(NttManagerError::ZeroThreshold);
@@ -204,46 +269,70 @@ pub fn set_threshold_value(env: &Env, threshold: u32) -> Result<(), NttManagerEr
     Ok(())
 }
 
+/// 64-bit bitmap for tracking transceiver registration and attestations.
+///
+/// Each bit position corresponds to a transceiver index (0-63). Used for:
+/// - Tracking which transceivers are enabled
+/// - Recording which transceivers have attested to a message
+/// - Computing attestation counts via population count
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[contracttype]
 pub struct Bitmap(pub u64);
 
 impl Bitmap {
+    /// Creates an empty bitmap with all bits cleared.
     pub fn new() -> Self {
         Self(0)
     }
 
+    /// Sets the bit at the given index.
+    ///
+    /// # Panics
+    /// Panics if `index >= 64`.
     pub fn set(&mut self, index: u8) {
         assert!(index < 64, "bitmap index out of range");
         self.0 |= 1u64 << index;
     }
 
+    /// Clears the bit at the given index.
+    ///
+    /// # Panics
+    /// Panics if `index >= 64`.
     pub fn clear(&mut self, index: u8) {
         assert!(index < 64, "bitmap index out of range");
         self.0 &= !(1u64 << index);
     }
 
+    /// Returns `true` if the bit at the given index is set.
+    ///
+    /// # Panics
+    /// Panics if `index >= 64`.
     pub fn is_set(&self, index: u8) -> bool {
         assert!(index < 64, "bitmap index out of range");
         (self.0 & (1u64 << index)) != 0
     }
 
+    /// Returns the bitwise AND of two bitmaps.
     pub fn and(&self, other: &Self) -> Self {
         Self(self.0 & other.0)
     }
 
+    /// Returns the bitwise OR of two bitmaps.
     pub fn or(&self, other: &Self) -> Self {
         Self(self.0 | other.0)
     }
 
+    /// Returns the number of set bits (population count).
     pub fn count_ones(&self) -> u8 {
         self.0.count_ones() as u8
     }
 
+    /// Returns `true` if no bits are set.
     pub fn is_empty(&self) -> bool {
         self.0 == 0
     }
 
+    /// Returns the underlying `u64` value.
     pub fn raw(&self) -> u64 {
         self.0
     }
