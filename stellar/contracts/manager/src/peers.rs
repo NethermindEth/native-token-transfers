@@ -4,7 +4,7 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_sdk::{contracttype, BytesN};
+use soroban_sdk::{contracttype, BytesN, Env};
 
 use crate::errors::NttManagerError;
 use crate::rate_limit::RateLimitParams;

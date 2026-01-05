@@ -36,10 +36,16 @@ pub enum NttManagerError {
     /// Threshold exceeds the number of enabled transceivers.
     ThresholdTooHigh = 43,
 
+    /// No peer registered for the specified chain ID.
     PeerNotFound = 50,
+    /// Peer chain ID cannot be zero.
     InvalidPeerChainIdZero = 51,
+    /// Peer chain ID cannot match this contract's chain ID.
     InvalidPeerSameChainId = 52,
+    /// Peer address cannot be all zeros.
     InvalidPeerZeroAddress = 53,
+    /// Peer token decimals must be between 1 and 18 inclusive.
     InvalidPeerDecimals = 54,
+    /// Message source address does not match the registered peer.
     InvalidPeer = 55,
 }
