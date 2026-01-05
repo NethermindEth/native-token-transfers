@@ -1,6 +1,6 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env};
 
-use crate::errors::NttManagerError;
+use crate::{errors::NttManagerError, messages::TrimmedAmount};
 
 /// Token handling mode for the NTT Manager.
 ///
@@ -84,6 +84,27 @@ pub struct NttConfig {
     pub admin: Address,
     pub paused: bool,
     pub threshold: u32,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct OutboundQueuedTransfer {
+    pub sender: Address,
+    pub amount: TrimmedAmount,
+    pub recipient_chain: u32,
+    pub recipient_ntt_manager: BytesN<32>,
+    pub recipient: BytesN<32>,
+    pub source_token: BytesN<32>,
+    pub release_timestamp: u64,
+    pub additional_payload: Option<Bytes>,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct TransferResult {
+    pub sequence: u64,
+    pub queued: bool,
+    pub digest: BytesN<32>,
 }
 
 /// Retrieves the current admin address.
