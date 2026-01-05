@@ -48,4 +48,5 @@ pub enum NttManagerError {
     InvalidPeerDecimals = 54,
     /// Message source address does not match the registered peer.
     InvalidPeer = 55,
+    
 }
