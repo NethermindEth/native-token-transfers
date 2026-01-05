@@ -5,6 +5,7 @@ mod errors;
 mod messages;
 mod rate_limit;
 mod state;
+mod token_ops;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};

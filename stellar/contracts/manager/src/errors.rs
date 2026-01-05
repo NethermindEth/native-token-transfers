@@ -24,4 +24,7 @@ pub enum NttManagerError {
 
     /// Rate limit not initialized.
     RateLimitNotInitialized = 20,
+
+    /// Contract not initialized (missing required configuration).
+    NotInitialized = 30,
 }
