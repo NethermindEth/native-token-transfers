@@ -27,4 +27,12 @@ pub enum NttManagerError {
 
     /// Contract not initialized (missing required configuration).
     NotInitialized = 30,
+    /// Transceiver address is not registered in the registry.
+    TransceiverNotRegistered = 40,
+    /// Cannot register more than 64 transceivers.
+    MaxTransceiversReached = 41,
+    /// Threshold cannot be zero when transceivers are registered.
+    ZeroThreshold = 42,
+    /// Threshold exceeds the number of enabled transceivers.
+    ThresholdTooHigh = 43,
 }

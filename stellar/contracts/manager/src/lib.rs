@@ -6,6 +6,7 @@ mod messages;
 mod rate_limit;
 mod state;
 mod token_ops;
+mod transceivers;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
