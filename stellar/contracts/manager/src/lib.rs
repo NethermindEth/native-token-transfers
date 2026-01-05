@@ -3,6 +3,7 @@
 mod constants;
 mod errors;
 mod messages;
+mod peers;
 mod rate_limit;
 mod state;
 mod token_ops;

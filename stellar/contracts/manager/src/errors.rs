@@ -35,4 +35,11 @@ pub enum NttManagerError {
     ZeroThreshold = 42,
     /// Threshold exceeds the number of enabled transceivers.
     ThresholdTooHigh = 43,
+
+    PeerNotFound = 50,
+    InvalidPeerChainIdZero = 51,
+    InvalidPeerSameChainId = 52,
+    InvalidPeerZeroAddress = 53,
+    InvalidPeerDecimals = 54,
+    InvalidPeer = 55,
 }
