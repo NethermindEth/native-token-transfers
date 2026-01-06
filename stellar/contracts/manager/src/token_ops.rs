@@ -31,6 +31,15 @@ use soroban_sdk::{token, vec, Address, Env, IntoVal, Symbol};
 use crate::errors::NttManagerError;
 use crate::state::{DataKey, Mode};
 
+/// Queries the token contract for its decimal precision.
+///
+/// Makes a cross-contract call to the token's `decimals()` function.
+/// Used during initialization to cache the token decimals in storage.
+pub fn query_token_decimals(env: &Env, token: &Address) -> u32 {
+    let client = token::Client::new(env, token);
+    client.decimals()
+}
+
 /// Retrieves the configured token address from storage.
 ///
 /// Returns `NotInitialized` if the contract has not been initialized.

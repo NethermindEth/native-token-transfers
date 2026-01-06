@@ -49,4 +49,19 @@ pub enum NttManagerError {
     /// Message source address does not match the registered peer.
     InvalidPeer = 55,
     
+    /// Transfer amount is zero or negative.
+    ZeroAmount = 60,
+    /// Recipient address is all zeros.
+    InvalidRecipient = 61,
+    /// Transfer exceeds rate limit and should_queue is false.
+    TransferExceedsRateLimit = 62,
+    /// Queued transfer not found for the given sequence number.
+    TransferNotQueued = 63,
+    /// Queued transfer cannot be completed yet (release timestamp not reached).
+    TransferNotReleasable = 64,
+    /// Caller is not the original sender of the queued transfer.
+    CancellerNotSender = 65,
+
+    /// Function is re-entering (reentrancy guard triggered).
+    Reentering = 70,
 }

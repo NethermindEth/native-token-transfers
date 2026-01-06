@@ -143,3 +143,12 @@ pub fn verify_peer(
 pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParams> {
     get_peer(env, chain_id).map(|p| p.inbound_rate_limit)
 }
+
+pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
+    if let Some(mut peer) = get_peer(env, chain_id) {
+        peer.inbound_rate_limit.refill(amount, env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Peer(chain_id), &peer);
+    }
+}

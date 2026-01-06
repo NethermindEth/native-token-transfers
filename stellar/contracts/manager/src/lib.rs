@@ -4,39 +4,31 @@ mod constants;
 mod errors;
 mod messages;
 mod peers;
+mod outbound;
 mod rate_limit;
 mod state;
 mod token_ops;
 mod transceivers;
 
 use errors::NttManagerError;
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env};
-use state::{require_admin, DataKey, Mode};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+use outbound::transfer_internal;
+use state::{
+    require_admin, require_not_paused, require_not_reentering, set_reentering, DataKey, Mode,
+    TransferResult,
+};
+use token_ops::query_token_decimals;
 
 use constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
 };
 
-/// Queries the decimal precision of a token contract.
-fn get_token_decimals(env: &Env, token: &Address) -> u32 {
-    let client = token::Client::new(env, token);
-    client.decimals()
-}
 
 /// Extends the instance storage TTL to prevent expiration.
 fn extend_instance_ttl(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
-}
-
-/// Extends the TTL for a specific persistent storage key.
-///
-/// Used for per-chain/per-message data like peers, attestations, and queues.
-fn extend_persistent_ttl(env: &Env, key: &DataKey) {
-    env.storage()
-        .persistent()
-        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
 /// NTT Manager contract for cross-chain native token transfers.
@@ -65,7 +57,7 @@ impl ManagerContract {
         chain_id: u32,
         outbound_limit: u64,
     ) {
-        let token_decimals = get_token_decimals(&env, &token);
+        let token_decimals = query_token_decimals(&env, &token);
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
@@ -183,4 +175,60 @@ impl ManagerContract {
 
         Ok(())
     }
+
+    pub fn transfer(
+        env: Env,
+        sender: Address,
+        amount: i128,
+        recipient_chain: u32,
+        recipient: BytesN<32>,
+        should_queue: bool,
+    ) -> Result<TransferResult, NttManagerError> {
+        sender.require_auth();
+        require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
+
+        let result = transfer_internal(
+            &env,
+            &sender,
+            amount,
+            recipient_chain,
+            &recipient,
+            should_queue,
+            None,
+        );
+
+        set_reentering(&env, false);
+        result
+    }
+
+    pub fn transfer_with_payload(
+        env: Env,
+        sender: Address,
+        amount: i128,
+        recipient_chain: u32,
+        recipient: BytesN<32>,
+        should_queue: bool,
+        additional_payload: Bytes,
+    ) -> Result<TransferResult, NttManagerError> {
+        sender.require_auth();
+        require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
+
+        let result = transfer_internal(
+            &env,
+            &sender,
+            amount,
+            recipient_chain,
+            &recipient,
+            should_queue,
+            Some(additional_payload),
+        );
+
+        set_reentering(&env, false);
+        result
+    }
 }
+

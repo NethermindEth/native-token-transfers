@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env};
+use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
 use crate::{errors::NttManagerError, messages::TrimmedAmount};
 
@@ -147,4 +147,52 @@ pub fn require_not_paused(env: &Env) -> Result<(), NttManagerError> {
         return Err(NttManagerError::ContractPaused);
     }
     Ok(())
+}
+
+
+pub fn require_not_reentering(env: &Env) -> Result<(), NttManagerError> {
+    let reentering: bool = env
+        .storage()
+        .temporary()
+        .get(&DataKey::Reentering)
+        .unwrap_or(false);
+    if reentering {
+        return Err(NttManagerError::Reentering);
+    }
+    Ok(())
+}
+
+pub fn set_reentering(env: &Env, reentering: bool) {
+    env.storage()
+        .temporary()
+        .set(&DataKey::Reentering, &reentering);
+}
+
+pub fn use_message_sequence(env: &Env) -> u64 {
+    let current: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::NextSequence)
+        .unwrap_or(1);
+    env.storage()
+        .instance()
+        .set(&DataKey::NextSequence, &(current + 1));
+    current
+}
+
+pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
+    let mut data = soroban_sdk::Bytes::new(env);
+    data.append(&soroban_sdk::Bytes::from_array(env, &sequence.to_be_bytes()));
+    env.crypto().sha256(&data).into()
+}
+
+pub fn address_to_bytes32(_env: &Env, address: &Address) -> BytesN<32> {
+    match address.to_payload().expect("address has no payload") {
+        AddressPayload::AccountIdPublicKeyEd25519(bytes) => bytes,
+        AddressPayload::ContractIdHash(bytes) => bytes,
+    }
+}
+
+pub fn bytes32_to_address(env: &Env, bytes: &BytesN<32>) -> Address {
+    Address::from_payload(env, AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()))
 }
