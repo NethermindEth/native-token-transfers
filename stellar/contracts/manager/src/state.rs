@@ -127,6 +127,21 @@ pub struct TransferResult {
     pub digest: BytesN<32>,
 }
 
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct AttestationInfo {
+    pub executed: bool,
+    pub attested_transceivers: u64,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct InboundQueuedTransfer {
+    pub recipient: Address,
+    pub amount: i128,
+    pub release_timestamp: u64,
+}
+
 /// Retrieves the current admin address.
 ///
 /// # Panics
