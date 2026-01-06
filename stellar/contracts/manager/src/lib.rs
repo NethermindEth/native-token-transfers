@@ -3,18 +3,18 @@
 mod constants;
 mod errors;
 mod messages;
-mod peers;
 mod outbound;
+mod peers;
 mod rate_limit;
 mod state;
 mod token_ops;
 mod transceivers;
 
 use errors::NttManagerError;
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
     require_admin, require_not_paused, require_not_reentering, set_reentering, DataKey, Mode,
     TransferResult,
@@ -24,7 +24,6 @@ use token_ops::query_token_decimals;
 use constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
 };
-
 
 /// Extends the instance storage TTL to prevent expiration.
 fn extend_instance_ttl(env: &Env) {
@@ -178,6 +177,22 @@ impl ManagerContract {
         Ok(())
     }
 
+    /// Initiates a cross-chain token transfer.
+    ///
+    /// Transfers `amount` tokens from `sender` to `recipient` on `recipient_chain`.
+    /// The transfer is validated, rate limited, and either sent immediately or queued
+    /// depending on available capacity. If `should_queue` is false and the rate limit
+    /// is exceeded, the transfer fails and tokens are returned.
+    ///
+    /// Returns a `TransferResult` with the sequence number, queue status, and message digest.
+    ///
+    /// # Errors
+    /// - `ContractPaused` if the contract is paused
+    /// - `Reentering` if a transfer is already in progress
+    /// - `ZeroAmount` if amount is zero or negative
+    /// - `InvalidRecipient` if recipient is all zeros
+    /// - `PeerNotFound` if no peer registered for recipient chain
+    /// - `TransferExceedsRateLimit` if rate limited and `should_queue` is false
     pub fn transfer(
         env: Env,
         sender: Address,
@@ -205,6 +220,13 @@ impl ManagerContract {
         result
     }
 
+    /// Initiates a cross-chain token transfer with custom payload.
+    ///
+    /// Same as `transfer` but includes `additional_payload` in the message.
+    /// The payload can be used by the recipient for custom logic or data.
+    ///
+    /// # Errors
+    /// Same error conditions as `transfer`.
     pub fn transfer_with_payload(
         env: Env,
         sender: Address,
@@ -233,6 +255,17 @@ impl ManagerContract {
         result
     }
 
+    /// Completes a queued transfer after its release time.
+    ///
+    /// Can be called by anyone once the queued transfer's release timestamp is reached.
+    /// Attempts to send the transfer if rate limit capacity is now available.
+    ///
+    /// # Errors
+    /// - `ContractPaused` if the contract is paused
+    /// - `Reentering` if another transfer is in progress
+    /// - `TransferNotQueued` if no transfer exists for this sequence
+    /// - `TransferNotReleasable` if release timestamp not yet reached
+    /// - `TransferExceedsRateLimit` if still rate limited
     pub fn complete_queued_transfer(
         env: Env,
         sequence: u64,
@@ -247,6 +280,14 @@ impl ManagerContract {
         result
     }
 
+    /// Cancels a queued transfer and refunds tokens.
+    ///
+    /// Only the original sender can cancel their queued transfer. Removes it
+    /// from storage and returns the tokens to the sender.
+    ///
+    /// # Errors
+    /// - `TransferNotQueued` if no transfer exists for this sequence
+    /// - `CancellerNotSender` if caller is not the original sender
     pub fn cancel_queued_transfer(
         env: Env,
         sender: Address,
@@ -257,4 +298,3 @@ impl ManagerContract {
         cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
 }
-

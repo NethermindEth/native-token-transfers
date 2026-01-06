@@ -30,10 +30,10 @@ fn extend_persistent_ttl(env: &Env, key: &DataKey) {
 
 /// Sends a transfer message to all enabled transceivers.
 ///
-/// Creates an NTT message with the given parameters, computes its digest,
-/// and dispatches it to each enabled transceiver for cross-chain delivery.
-///
-/// Returns the message sequence number and digest.
+/// Creates an NTT message, computes its digest, and dispatches it to each
+/// enabled transceiver for cross-chain delivery. Uses `use_message_sequence`
+/// to assign a unique sequence number. Returns the sequence and digest for
+/// tracking and verification.
 pub fn send_transfer(
     env: &Env,
     sender: &Address,
@@ -86,13 +86,18 @@ pub fn send_transfer(
     Ok((sequence, digest))
 }
 
-/// Internal transfer implementation with rate limiting and queueing.
+/// Core transfer logic with rate limiting and queuing support.
 ///
-/// Validates the transfer, takes custody of tokens, and either:
-/// - Sends immediately if rate limit allows, or
-/// - Queues for later completion if rate limited and `should_queue` is true
+/// Validates the transfer amount and recipient, normalizes decimals, and takes
+/// custody of tokens. Checks the rate limiter and either sends immediately or
+/// queues the transfer based on `should_queue`. If queueing is disabled and the
+/// rate limit is exceeded, returns tokens and fails with `TransferExceedsRateLimit`.
 ///
-/// Returns a `TransferResult` indicating the sequence, queue status, and digest.
+/// # Errors
+/// - `ZeroAmount` if amount is zero or negative
+/// - `InvalidRecipient` if recipient is all zeros
+/// - `PeerNotFound` if no peer registered for recipient chain
+/// - `TransferExceedsRateLimit` if rate limited and `should_queue` is false
 pub fn transfer_internal(
     env: &Env,
     sender: &Address,
@@ -207,6 +212,18 @@ pub fn transfer_internal(
     }
 }
 
+/// Completes a queued outbound transfer after its release timestamp.
+///
+/// Anyone can call this once `release_timestamp` is reached. Removes the transfer
+/// from the queue, attempts to consume rate limit capacity, and sends the message
+/// to transceivers. If still rate limited, returns `TransferExceedsRateLimit`.
+///
+/// The returned sequence number is a *new* sequence (not the original queue sequence).
+///
+/// # Errors
+/// - `TransferNotQueued` if no transfer exists for the given sequence
+/// - `TransferNotReleasable` if current time is before release timestamp
+/// - `TransferExceedsRateLimit` if rate limit is still exceeded
 pub fn complete_outbound_queued_transfer(
     env: &Env,
     sequence: u64,
@@ -250,6 +267,15 @@ pub fn complete_outbound_queued_transfer(
     })
 }
 
+/// Cancels a queued outbound transfer and refunds tokens to the sender.
+///
+/// Only the original sender can cancel their queued transfer. Removes the transfer
+/// from persistent storage and releases the tokens back to the sender. The refund
+/// amount is calculated by expanding the trimmed amount back to the token's decimals.
+///
+/// # Errors
+/// - `TransferNotQueued` if no transfer exists for the given sequence
+/// - `CancellerNotSender` if caller is not the original sender
 pub fn cancel_outbound_queued_transfer(
     env: &Env,
     sender: &Address,

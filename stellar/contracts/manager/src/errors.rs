@@ -48,7 +48,7 @@ pub enum NttManagerError {
     InvalidPeerDecimals = 54,
     /// Message source address does not match the registered peer.
     InvalidPeer = 55,
-    
+
     /// Transfer amount is zero or negative.
     ZeroAmount = 60,
     /// Recipient address is all zeros.

@@ -144,6 +144,12 @@ pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParam
     get_peer(env, chain_id).map(|p| p.inbound_rate_limit)
 }
 
+/// Refills the inbound rate limit for a specific peer chain.
+///
+/// Called during outbound transfers to implement backflow: when tokens leave
+/// this chain, inbound capacity from that chain increases. This maintains
+/// balance and prevents rate limit deadlocks. Does nothing if no peer exists
+/// for the chain ID.
 pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
     if let Some(mut peer) = get_peer(env, chain_id) {
         peer.inbound_rate_limit.refill(amount, env);

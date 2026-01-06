@@ -3,8 +3,8 @@
 //! Transceivers are responsible for sending and receiving messages across chains.
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
-use soroban_sdk::{contracttype, Address, Env, Vec};
 use crate::{constants::MAX_TRANSCEIVERS, errors::NttManagerError, state::DataKey};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Metadata for a registered transceiver.
 ///
@@ -210,8 +210,8 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
 /// # Errors
 /// - `TransceiverNotRegistered` if the address is not registered
 pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttManagerError> {
-    let index: u32 = get_transceiver_index(env, transceiver)
-        .ok_or(NttManagerError::TransceiverNotRegistered)?;
+    let index: u32 =
+        get_transceiver_index(env, transceiver).ok_or(NttManagerError::TransceiverNotRegistered)?;
 
     let mut info: TransceiverInfo = env
         .storage()
@@ -264,7 +264,9 @@ pub fn set_threshold_value(env: &Env, threshold: u32) -> Result<(), NttManagerEr
         return Err(NttManagerError::ZeroThreshold);
     }
 
-    env.storage().instance().set(&DataKey::Threshold, &threshold);
+    env.storage()
+        .instance()
+        .set(&DataKey::Threshold, &threshold);
     check_threshold_invariants(env)?;
 
     Ok(())
@@ -338,5 +340,3 @@ impl Bitmap {
         self.0
     }
 }
-
-

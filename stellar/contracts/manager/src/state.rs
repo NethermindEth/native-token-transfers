@@ -86,24 +86,44 @@ pub struct NttConfig {
     pub threshold: u32,
 }
 
+/// A transfer that exceeded the rate limit and was queued for later completion.
+///
+/// Stored in persistent storage keyed by sequence number. Anyone can complete
+/// the transfer once `release_timestamp` is reached. Only the original sender
+/// can cancel it to reclaim their tokens.
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct OutboundQueuedTransfer {
+    /// Original sender who initiated the transfer.
     pub sender: Address,
+    /// Normalized amount with dust removed.
     pub amount: TrimmedAmount,
+    /// Destination Wormhole chain ID.
     pub recipient_chain: u32,
+    /// NTT Manager address on the destination chain.
     pub recipient_ntt_manager: BytesN<32>,
+    /// Final recipient address on the destination chain.
     pub recipient: BytesN<32>,
+    /// Token contract address (converted to bytes32).
     pub source_token: BytesN<32>,
+    /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
+    /// Optional custom payload attached to the transfer.
     pub additional_payload: Option<Bytes>,
 }
 
+/// Result of a transfer operation, returned to the caller.
+///
+/// Contains the sequence number for tracking, whether the transfer was queued
+/// due to rate limiting, and the message digest for verification.
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct TransferResult {
+    /// Unique sequence number assigned to this transfer.
     pub sequence: u64,
+    /// Whether this transfer was queued (`true`) or sent immediately (`false`).
     pub queued: bool,
+    /// SHA-256 digest of the NTT message payload.
     pub digest: BytesN<32>,
 }
 
@@ -149,7 +169,10 @@ pub fn require_not_paused(env: &Env) -> Result<(), NttManagerError> {
     Ok(())
 }
 
-
+/// Ensures no reentrant call is in progress.
+///
+/// Checks temporary storage for the reentrancy guard flag. Returns `Reentering`
+/// error if a transfer operation is already executing in the call stack.
 pub fn require_not_reentering(env: &Env) -> Result<(), NttManagerError> {
     let reentering: bool = env
         .storage()
@@ -162,12 +185,21 @@ pub fn require_not_reentering(env: &Env) -> Result<(), NttManagerError> {
     Ok(())
 }
 
+/// Sets the reentrancy guard flag in temporary storage.
+///
+/// Used to prevent reentrant calls during token operations. The flag is automatically
+/// cleared at the end of the transaction since it uses temporary storage.
 pub fn set_reentering(env: &Env, reentering: bool) {
     env.storage()
         .temporary()
         .set(&DataKey::Reentering, &reentering);
 }
 
+/// Atomically increments and returns the next message sequence number.
+///
+/// Sequence numbers start at 1 and are used to uniquely identify outbound
+/// transfers. The counter is incremented before returning, so each call
+/// gets a unique, monotonically increasing value.
 pub fn use_message_sequence(env: &Env) -> u64 {
     let current: u64 = env
         .storage()
@@ -180,12 +212,26 @@ pub fn use_message_sequence(env: &Env) -> u64 {
     current
 }
 
+/// Derives a deterministic message ID from a sequence number.
+///
+/// Computes SHA-256 hash of the big-endian encoded sequence number.
+/// Used to uniquely identify NTT messages across chains.
 pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
     let mut data = soroban_sdk::Bytes::new(env);
-    data.append(&soroban_sdk::Bytes::from_array(env, &sequence.to_be_bytes()));
+    data.append(&soroban_sdk::Bytes::from_array(
+        env,
+        &sequence.to_be_bytes(),
+    ));
     env.crypto().sha256(&data).into()
 }
 
+/// Converts a Soroban `Address` to a 32-byte representation.
+///
+/// Extracts the underlying bytes from either an account ID (Ed25519 public key)
+/// or contract ID hash. Used for cross-chain address encoding in NTT messages.
+///
+/// # Panics
+/// Panics if the address has no payload (should never happen with valid addresses).
 pub fn address_to_bytes32(_env: &Env, address: &Address) -> BytesN<32> {
     match address.to_payload().expect("address has no payload") {
         AddressPayload::AccountIdPublicKeyEd25519(bytes) => bytes,
@@ -193,6 +239,13 @@ pub fn address_to_bytes32(_env: &Env, address: &Address) -> BytesN<32> {
     }
 }
 
+/// Reconstructs a Soroban `Address` from 32 bytes.
+///
+/// Assumes the bytes represent an account ID (Ed25519 public key).
+/// Used when decoding recipient addresses from cross-chain messages.
 pub fn bytes32_to_address(env: &Env, bytes: &BytesN<32>) -> Address {
-    Address::from_payload(env, AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()))
+    Address::from_payload(
+        env,
+        AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()),
+    )
 }
