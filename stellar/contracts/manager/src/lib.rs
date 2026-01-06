@@ -12,7 +12,9 @@ mod transceivers;
 
 use errors::NttManagerError;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
-use outbound::transfer_internal;
+use outbound::{
+    cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
+};
 use state::{
     require_admin, require_not_paused, require_not_reentering, set_reentering, DataKey, Mode,
     TransferResult,
@@ -229,6 +231,30 @@ impl ManagerContract {
 
         set_reentering(&env, false);
         result
+    }
+
+    pub fn complete_queued_transfer(
+        env: Env,
+        sequence: u64,
+    ) -> Result<TransferResult, NttManagerError> {
+        require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
+
+        let result = complete_outbound_queued_transfer(&env, sequence);
+
+        set_reentering(&env, false);
+        result
+    }
+
+    pub fn cancel_queued_transfer(
+        env: Env,
+        sender: Address,
+        sequence: u64,
+    ) -> Result<(), NttManagerError> {
+        sender.require_auth();
+
+        cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
 }
 

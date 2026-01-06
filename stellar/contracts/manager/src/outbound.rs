@@ -206,3 +206,72 @@ pub fn transfer_internal(
         }
     }
 }
+
+pub fn complete_outbound_queued_transfer(
+    env: &Env,
+    sequence: u64,
+) -> Result<TransferResult, NttManagerError> {
+    let key = DataKey::OutboundQueue(sequence);
+    let queued: OutboundQueuedTransfer = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .ok_or(NttManagerError::TransferNotQueued)?;
+
+    let now = env.ledger().timestamp();
+    if now < queued.release_timestamp {
+        return Err(NttManagerError::TransferNotReleasable);
+    }
+
+    env.storage().persistent().remove(&key);
+
+    let rate_result = consume_or_queue_outbound(env, queued.amount.amount);
+    if !matches!(rate_result, RateLimitResult::Consumed) {
+        return Err(NttManagerError::TransferExceedsRateLimit);
+    }
+
+    let (new_sequence, digest) = send_transfer(
+        env,
+        &queued.sender,
+        &queued.amount,
+        queued.recipient_chain,
+        &queued.recipient_ntt_manager,
+        &queued.recipient,
+        &queued.source_token,
+        &queued.additional_payload,
+    )?;
+
+    refill_inbound(env, queued.recipient_chain, queued.amount.amount);
+
+    Ok(TransferResult {
+        sequence: new_sequence,
+        queued: false,
+        digest,
+    })
+}
+
+pub fn cancel_outbound_queued_transfer(
+    env: &Env,
+    sender: &Address,
+    sequence: u64,
+) -> Result<(), NttManagerError> {
+    let key = DataKey::OutboundQueue(sequence);
+    let queued: OutboundQueuedTransfer = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .ok_or(NttManagerError::TransferNotQueued)?;
+
+    if queued.sender != *sender {
+        return Err(NttManagerError::CancellerNotSender);
+    }
+
+    env.storage().persistent().remove(&key);
+
+    let token_decimals = get_token_decimals(env)?;
+    let refund_amount = queued.amount.untrim(token_decimals as u8) as i128;
+
+    release_tokens(env, sender, refund_amount)?;
+
+    Ok(())
+}
