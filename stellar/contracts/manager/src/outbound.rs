@@ -7,26 +7,16 @@
 
 use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
 
-use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
 use crate::errors::NttManagerError;
 use crate::messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount};
 use crate::peers::{get_peer, refill_inbound};
 use crate::rate_limit::{consume_or_queue_outbound, RateLimitResult};
 use crate::state::{
-    address_to_bytes32, sequence_to_message_id, use_message_sequence, DataKey,
-    OutboundQueuedTransfer, TransferResult,
+    address_to_bytes32, extend_persistent_ttl, sequence_to_message_id, use_message_sequence,
+    DataKey, OutboundQueuedTransfer, TransferResult,
 };
 use crate::token_ops::{custody_tokens, get_token_decimals, release_tokens};
 use crate::transceivers::get_enabled_transceivers;
-
-/// Extends the TTL for a specific persistent storage key.
-///
-/// Used for per-chain/per-message data like peers, attestations, and queues.
-fn extend_persistent_ttl(env: &Env, key: &DataKey) {
-    env.storage()
-        .persistent()
-        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-}
 
 /// Sends a transfer message to all enabled transceivers.
 ///

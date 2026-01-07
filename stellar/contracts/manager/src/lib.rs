@@ -2,6 +2,7 @@
 
 mod constants;
 mod errors;
+mod inbound;
 mod messages;
 mod outbound;
 mod peers;
@@ -11,13 +12,14 @@ mod token_ops;
 mod transceivers;
 
 use errors::NttManagerError;
+use inbound::attestation_received_internal;
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    require_admin, require_not_paused, require_not_reentering, set_reentering, DataKey, Mode,
-    TransferResult,
+    require_admin, require_not_paused, require_not_reentering, set_reentering, AttestationResult,
+    DataKey, Mode, TransferResult,
 };
 use token_ops::query_token_decimals;
 
@@ -296,5 +298,18 @@ impl ManagerContract {
         sender.require_auth();
 
         cancel_outbound_queued_transfer(&env, &sender, sequence)
+    }
+
+    pub fn attestation_received(
+        env: Env,
+        transceiver: Address,
+        source_chain: u32,
+        source_ntt_manager: BytesN<32>,
+        payload: Bytes,
+    ) -> Result<AttestationResult, NttManagerError> {
+        transceiver.require_auth();
+        require_not_paused(&env)?;
+
+        attestation_received_internal(&env, &transceiver, source_chain, &source_ntt_manager, &payload)
     }
 }

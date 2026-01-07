@@ -1,6 +1,13 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
 use crate::{errors::NttManagerError, messages::TrimmedAmount};
+use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
+
+pub fn extend_persistent_ttl(env: &Env, key: &DataKey) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+}
 
 /// Token handling mode for the NTT Manager.
 ///
@@ -140,6 +147,14 @@ pub struct InboundQueuedTransfer {
     pub recipient: Address,
     pub amount: i128,
     pub release_timestamp: u64,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct AttestationResult {
+    pub approved: bool,
+    pub executed: bool,
+    pub queued: bool,
 }
 
 /// Retrieves the current admin address.

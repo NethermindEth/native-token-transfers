@@ -64,4 +64,9 @@ pub enum NttManagerError {
 
     /// Function is re-entering (reentrancy guard triggered).
     Reentering = 70,
+
+    TransceiverNotEnabled = 80,
+    TransceiverAlreadyAttested = 81,
+    TransferAlreadyRedeemed = 82,
+    InvalidTargetChain = 83,
 }

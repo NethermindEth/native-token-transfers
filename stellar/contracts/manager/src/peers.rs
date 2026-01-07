@@ -7,7 +7,7 @@
 use soroban_sdk::{contracttype, BytesN, Env};
 
 use crate::errors::NttManagerError;
-use crate::rate_limit::RateLimitParams;
+use crate::rate_limit::{RateLimitParams, RateLimitResult};
 use crate::state::DataKey;
 
 /// Peer NTT Manager on another chain.
@@ -157,4 +157,21 @@ pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
             .persistent()
             .set(&DataKey::Peer(chain_id), &peer);
     }
+}
+
+pub fn consume_or_queue_inbound(
+    env: &Env,
+    chain_id: u32,
+    amount: u64,
+) -> Result<RateLimitResult, NttManagerError> {
+    let mut peer = get_peer(env, chain_id).ok_or(NttManagerError::PeerNotFound)?;
+    let result = peer.inbound_rate_limit.consume_or_delay(amount, env);
+
+    if matches!(result, RateLimitResult::Consumed) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Peer(chain_id), &peer);
+    }
+
+    Ok(result)
 }
