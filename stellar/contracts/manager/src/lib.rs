@@ -12,7 +12,9 @@ mod token_ops;
 mod transceivers;
 
 use errors::NttManagerError;
-use inbound::{attestation_received_internal, complete_inbound_queued_transfer};
+use inbound::{
+    attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
+};
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
@@ -337,5 +339,24 @@ impl ManagerContract {
         require_not_paused(&env)?;
 
         complete_inbound_queued_transfer(&env, &digest)
+    }
+
+    /// Manually executes an approved message that hasn't been executed yet.
+    ///
+    /// Permissionless recovery function for transfers where transceivers were
+    /// disabled after attesting but before execution. Counts all attestations
+    /// (even from now-disabled transceivers) when checking the threshold.
+    ///
+    /// Useful when the normal `attestation_received` path can't complete because
+    /// attesting transceivers were subsequently disabled.
+    pub fn execute_msg(
+        env: Env,
+        source_chain: u32,
+        source_ntt_manager: BytesN<32>,
+        payload: Bytes,
+    ) -> Result<AttestationResult, NttManagerError> {
+        require_not_paused(&env)?;
+
+        execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
 }

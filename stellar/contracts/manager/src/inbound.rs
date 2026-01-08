@@ -228,3 +228,52 @@ pub fn complete_inbound_queued_transfer(
 
     Ok(())
 }
+
+/// Manually executes an approved message that hasn't been executed yet.
+///
+/// Allows execution of transfers where the attestation threshold was met at some
+/// point, but execution didn't occur (e.g., transceivers were disabled after
+/// attesting). Unlike `attestation_received_internal`, this counts ALL attestations
+/// regardless of whether the attesting transceivers are still enabled.
+///
+/// This is permissionless: anyone can call it to help complete stuck transfers.
+/// The message must have been properly attested by enough transceivers at the time
+/// they attested (threshold is checked against total attestations, not just enabled).
+///
+/// # Errors
+/// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
+/// - `TransferNotApproved` if no attestation record exists or threshold not met
+/// - `TransferAlreadyRedeemed` if tokens were already released
+pub fn execute_msg_internal(
+    env: &Env,
+    source_chain: u32,
+    source_ntt_manager: &BytesN<32>,
+    payload: &Bytes,
+) -> Result<AttestationResult, NttManagerError> {
+    verify_peer(env, source_chain, source_ntt_manager)?;
+
+    let ntt_message = NttManagerMessage::from_bytes(env, payload)?;
+    let digest = ntt_message.compute_digest(env, source_chain as u16);
+
+    let key = DataKey::Attestation(digest.clone());
+    let attestation: AttestationInfo = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .ok_or(NttManagerError::TransferNotApproved)?;
+
+    if attestation.executed {
+        return Err(NttManagerError::TransferAlreadyRedeemed);
+    }
+
+    // Count ALL attestations, not just from currently enabled transceivers.
+    // This allows execution when attesting transceivers were later disabled.
+    let attestation_count = attestation.attested_transceivers.count_ones() as u32;
+    let threshold = get_threshold(env);
+
+    if attestation_count < threshold {
+        return Err(NttManagerError::TransferNotApproved);
+    }
+
+    execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
+}
