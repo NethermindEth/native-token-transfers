@@ -159,6 +159,15 @@ pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
     }
 }
 
+/// Attempts to consume inbound rate limit capacity for a transfer.
+///
+/// Checks if the peer's inbound rate limit can accommodate the transfer amount.
+/// Returns `Consumed` if successful (capacity used), or `Delayed(timestamp)` if
+/// the transfer must be queued until that time. Only persists the rate limit
+/// state if capacity was actually consumed.
+///
+/// # Errors
+/// - `PeerNotFound` if no peer is registered for the chain ID
 pub fn consume_or_queue_inbound(
     env: &Env,
     chain_id: u32,

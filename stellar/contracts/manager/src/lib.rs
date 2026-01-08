@@ -300,6 +300,15 @@ impl ManagerContract {
         cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
 
+    /// Records an attestation from a transceiver for an inbound cross-chain message.
+    ///
+    /// Called by transceivers when they receive a verified message from another chain.
+    /// Requires authentication from the calling transceiver. Once enough transceivers
+    /// attest to meet the threshold, tokens are released to the recipient (or queued
+    /// if the inbound rate limit is exceeded).
+    ///
+    /// Returns the attestation result indicating whether threshold was met, tokens
+    /// were released, or the transfer was queued.
     pub fn attestation_received(
         env: Env,
         transceiver: Address,
@@ -310,13 +319,21 @@ impl ManagerContract {
         transceiver.require_auth();
         require_not_paused(&env)?;
 
-        attestation_received_internal(&env, &transceiver, source_chain, &source_ntt_manager, &payload)
+        attestation_received_internal(
+            &env,
+            &transceiver,
+            source_chain,
+            &source_ntt_manager,
+            &payload,
+        )
     }
 
-    pub fn complete_inbound_transfer(
-        env: Env,
-        digest: BytesN<32>,
-    ) -> Result<(), NttManagerError> {
+    /// Completes a rate-limited inbound transfer after its delay period.
+    ///
+    /// Permissionless: anyone can call once `release_timestamp` is reached.
+    /// Releases the queued tokens to the original recipient and removes
+    /// the transfer from the queue.
+    pub fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
         require_not_paused(&env)?;
 
         complete_inbound_queued_transfer(&env, &digest)

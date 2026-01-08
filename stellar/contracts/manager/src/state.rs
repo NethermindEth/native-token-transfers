@@ -1,7 +1,7 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
-use crate::{errors::NttManagerError, messages::TrimmedAmount};
 use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
+use crate::{errors::NttManagerError, messages::TrimmedAmount};
 
 pub fn extend_persistent_ttl(env: &Env, key: &DataKey) {
     env.storage()
@@ -134,26 +134,46 @@ pub struct TransferResult {
     pub digest: BytesN<32>,
 }
 
+/// Tracks attestation state for an inbound cross-chain message.
+///
+/// Stored in persistent storage keyed by message digest. Used for replay
+/// protection and to track which transceivers have attested to the message.
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct AttestationInfo {
+    /// Whether tokens have been released for this message.
     pub executed: bool,
+    /// Bitmap of transceiver indices that have attested (bit N = transceiver N attested).
     pub attested_transceivers: u64,
 }
 
+/// An inbound transfer that exceeded the rate limit and was queued.
+///
+/// Stored in persistent storage keyed by message digest. Anyone can complete
+/// the transfer after `release_timestamp` is reached.
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct InboundQueuedTransfer {
+    /// Recipient address on this chain.
     pub recipient: Address,
+    /// Amount in local token decimals (already untrimmed).
     pub amount: i128,
+    /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
 }
 
+/// Result of processing an attestation from a transceiver.
+///
+/// Indicates whether the attestation threshold was met, whether tokens
+/// were released, and whether the transfer was queued due to rate limiting.
 #[derive(Clone, Debug)]
 #[contracttype]
 pub struct AttestationResult {
+    /// Whether the attestation threshold is now met.
     pub approved: bool,
+    /// Whether tokens were released to the recipient.
     pub executed: bool,
+    /// Whether the transfer was queued due to rate limiting.
     pub queued: bool,
 }
 

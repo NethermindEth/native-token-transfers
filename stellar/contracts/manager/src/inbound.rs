@@ -1,3 +1,11 @@
+//! Inbound transfer operations and attestation processing.
+//!
+//! This module handles incoming cross-chain transfers:
+//! - Attestation collection from multiple transceivers
+//! - Threshold verification before releasing tokens
+//! - Rate-limited queuing for large inbound transfers
+//! - Queue completion after rate limit delay expires
+
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::errors::NttManagerError;
@@ -9,8 +17,25 @@ use crate::state::{
     InboundQueuedTransfer,
 };
 use crate::token_ops::{get_token_decimals, release_tokens};
-use crate::transceivers::{get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index};
+use crate::transceivers::{
+    get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index,
+};
 
+/// Processes an attestation from a transceiver for an inbound message.
+///
+/// Verifies the transceiver is registered and enabled, validates the source peer,
+/// parses the NTT message, and records the attestation in a bitmap. If the attestation
+/// threshold is met, executes the transfer (releasing tokens or queuing if rate-limited).
+///
+/// Each transceiver can only attest once per message digest. The digest is computed
+/// from the message contents and source chain ID for replay protection.
+///
+/// # Errors
+/// - `TransceiverNotRegistered` if caller is not a registered transceiver
+/// - `TransceiverNotEnabled` if the transceiver is disabled
+/// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
+/// - `TransferAlreadyRedeemed` if tokens were already released for this message
+/// - `TransceiverAlreadyAttested` if this transceiver already attested
 pub fn attestation_received_internal(
     env: &Env,
     transceiver: &Address,
@@ -18,11 +43,11 @@ pub fn attestation_received_internal(
     source_ntt_manager: &BytesN<32>,
     payload: &Bytes,
 ) -> Result<AttestationResult, NttManagerError> {
-    let transceiver_index = get_transceiver_index(env, transceiver)
-        .ok_or(NttManagerError::TransceiverNotRegistered)?;
+    let transceiver_index =
+        get_transceiver_index(env, transceiver).ok_or(NttManagerError::TransceiverNotRegistered)?;
 
-    let transceiver_info = get_transceiver(env, transceiver_index)
-        .ok_or(NttManagerError::TransceiverNotRegistered)?;
+    let transceiver_info =
+        get_transceiver(env, transceiver_index).ok_or(NttManagerError::TransceiverNotRegistered)?;
 
     if !transceiver_info.enabled {
         return Err(NttManagerError::TransceiverNotEnabled);
@@ -35,14 +60,14 @@ pub fn attestation_received_internal(
     let digest = ntt_message.compute_digest(env, source_chain as u16);
 
     let key = DataKey::Attestation(digest.clone());
-    let mut attestation: AttestationInfo = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(AttestationInfo {
-            executed: false,
-            attested_transceivers: 0,
-        });
+    let mut attestation: AttestationInfo =
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(AttestationInfo {
+                executed: false,
+                attested_transceivers: 0,
+            });
 
     if attestation.executed {
         return Err(NttManagerError::TransferAlreadyRedeemed);
@@ -73,6 +98,15 @@ pub fn attestation_received_internal(
     execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
 }
 
+/// Executes a transfer after attestation threshold is met.
+///
+/// Validates the destination chain matches this contract, converts the recipient
+/// address from bytes32, and untrims the amount to local token decimals. Checks
+/// the per-chain inbound rate limit: if capacity exists, releases tokens immediately
+/// and marks the attestation as executed; otherwise queues the transfer for later.
+///
+/// On successful release, refills the outbound rate limit by the transfer amount
+/// (backflow mechanism to maintain bidirectional capacity).
 fn execute_inbound_transfer(
     env: &Env,
     source_chain: u32,
@@ -136,6 +170,20 @@ fn execute_inbound_transfer(
     }
 }
 
+/// Completes a queued inbound transfer after its release timestamp.
+///
+/// Anyone can call this once `release_timestamp` is reached. Retrieves the queued
+/// transfer by digest, verifies the delay period has passed, marks the attestation
+/// as executed, removes the queue entry, and releases tokens to the recipient.
+///
+/// Also refills the outbound rate limit by the transfer amount (backflow). The amount
+/// is converted back to trimmed form for the refill calculation.
+///
+/// # Errors
+/// - `TransferNotQueued` if no queued transfer exists for the digest
+/// - `TransferNotReleasable` if current time is before `release_timestamp`
+/// - `TransferNotApproved` if attestation record is missing
+/// - `TransferAlreadyRedeemed` if tokens were already released
 pub fn complete_inbound_queued_transfer(
     env: &Env,
     digest: &BytesN<32>,
