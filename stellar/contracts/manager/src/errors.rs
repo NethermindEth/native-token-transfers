@@ -69,4 +69,5 @@ pub enum NttManagerError {
     TransceiverAlreadyAttested = 81,
     TransferAlreadyRedeemed = 82,
     InvalidTargetChain = 83,
+    TransferNotApproved = 84,
 }

@@ -135,3 +135,48 @@ fn execute_inbound_transfer(
         }
     }
 }
+
+pub fn complete_inbound_queued_transfer(
+    env: &Env,
+    digest: &BytesN<32>,
+) -> Result<(), NttManagerError> {
+    let queue_key = DataKey::InboundQueue(digest.clone());
+    let queued: InboundQueuedTransfer = env
+        .storage()
+        .persistent()
+        .get(&queue_key)
+        .ok_or(NttManagerError::TransferNotQueued)?;
+
+    let now = env.ledger().timestamp();
+    if now < queued.release_timestamp {
+        return Err(NttManagerError::TransferNotReleasable);
+    }
+
+    let attest_key = DataKey::Attestation(digest.clone());
+    let mut attestation: AttestationInfo = env
+        .storage()
+        .persistent()
+        .get(&attest_key)
+        .ok_or(NttManagerError::TransferNotApproved)?;
+
+    if attestation.executed {
+        return Err(NttManagerError::TransferAlreadyRedeemed);
+    }
+
+    attestation.executed = true;
+    env.storage().persistent().set(&attest_key, &attestation);
+
+    env.storage().persistent().remove(&queue_key);
+
+    release_tokens(env, &queued.recipient, queued.amount)?;
+
+    let decimals = get_token_decimals(env)?;
+    let trimmed_amount = if decimals > 8 {
+        (queued.amount as u128) / 10u128.pow((decimals - 8) as u32)
+    } else {
+        queued.amount as u128
+    };
+    refill_outbound(env, trimmed_amount as u64);
+
+    Ok(())
+}

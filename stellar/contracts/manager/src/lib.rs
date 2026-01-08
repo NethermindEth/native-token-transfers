@@ -12,7 +12,7 @@ mod token_ops;
 mod transceivers;
 
 use errors::NttManagerError;
-use inbound::attestation_received_internal;
+use inbound::{attestation_received_internal, complete_inbound_queued_transfer};
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
@@ -311,5 +311,14 @@ impl ManagerContract {
         require_not_paused(&env)?;
 
         attestation_received_internal(&env, &transceiver, source_chain, &source_ntt_manager, &payload)
+    }
+
+    pub fn complete_inbound_transfer(
+        env: Env,
+        digest: BytesN<32>,
+    ) -> Result<(), NttManagerError> {
+        require_not_paused(&env)?;
+
+        complete_inbound_queued_transfer(&env, &digest)
     }
 }
