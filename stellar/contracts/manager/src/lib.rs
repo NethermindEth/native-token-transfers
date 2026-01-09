@@ -15,15 +15,20 @@ use errors::NttManagerError;
 use inbound::{
     attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
 };
+use messages::TrimmedAmount;
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
+use peers::NttManagerPeer;
+use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    require_admin, require_not_paused, require_not_reentering, set_reentering, AttestationResult,
-    DataKey, Mode, TransferResult,
+    require_admin, require_not_paused, require_not_reentering, set_reentering, AttestationInfo,
+    AttestationResult, DataKey, InboundQueuedTransfer, Mode, OutboundQueuedTransfer,
+    TransferResult,
 };
 use token_ops::query_token_decimals;
+use transceivers::TransceiverInfo;
 
 use constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
@@ -358,5 +363,149 @@ impl ManagerContract {
         require_not_paused(&env)?;
 
         execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
+    }
+
+    pub fn get_token(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Token)
+            .expect("not initialized")
+    }
+
+    pub fn get_mode(env: Env) -> Mode {
+        env.storage()
+            .instance()
+            .get(&DataKey::Mode)
+            .expect("not initialized")
+    }
+
+    pub fn get_chain_id(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ChainId)
+            .expect("not initialized")
+    }
+
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
+    pub fn token_decimals(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TokenDecimals)
+            .expect("not initialized")
+    }
+
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(0)
+    }
+
+    pub fn get_transceiver_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TransceiverCount)
+            .unwrap_or(0)
+    }
+
+    pub fn get_enabled_bitmap(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EnabledBitmap)
+            .unwrap_or(0)
+    }
+
+    pub fn get_transceiver_info(env: Env, index: u32) -> Option<TransceiverInfo> {
+        env.storage().persistent().get(&DataKey::Transceiver(index))
+    }
+
+    pub fn get_peer(env: Env, chain_id: u32) -> Option<NttManagerPeer> {
+        env.storage().persistent().get(&DataKey::Peer(chain_id))
+    }
+
+    pub fn get_outbound_limit_params(env: Env) -> RateLimitParams {
+        env.storage()
+            .instance()
+            .get(&DataKey::OutboundRateLimit)
+            .unwrap_or_else(|| RateLimitParams::new(u64::MAX, &env))
+    }
+
+    pub fn get_outbound_capacity(env: Env) -> u64 {
+        let params: RateLimitParams = env
+            .storage()
+            .instance()
+            .get(&DataKey::OutboundRateLimit)
+            .unwrap_or_else(|| RateLimitParams::new(u64::MAX, &env));
+        params.capacity_at(&env)
+    }
+
+    pub fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams> {
+        let peer: Option<NttManagerPeer> = env.storage().persistent().get(&DataKey::Peer(chain_id));
+        peer.map(|p| p.inbound_rate_limit)
+    }
+
+    pub fn get_next_sequence(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::NextSequence)
+            .unwrap_or(1)
+    }
+
+    pub fn is_message_executed(env: Env, digest: BytesN<32>) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, AttestationInfo>(&DataKey::Attestation(digest))
+            .map(|a| a.executed)
+            .unwrap_or(false)
+    }
+
+    pub fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Attestation(digest))
+    }
+
+    pub fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::OutboundQueue(sequence))
+    }
+
+    pub fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::InboundQueue(digest))
+    }
+
+    pub fn quote_transfer(
+        env: Env,
+        amount: i128,
+        recipient_chain: u32,
+    ) -> Result<(u64, u64), NttManagerError> {
+        let peer: NttManagerPeer = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Peer(recipient_chain))
+            .ok_or(NttManagerError::PeerNotFound)?;
+
+        let our_decimals: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TokenDecimals)
+            .ok_or(NttManagerError::NotInitialized)?;
+
+        let (trimmed, dust) = TrimmedAmount::trim(
+            amount as u128,
+            our_decimals as u8,
+            peer.token_decimals as u8,
+        );
+
+        Ok((trimmed.amount, dust as u64))
     }
 }
