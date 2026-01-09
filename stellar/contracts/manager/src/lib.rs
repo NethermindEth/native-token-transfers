@@ -365,6 +365,10 @@ impl ManagerContract {
         execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
 
+    /// Returns the token address managed by this contract.
+    ///
+    /// # Panics
+    /// Panics if the contract has not been initialized.
     pub fn get_token(env: Env) -> Address {
         env.storage()
             .instance()
@@ -372,6 +376,10 @@ impl ManagerContract {
             .expect("not initialized")
     }
 
+    /// Returns the operating mode (`Locking` or `Burning`).
+    ///
+    /// # Panics
+    /// Panics if the contract has not been initialized.
     pub fn get_mode(env: Env) -> Mode {
         env.storage()
             .instance()
@@ -379,6 +387,10 @@ impl ManagerContract {
             .expect("not initialized")
     }
 
+    /// Returns this chain's Wormhole chain ID.
+    ///
+    /// # Panics
+    /// Panics if the contract has not been initialized.
     pub fn get_chain_id(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -386,6 +398,10 @@ impl ManagerContract {
             .expect("not initialized")
     }
 
+    /// Returns the current admin address.
+    ///
+    /// # Panics
+    /// Panics if the contract has not been initialized.
     pub fn get_admin(env: Env) -> Address {
         env.storage()
             .instance()
@@ -393,6 +409,10 @@ impl ManagerContract {
             .expect("not initialized")
     }
 
+    /// Returns the token's decimal precision (0-18).
+    ///
+    /// # Panics
+    /// Panics if the contract has not been initialized.
     pub fn token_decimals(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -400,6 +420,8 @@ impl ManagerContract {
             .expect("not initialized")
     }
 
+    /// Returns the minimum number of transceiver attestations required
+    /// to execute an inbound transfer. Returns 0 if no transceivers are registered.
     pub fn get_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -407,6 +429,7 @@ impl ManagerContract {
             .unwrap_or(0)
     }
 
+    /// Returns the total number of registered transceivers (enabled or disabled).
     pub fn get_transceiver_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -414,6 +437,7 @@ impl ManagerContract {
             .unwrap_or(0)
     }
 
+    /// Returns a bitmap where bit N is set if transceiver index N is enabled.
     pub fn get_enabled_bitmap(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -421,14 +445,20 @@ impl ManagerContract {
             .unwrap_or(0)
     }
 
+    /// Returns transceiver metadata by its permanent index.
+    /// Returns `None` if no transceiver exists at the given index.
     pub fn get_transceiver_info(env: Env, index: u32) -> Option<TransceiverInfo> {
         env.storage().persistent().get(&DataKey::Transceiver(index))
     }
 
+    /// Returns the peer NTT Manager configuration for a given chain.
+    /// Returns `None` if no peer is registered for the chain ID.
     pub fn get_peer(env: Env, chain_id: u32) -> Option<NttManagerPeer> {
         env.storage().persistent().get(&DataKey::Peer(chain_id))
     }
 
+    /// Returns the outbound rate limit parameters.
+    /// If not initialized, returns unlimited capacity.
     pub fn get_outbound_limit_params(env: Env) -> RateLimitParams {
         env.storage()
             .instance()
@@ -436,6 +466,8 @@ impl ManagerContract {
             .unwrap_or_else(|| RateLimitParams::new(u64::MAX, &env))
     }
 
+    /// Returns the current outbound capacity, accounting for time-based refill.
+    /// This is the maximum amount that can be transferred immediately without queueing.
     pub fn get_outbound_capacity(env: Env) -> u64 {
         let params: RateLimitParams = env
             .storage()
@@ -445,11 +477,15 @@ impl ManagerContract {
         params.capacity_at(&env)
     }
 
+    /// Returns the inbound rate limit parameters for a specific source chain.
+    /// Returns `None` if no peer is registered for the chain ID.
     pub fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams> {
         let peer: Option<NttManagerPeer> = env.storage().persistent().get(&DataKey::Peer(chain_id));
         peer.map(|p| p.inbound_rate_limit)
     }
 
+    /// Returns the next outbound message sequence number.
+    /// Sequence numbers start at 1 and increment with each transfer.
     pub fn get_next_sequence(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -457,6 +493,8 @@ impl ManagerContract {
             .unwrap_or(1)
     }
 
+    /// Checks whether tokens have been released for a given message digest.
+    /// Returns `false` if the message has not been attested or executed.
     pub fn is_message_executed(env: Env, digest: BytesN<32>) -> bool {
         env.storage()
             .persistent()
@@ -465,24 +503,39 @@ impl ManagerContract {
             .unwrap_or(false)
     }
 
+    /// Returns attestation tracking info for a message digest, including
+    /// which transceivers have attested and whether execution occurred.
     pub fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
         env.storage()
             .persistent()
             .get(&DataKey::Attestation(digest))
     }
 
+    /// Returns a queued outbound transfer by its sequence number.
+    /// Returns `None` if no transfer is queued for this sequence.
     pub fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer> {
         env.storage()
             .persistent()
             .get(&DataKey::OutboundQueue(sequence))
     }
 
+    /// Returns a queued inbound transfer by its message digest.
+    /// Returns `None` if no transfer is queued for this digest.
     pub fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
         env.storage()
             .persistent()
             .get(&DataKey::InboundQueue(digest))
     }
 
+    /// Computes the effective transfer amount after decimal normalization.
+    ///
+    /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
+    /// recipient will receive and `dust` is the precision lost due to decimal
+    /// differences between chains.
+    ///
+    /// # Errors
+    /// - `PeerNotFound` if no peer is registered for `recipient_chain`
+    /// - `NotInitialized` if token decimals are not set
     pub fn quote_transfer(
         env: Env,
         amount: i128,
