@@ -60,7 +60,7 @@ impl ManagerContract {
     /// Called automatically at contract deployment (Protocol 22+). Sets up:
     /// - Admin and token configuration
     /// - Operating mode (locking or burning)
-    /// - Rate limiting parameters (uses fixed 24-hour duration)
+    /// - Rate limiting parameters with configurable duration
     /// - Initial sequence number and counters
     ///
     /// The token's decimal precision is queried and stored for amount normalization.
@@ -71,6 +71,7 @@ impl ManagerContract {
         mode: Mode,
         chain_id: u32,
         outbound_limit: u64,
+        rate_limit_duration: u64,
     ) {
         let token_decimals = query_token_decimals(&env, &token);
 
@@ -89,6 +90,9 @@ impl ManagerContract {
             .instance()
             .set(&DataKey::TransceiverCount, &0u32);
         env.storage().instance().set(&DataKey::EnabledBitmap, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::RateLimitDuration, &rate_limit_duration);
 
         let rate_limit_params = rate_limit::RateLimitParams::new(outbound_limit, &env);
         env.storage()
@@ -572,6 +576,16 @@ impl ManagerContract {
     /// Defaults to 1 if no version has been explicitly set.
     pub fn get_version(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::Version).unwrap_or(1)
+    }
+
+    /// Returns the rate limit duration in seconds.
+    ///
+    /// Defaults to 86400 (24 hours) if not explicitly set.
+    pub fn get_rate_limit_duration(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::RateLimitDuration)
+            .unwrap_or(constants::RATE_LIMIT_DURATION)
     }
 
     /// Upgrades the contract to a new WASM implementation.

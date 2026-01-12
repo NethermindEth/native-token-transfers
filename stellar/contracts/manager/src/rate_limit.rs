@@ -41,12 +41,12 @@ impl RateLimitParams {
 
     /// Calculates current capacity accounting for time-based refill.
     ///
-    /// Uses `RATE_LIMIT_DURATION` constant (24 hours) for the refill period.
+    /// Uses the configured rate limit duration for the refill period.
     pub fn capacity_at(&self, env: &Env) -> u64 {
         let now = env.ledger().timestamp();
         let time_passed = now.saturating_sub(self.last_tx_timestamp);
-        let refill =
-            ((self.limit as u128) * (time_passed as u128) / (RATE_LIMIT_DURATION as u128)) as u64;
+        let duration = get_rate_limit_duration(env);
+        let refill = ((self.limit as u128) * (time_passed as u128) / (duration as u128)) as u64;
 
         core::cmp::min(self.current_capacity.saturating_add(refill), self.limit)
     }
@@ -64,11 +64,12 @@ impl RateLimitParams {
             self.last_tx_timestamp = now;
             RateLimitResult::Consumed
         } else {
+            let duration = get_rate_limit_duration(env);
             let deficit = amount - capacity;
             let time_needed = if self.limit > 0 {
-                ((deficit as u128) * (RATE_LIMIT_DURATION as u128) / (self.limit as u128)) as u64
+                ((deficit as u128) * (duration as u128) / (self.limit as u128)) as u64
             } else {
-                RATE_LIMIT_DURATION
+                duration
             };
             let release_timestamp = now + time_needed + 1;
             RateLimitResult::Delayed(release_timestamp)
@@ -114,6 +115,16 @@ impl RateLimitParams {
     pub fn available_capacity(&self, env: &Env) -> u64 {
         self.capacity_at(env)
     }
+}
+
+/// Retrieves the configured rate limit duration in seconds.
+///
+/// Falls back to the default constant (24 hours) if not set.
+fn get_rate_limit_duration(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::RateLimitDuration)
+        .unwrap_or(RATE_LIMIT_DURATION)
 }
 
 /// Retrieves the current outbound rate limit parameters.

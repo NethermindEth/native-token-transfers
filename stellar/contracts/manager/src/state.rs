@@ -59,6 +59,8 @@ pub enum DataKey {
     /// Bitmap of enabled transceivers (bit N = transceiver index N is enabled).
     EnabledBitmap,
     OutboundRateLimit,
+    /// Rate limit refill duration in seconds.
+    RateLimitDuration,
 
     // Persistent storage - per-chain/message data
     /// Peer NTT Manager address for a given chain ID.
