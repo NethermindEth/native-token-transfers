@@ -344,11 +344,11 @@ impl NttManagerMessage {
 
     /// Computes the message digest for attestation tracking.
     ///
-    /// `digest = sha256(source_chain_id || encoded_message)`
+    /// `digest = keccak256(source_chain_id || encoded_message)`
     pub fn compute_digest(&self, env: &Env, source_chain: u16) -> BytesN<32> {
         let mut data = Bytes::new(env);
         data.append(&Bytes::from_array(env, &source_chain.to_be_bytes()));
         data.append(&self.to_bytes(env));
-        env.crypto().sha256(&data).into()
+        env.crypto().keccak256(&data).into()
     }
 }
