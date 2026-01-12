@@ -57,7 +57,7 @@ pub fn attestation_received_internal(
 
     let ntt_message = NttManagerMessage::from_bytes(env, payload)?;
 
-    let digest = ntt_message.compute_digest(env, source_chain as u16);
+    let digest = ntt_message.compute_digest(env, source_chain as u16)?;
 
     let key = DataKey::Attestation(digest.clone());
     let mut attestation: AttestationInfo =
@@ -253,7 +253,7 @@ pub fn execute_msg_internal(
     verify_peer(env, source_chain, source_ntt_manager)?;
 
     let ntt_message = NttManagerMessage::from_bytes(env, payload)?;
-    let digest = ntt_message.compute_digest(env, source_chain as u16);
+    let digest = ntt_message.compute_digest(env, source_chain as u16)?;
 
     let key = DataKey::Attestation(digest.clone());
     let attestation: AttestationInfo = env

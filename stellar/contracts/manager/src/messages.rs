@@ -185,25 +185,32 @@ impl NativeTokenTransfer {
     pub const MIN_SIZE: u32 = 4 + 1 + 8 + 32 + 32 + 2;
 
     /// Serializes to the cross-chain wire format.
-    pub fn to_bytes(&self, env: &Env) -> Bytes {
+    ///
+    /// Returns `ChainIdTooLarge` if `to_chain` exceeds u16::MAX,
+    /// or `PayloadTooLong` if additional payload exceeds 65535 bytes.
+    pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
+        if self.to_chain > u16::MAX as u32 {
+            return Err(NttManagerError::ChainIdTooLarge);
+        }
+
         let mut buf = Bytes::new(env);
 
         buf.append(&Bytes::from_array(env, &Self::PREFIX));
         buf.append(&self.amount.to_bytes(env));
         buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
         buf.append(&Bytes::from_array(env, &self.to.to_array()));
-        buf.append(&Bytes::from_array(
-            env,
-            &(self.to_chain as u16).to_be_bytes(),
-        ));
+        buf.append(&Bytes::from_array(env, &(self.to_chain as u16).to_be_bytes()));
 
         if let Some(ref payload) = self.additional_payload {
+            if payload.len() > u16::MAX as u32 {
+                return Err(NttManagerError::PayloadTooLong);
+            }
             let len = payload.len() as u16;
             buf.append(&Bytes::from_array(env, &len.to_be_bytes()));
             buf.append(payload);
         }
 
-        buf
+        Ok(buf)
     }
 
     /// Deserializes from the cross-chain wire format using `BytesReader`.
@@ -294,18 +301,20 @@ impl NttManagerMessage {
     pub const MIN_SIZE: u32 = 32 + 32 + 2;
 
     /// Serializes to the cross-chain wire format.
-    pub fn to_bytes(&self, env: &Env) -> Bytes {
+    ///
+    /// Propagates errors from `NativeTokenTransfer::to_bytes`.
+    pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
         let mut buf = Bytes::new(env);
 
         buf.append(&Bytes::from_array(env, &self.id.to_array()));
         buf.append(&Bytes::from_array(env, &self.sender.to_array()));
 
-        let payload_bytes = self.payload.to_bytes(env);
+        let payload_bytes = self.payload.to_bytes(env)?;
         let payload_len = payload_bytes.len() as u16;
         buf.append(&Bytes::from_array(env, &payload_len.to_be_bytes()));
         buf.append(&payload_bytes);
 
-        buf
+        Ok(buf)
     }
 
     /// Deserializes from the cross-chain wire format.
@@ -347,11 +356,11 @@ impl NttManagerMessage {
 
     /// Computes the message digest for attestation tracking.
     ///
-    /// `digest = keccak256(source_chain_id || encoded_message)`
-    pub fn compute_digest(&self, env: &Env, source_chain: u16) -> BytesN<32> {
+    /// Propagates errors from `to_bytes`.
+    pub fn compute_digest(&self, env: &Env, source_chain: u16) -> Result<BytesN<32>, NttManagerError> {
         let mut data = Bytes::new(env);
         data.append(&Bytes::from_array(env, &source_chain.to_be_bytes()));
-        data.append(&self.to_bytes(env));
-        env.crypto().keccak256(&data).into()
+        data.append(&self.to_bytes(env)?);
+        Ok(env.crypto().keccak256(&data).into())
     }
 }

@@ -15,6 +15,10 @@ pub enum NttManagerError {
     InvalidPrefix = 2,
     /// Decimals value exceeds the maximum allowed (8).
     InvalidDecimals = 3,
+    /// Chain ID exceeds the maximum allowed (65535).
+    ChainIdTooLarge = 4,
+    /// Payload length exceeds maximum (65535 bytes).
+    PayloadTooLong = 5,
 
     /// Caller is not authorized to perform the requested action.
     Unauthorized = 10,

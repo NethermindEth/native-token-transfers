@@ -56,8 +56,8 @@ pub fn send_transfer(
         .get(&DataKey::ChainId)
         .ok_or(NttManagerError::NotInitialized)?;
 
-    let digest = ntt_message.compute_digest(env, our_chain_id as u16);
-    let payload = ntt_message.to_bytes(env);
+    let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
+    let payload = ntt_message.to_bytes(env)?;
 
     let transceivers = get_enabled_transceivers(env);
     for transceiver in transceivers.iter() {
@@ -191,7 +191,7 @@ pub fn transfer_internal(
                 .instance()
                 .get(&DataKey::ChainId)
                 .ok_or(NttManagerError::NotInitialized)?;
-            let digest = ntt_message.compute_digest(env, our_chain_id as u16);
+            let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
 
             Ok(TransferResult {
                 sequence,
