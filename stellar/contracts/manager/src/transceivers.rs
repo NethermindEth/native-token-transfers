@@ -3,7 +3,11 @@
 //! Transceivers are responsible for sending and receiving messages across chains.
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
-use crate::{constants::MAX_TRANSCEIVERS, errors::NttManagerError, state::DataKey};
+use crate::{
+    constants::MAX_TRANSCEIVERS,
+    errors::NttManagerError,
+    state::{extend_persistent_ttl, DataKey},
+};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Metadata for a registered transceiver.
@@ -113,17 +117,17 @@ pub fn check_threshold_invariants(env: &Env) -> Result<(), NttManagerError> {
     Ok(())
 }
 
-/// Registers a new transceiver or re-enables an existing one.
+/// Registers a new transceiver or re-enables a disabled one.
 ///
-/// If the transceiver is already registered but disabled, it will be re-enabled
+/// If the transceiver was previously registered but disabled, it will be re-enabled
 /// at its original index. New transceivers are assigned the next available index.
-///
 /// Automatically sets threshold to 1 when the first transceiver is registered.
 ///
 /// Returns the transceiver's index on success.
 ///
 /// # Errors
-/// - `MaxTransceiversReached` if 64 transceivers are already registered
+/// - `TransceiverAlreadyEnabled` if transceiver is already active
+/// - `MaxTransceiversReached` if 64 transceivers already registered
 /// - `TransceiverNotRegistered` if index lookup fails (internal error)
 pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManagerError> {
     let existing_index = get_transceiver_index(env, &transceiver);
@@ -135,18 +139,21 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
             .get(&DataKey::Transceiver(index))
             .ok_or(NttManagerError::TransceiverNotRegistered)?;
 
-        if !info.enabled {
-            info.enabled = true;
-            env.storage()
-                .persistent()
-                .set(&DataKey::Transceiver(index), &info);
-
-            let mut bitmap = get_enabled_bitmap(env);
-            bitmap.set(index as u8);
-            env.storage()
-                .instance()
-                .set(&DataKey::EnabledBitmap, &bitmap.raw());
+        if info.enabled {
+            return Err(NttManagerError::TransceiverAlreadyEnabled);
         }
+
+        info.enabled = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Transceiver(index), &info);
+        extend_persistent_ttl(env, &DataKey::Transceiver(index));
+
+        let mut bitmap = get_enabled_bitmap(env);
+        bitmap.set(index as u8);
+        env.storage()
+            .instance()
+            .set(&DataKey::EnabledBitmap, &bitmap.raw());
 
         check_threshold_invariants(env)?;
         return Ok(index);
@@ -172,9 +179,11 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
     env.storage()
         .persistent()
         .set(&DataKey::Transceiver(index), &info);
+    extend_persistent_ttl(env, &DataKey::Transceiver(index));
     env.storage()
         .persistent()
-        .set(&DataKey::TransceiverIndex(transceiver), &index);
+        .set(&DataKey::TransceiverIndex(transceiver.clone()), &index);
+    extend_persistent_ttl(env, &DataKey::TransceiverIndex(transceiver));
     env.storage()
         .instance()
         .set(&DataKey::TransceiverCount, &(count + 1));
@@ -203,12 +212,13 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
 ///
 /// The transceiver remains registered at its index but is no longer counted
 /// toward attestation thresholds. If disabling would violate the threshold
-/// invariant, the threshold is automatically reduced.
-///
-/// No-op if the transceiver is already disabled.
+/// invariant, the threshold is automatically reduced. Cannot disable the
+/// last enabled transceiver to prevent locking the contract.
 ///
 /// # Errors
 /// - `TransceiverNotRegistered` if the address is not registered
+/// - `TransceiverAlreadyDisabled` if already disabled
+/// - `CannotDisableLastTransceiver` if this is the only enabled transceiver
 pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttManagerError> {
     let index: u32 =
         get_transceiver_index(env, transceiver).ok_or(NttManagerError::TransceiverNotRegistered)?;
@@ -220,16 +230,22 @@ pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttMan
         .ok_or(NttManagerError::TransceiverNotRegistered)?;
 
     if !info.enabled {
-        return Ok(());
+        return Err(NttManagerError::TransceiverAlreadyDisabled);
+    }
+
+    let mut bitmap = get_enabled_bitmap(env);
+    bitmap.clear(index as u8);
+
+    if bitmap.is_empty() {
+        return Err(NttManagerError::CannotDisableLastTransceiver);
     }
 
     info.enabled = false;
     env.storage()
         .persistent()
         .set(&DataKey::Transceiver(index), &info);
+    extend_persistent_ttl(env, &DataKey::Transceiver(index));
 
-    let mut bitmap = get_enabled_bitmap(env);
-    bitmap.clear(index as u8);
     env.storage()
         .instance()
         .set(&DataKey::EnabledBitmap, &bitmap.raw());

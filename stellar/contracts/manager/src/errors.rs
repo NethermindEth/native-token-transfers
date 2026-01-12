@@ -35,6 +35,12 @@ pub enum NttManagerError {
     ZeroThreshold = 42,
     /// Threshold exceeds the number of enabled transceivers.
     ThresholdTooHigh = 43,
+    /// Transceiver is already enabled.
+    TransceiverAlreadyEnabled = 44,
+    /// Transceiver is already disabled.
+    TransceiverAlreadyDisabled = 45,
+    /// Cannot disable the last enabled transceiver.
+    CannotDisableLastTransceiver = 46,
 
     /// No peer registered for the specified chain ID.
     PeerNotFound = 50,
