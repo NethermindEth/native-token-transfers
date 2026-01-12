@@ -130,7 +130,7 @@ pub struct TransferResult {
     pub sequence: u64,
     /// Whether this transfer was queued (`true`) or sent immediately (`false`).
     pub queued: bool,
-    /// SHA-256 digest of the NTT message payload.
+    /// Keccak-256 digest of the NTT message payload.
     pub digest: BytesN<32>,
 }
 
@@ -262,17 +262,14 @@ pub fn use_message_sequence(env: &Env) -> u64 {
     current
 }
 
-/// Derives a deterministic message ID from a sequence number.
+/// Converts a sequence number to a 32-byte message ID.
 ///
-/// Computes SHA-256 hash of the big-endian encoded sequence number.
-/// Used to uniquely identify NTT messages across chains.
+/// Encodes the sequence as big-endian u64 in the last 8 bytes (right-aligned),
+/// with the first 24 bytes as zeros.
 pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
-    let mut data = soroban_sdk::Bytes::new(env);
-    data.append(&soroban_sdk::Bytes::from_array(
-        env,
-        &sequence.to_be_bytes(),
-    ));
-    env.crypto().sha256(&data).into()
+    let mut bytes = [0u8; 32];
+    bytes[24..32].copy_from_slice(&sequence.to_be_bytes());
+    BytesN::from_array(env, &bytes)
 }
 
 /// Converts a Soroban `Address` to a 32-byte representation.
