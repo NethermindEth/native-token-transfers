@@ -20,8 +20,7 @@ use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
 use peers::{
-    set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal,
-    NttManagerPeer,
+    set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal, NttManagerPeer,
 };
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
@@ -568,13 +567,21 @@ impl ManagerContract {
         Ok((trimmed.amount, dust as u64))
     }
 
+    /// Returns the current contract version number.
+    ///
+    /// Defaults to 1 if no version has been explicitly set.
     pub fn get_version(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::Version)
-            .unwrap_or(1)
+        env.storage().instance().get(&DataKey::Version).unwrap_or(1)
     }
 
+    /// Upgrades the contract to a new WASM implementation.
+    ///
+    /// The new WASM must be previously installed on the network. After upgrade,
+    /// the contract uses the new code for all subsequent invocations while
+    /// preserving existing state.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
     pub fn upgrade(
         env: Env,
         admin: Address,
@@ -588,10 +595,28 @@ impl ManagerContract {
         Ok(())
     }
 
+    /// Validates critical contract invariants.
+    ///
+    /// Permissionless check that verifies:
+    /// - INV-023: `threshold <= enabled_transceiver_count`
+    /// - INV-024: `threshold > 0` when transceivers exist
+    ///
+    /// # Errors
+    /// - `ThresholdTooHigh` if threshold exceeds enabled count
+    /// - `ZeroThreshold` if transceivers exist but threshold is 0
     pub fn validate_invariants(env: Env) -> Result<(), NttManagerError> {
         check_threshold_invariants(&env)
     }
 
+    /// Registers a new transceiver or re-enables a disabled one.
+    ///
+    /// Transceivers receive permanent indices (0-63) that persist even if disabled.
+    /// The first registered transceiver automatically sets threshold to 1.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
+    /// - `MaxTransceiversReached` if 64 transceivers already registered
+    /// - `TransceiverAlreadyEnabled` if transceiver is already active
     pub fn set_transceiver(
         env: Env,
         admin: Address,
@@ -602,6 +627,16 @@ impl ManagerContract {
         set_transceiver_internal(&env, transceiver)
     }
 
+    /// Disables a transceiver, excluding it from attestation voting.
+    ///
+    /// The transceiver remains registered but won't count toward thresholds.
+    /// Threshold is automatically reduced if it would exceed enabled count.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
+    /// - `TransceiverNotRegistered` if address not registered
+    /// - `TransceiverAlreadyDisabled` if already disabled
+    /// - `CannotDisableLastTransceiver` if this is the only enabled transceiver
     pub fn remove_transceiver(
         env: Env,
         admin: Address,
@@ -612,16 +647,32 @@ impl ManagerContract {
         remove_transceiver_internal(&env, &transceiver)
     }
 
-    pub fn set_threshold(
-        env: Env,
-        admin: Address,
-        threshold: u32,
-    ) -> Result<(), NttManagerError> {
+    /// Sets the minimum attestation threshold for inbound transfers.
+    ///
+    /// The threshold must be at least 1 and cannot exceed the number of
+    /// enabled transceivers.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
+    /// - `ZeroThreshold` if threshold is 0
+    /// - `ThresholdTooHigh` if threshold exceeds enabled count
+    pub fn set_threshold(env: Env, admin: Address, threshold: u32) -> Result<(), NttManagerError> {
         extend_instance_ttl(&env);
         require_admin(&env, &admin)?;
         set_threshold_value(&env, threshold)
     }
 
+    /// Registers or updates a peer NTT Manager on another chain.
+    ///
+    /// Each peer has its own inbound rate limit. When updating an existing
+    /// peer, the rate limit capacity is adjusted proportionally.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
+    /// - `InvalidPeerChainIdZero` if chain_id is 0
+    /// - `InvalidPeerSameChainId` if chain_id matches this chain
+    /// - `InvalidPeerZeroAddress` if address is all zeros
+    /// - `InvalidPeerDecimals` if decimals is 0 or > 18
     pub fn set_peer(
         env: Env,
         admin: Address,
@@ -635,6 +686,13 @@ impl ManagerContract {
         set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
     }
 
+    /// Updates the inbound rate limit for a specific peer chain.
+    ///
+    /// Adjusts capacity proportionally when changing the limit.
+    ///
+    /// # Errors
+    /// - `Unauthorized` if caller is not the admin
+    /// - `PeerNotFound` if no peer registered for chain_id
     pub fn set_inbound_limit(
         env: Env,
         admin: Address,
