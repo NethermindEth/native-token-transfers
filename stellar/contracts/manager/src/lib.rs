@@ -28,7 +28,7 @@ use state::{
     TransferResult,
 };
 use token_ops::query_token_decimals;
-use transceivers::TransceiverInfo;
+use transceivers::{check_threshold_invariants, TransceiverInfo};
 
 use constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
@@ -560,5 +560,29 @@ impl ManagerContract {
         );
 
         Ok((trimmed.amount, dust as u64))
+    }
+
+    pub fn get_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Version)
+            .unwrap_or(1)
+    }
+
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+
+        Ok(())
+    }
+
+    pub fn validate_invariants(env: Env) -> Result<(), NttManagerError> {
+        check_threshold_invariants(&env)
     }
 }

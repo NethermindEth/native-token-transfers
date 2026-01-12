@@ -98,7 +98,7 @@ pub fn get_enabled_transceivers(env: &Env) -> Vec<Address> {
 /// Enforces:
 /// - INV-023: `threshold <= enabled_count`
 /// - INV-024: `threshold > 0` when transceivers exist
-fn check_threshold_invariants(env: &Env) -> Result<(), NttManagerError> {
+pub fn check_threshold_invariants(env: &Env) -> Result<(), NttManagerError> {
     let threshold = get_threshold(env);
     let enabled_count = get_enabled_bitmap(env).count_ones() as u32;
 
