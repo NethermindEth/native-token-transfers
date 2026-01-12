@@ -13,6 +13,8 @@ pub enum NttManagerError {
     MessageTooShort = 1,
     /// Message prefix does not match the expected magic bytes (`0x994E5454`).
     InvalidPrefix = 2,
+    /// Decimals value exceeds the maximum allowed (8).
+    InvalidDecimals = 3,
 
     /// Caller is not authorized to perform the requested action.
     Unauthorized = 10,

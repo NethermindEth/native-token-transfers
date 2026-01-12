@@ -8,7 +8,7 @@ use crate::errors::NttManagerError;
 /// All cross-chain amounts are capped at 8 decimals to ensure consistent
 /// representation across chains with different native decimal precisions.
 /// The `decimals` field is stored as `u32` due to Soroban's `#[contracttype]`
-/// constraints, but is logically limited to 0-8.
+/// constraints, but validated to be <= 8 at all entry points.
 ///
 /// # Wire Format
 /// Serializes to exactly 9 bytes: 1 byte for decimals + 8 bytes for amount (big-endian).
@@ -99,20 +99,23 @@ impl TrimmedAmount {
 
     /// Deserializes from bytes at the given offset.
     ///
-    /// # Panics
-    /// Panics if there are fewer than 9 bytes available starting at `offset`.
-    pub fn from_bytes(bytes: &Bytes, offset: u32) -> Self {
-        let decimals = bytes.get(offset).expect("missing decimals");
+    /// Returns `InvalidDecimals` if decimals exceeds `MAX_DECIMALS`,
+    /// or `MessageTooShort` if insufficient bytes are available.
+    pub fn from_bytes(bytes: &Bytes, offset: u32) -> Result<Self, NttManagerError> {
+        let decimals = bytes.get(offset).ok_or(NttManagerError::MessageTooShort)?;
+        if decimals > Self::MAX_DECIMALS {
+            return Err(NttManagerError::InvalidDecimals);
+        }
         let mut amount_bytes = [0u8; 8];
         for i in 0..8 {
             amount_bytes[i] = bytes
                 .get(offset + 1 + i as u32)
-                .expect("missing amount byte");
+                .ok_or(NttManagerError::MessageTooShort)?;
         }
-        Self {
+        Ok(Self {
             amount: u64::from_be_bytes(amount_bytes),
             decimals: decimals as u32,
-        }
+        })
     }
 
     /// Returns `true` if the amount is zero.
