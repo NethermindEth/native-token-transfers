@@ -19,7 +19,10 @@ use messages::TrimmedAmount;
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
-use peers::NttManagerPeer;
+use peers::{
+    set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal,
+    NttManagerPeer,
+};
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
@@ -28,7 +31,10 @@ use state::{
     TransferResult,
 };
 use token_ops::query_token_decimals;
-use transceivers::{check_threshold_invariants, TransceiverInfo};
+use transceivers::{
+    check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
+    set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
+};
 
 use constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
@@ -584,5 +590,59 @@ impl ManagerContract {
 
     pub fn validate_invariants(env: Env) -> Result<(), NttManagerError> {
         check_threshold_invariants(&env)
+    }
+
+    pub fn set_transceiver(
+        env: Env,
+        admin: Address,
+        transceiver: Address,
+    ) -> Result<u32, NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        set_transceiver_internal(&env, transceiver)
+    }
+
+    pub fn remove_transceiver(
+        env: Env,
+        admin: Address,
+        transceiver: Address,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        remove_transceiver_internal(&env, &transceiver)
+    }
+
+    pub fn set_threshold(
+        env: Env,
+        admin: Address,
+        threshold: u32,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        set_threshold_value(&env, threshold)
+    }
+
+    pub fn set_peer(
+        env: Env,
+        admin: Address,
+        chain_id: u32,
+        peer_address: BytesN<32>,
+        token_decimals: u32,
+        inbound_limit: u64,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
+    }
+
+    pub fn set_inbound_limit(
+        env: Env,
+        admin: Address,
+        chain_id: u32,
+        limit: u64,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin(&env, &admin)?;
+        set_inbound_limit_internal(&env, chain_id, limit)
     }
 }
