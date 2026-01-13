@@ -205,15 +205,14 @@ pub fn transfer_internal(
 /// Completes a queued outbound transfer after its release timestamp.
 ///
 /// Anyone can call this once `release_timestamp` is reached. Removes the transfer
-/// from the queue, attempts to consume rate limit capacity, and sends the message
-/// to transceivers. If still rate limited, returns `TransferExceedsRateLimit`.
+/// from the queue and sends the message to transceivers. The rate limit check is
+/// skipped because the delay period has already been served.
 ///
 /// The returned sequence number is a *new* sequence (not the original queue sequence).
 ///
 /// # Errors
 /// - `TransferNotQueued` if no transfer exists for the given sequence
 /// - `TransferNotReleasable` if current time is before release timestamp
-/// - `TransferExceedsRateLimit` if rate limit is still exceeded
 pub fn complete_outbound_queued_transfer(
     env: &Env,
     sequence: u64,
@@ -231,11 +230,6 @@ pub fn complete_outbound_queued_transfer(
     }
 
     env.storage().persistent().remove(&key);
-
-    let rate_result = consume_or_queue_outbound(env, queued.amount.amount);
-    if !matches!(rate_result, RateLimitResult::Consumed) {
-        return Err(NttManagerError::TransferExceedsRateLimit);
-    }
 
     let (new_sequence, digest) = send_transfer(
         env,
