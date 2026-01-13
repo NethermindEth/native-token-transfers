@@ -27,6 +27,8 @@ pub enum NttManagerError {
 
     /// Contract is paused; transfers and redemptions are blocked.
     ContractPaused = 12,
+    /// Caller is neither the admin nor the pauser.
+    InvalidPauser = 13,
 
     /// Rate limit not initialized.
     RateLimitNotInitialized = 20,

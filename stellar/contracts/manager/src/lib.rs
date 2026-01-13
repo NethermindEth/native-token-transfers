@@ -25,9 +25,9 @@ use peers::{
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    require_admin, require_not_paused, require_not_reentering, set_reentering, AttestationInfo,
-    AttestationResult, DataKey, InboundQueuedTransfer, Mode, OutboundQueuedTransfer,
-    TransferResult,
+    require_admin, require_admin_or_pauser, require_not_paused, require_not_reentering,
+    set_reentering, AttestationInfo, AttestationResult, DataKey, InboundQueuedTransfer, Mode,
+    OutboundQueuedTransfer, TransferResult,
 };
 use token_ops::query_token_decimals;
 use transceivers::{
@@ -162,10 +162,10 @@ impl ManagerContract {
 
     /// Unpauses the contract, resuming normal operations.
     ///
-    /// Only callable by the admin.
-    pub fn unpause(env: Env, admin: Address) -> Result<(), NttManagerError> {
+    /// Callable by either the admin or the designated pauser (if set).
+    pub fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError> {
         extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        require_admin_or_pauser(&env, &caller)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
@@ -173,6 +173,24 @@ impl ManagerContract {
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
         state::is_paused(&env)
+    }
+
+    /// Transfers the pauser capability to a new address.
+    ///
+    /// Callable by either the admin or the current pauser (if set). Pass `None`
+    /// to remove the pauser role entirely, restricting pause operations to admin only.
+    pub fn transfer_pauser(
+        env: Env,
+        caller: Address,
+        new_pauser: Option<Address>,
+    ) -> Result<(), NttManagerError> {
+        extend_instance_ttl(&env);
+        require_admin_or_pauser(&env, &caller)?;
+        match new_pauser {
+            Some(pauser) => env.storage().instance().set(&DataKey::Pauser, &pauser),
+            None => env.storage().instance().remove(&DataKey::Pauser),
+        }
+        Ok(())
     }
 
     /// Updates the outbound rate limit.
@@ -416,6 +434,14 @@ impl ManagerContract {
             .instance()
             .get(&DataKey::Admin)
             .expect("not initialized")
+    }
+
+    /// Returns the designated pauser address, if one has been set.
+    ///
+    /// When set, this address can pause/unpause the contract independently
+    /// of the admin. Returns `None` if no pauser has been configured.
+    pub fn get_pauser(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Pauser)
     }
 
     /// Returns the token's decimal precision (0-18).

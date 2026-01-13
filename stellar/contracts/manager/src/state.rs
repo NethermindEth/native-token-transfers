@@ -45,6 +45,8 @@ pub enum DataKey {
     // Instance storage - core configuration
     Admin,
     PendingAdmin,
+    /// Separate pauser role for emergency pause operations.
+    Pauser,
     Token,
     TokenDecimals,
     Mode,
@@ -201,6 +203,32 @@ pub fn require_admin(env: &Env, caller: &Address) -> Result<(), NttManagerError>
         return Err(NttManagerError::Unauthorized);
     }
     Ok(())
+}
+
+/// Returns the current pauser address, if set.
+///
+/// Returns `None` if no pauser has been configured. When no pauser is set,
+/// only the admin can pause/unpause.
+pub fn get_pauser(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Pauser)
+}
+
+/// Verifies the caller is the admin or the pauser.
+///
+/// Requires authentication from `caller` and checks they match either the stored
+/// admin or pauser address. Returns `InvalidPauser` if the caller is neither.
+pub fn require_admin_or_pauser(env: &Env, caller: &Address) -> Result<(), NttManagerError> {
+    caller.require_auth();
+    let admin = get_admin(env);
+    if *caller == admin {
+        return Ok(());
+    }
+    if let Some(pauser) = get_pauser(env) {
+        if *caller == pauser {
+            return Ok(());
+        }
+    }
+    Err(NttManagerError::InvalidPauser)
 }
 
 /// Returns whether the contract is currently paused.
