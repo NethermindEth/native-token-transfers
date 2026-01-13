@@ -25,14 +25,15 @@ impl TrimmedAmount {
 
     /// Creates a new `TrimmedAmount`.
     ///
-    /// # Panics
-    /// Panics if `decimals > 8`.
-    pub fn new(amount: u64, decimals: u8) -> Self {
-        assert!(decimals <= Self::MAX_DECIMALS);
-        Self {
+    /// Returns `InvalidDecimals` if `decimals` exceeds `MAX_DECIMALS` (8).
+    pub fn new(amount: u64, decimals: u8) -> Result<Self, NttManagerError> {
+        if decimals > Self::MAX_DECIMALS {
+            return Err(NttManagerError::InvalidDecimals);
+        }
+        Ok(Self {
             amount,
             decimals: decimals as u32,
-        }
+        })
     }
 
     /// Trims an amount from source decimals to the minimum of (8, from, to).
@@ -50,14 +51,22 @@ impl TrimmedAmount {
         );
 
         if from_decimals <= target_decimals {
-            return (Self::new(amount as u64, from_decimals), 0);
+            // Safe: from_decimals <= target_decimals <= MAX_DECIMALS
+            return (
+                Self::new(amount as u64, from_decimals).expect("decimals <= MAX"),
+                0,
+            );
         }
 
         let scale = 10u128.pow((from_decimals - target_decimals) as u32);
         let trimmed = amount / scale;
         let dust = amount % scale;
 
-        (Self::new(trimmed as u64, target_decimals), dust)
+        // Safe: target_decimals <= MAX_DECIMALS by construction
+        (
+            Self::new(trimmed as u64, target_decimals).expect("decimals <= MAX"),
+            dust,
+        )
     }
 
     /// Expands the trimmed amount back to the target decimal precision.
@@ -199,7 +208,10 @@ impl NativeTokenTransfer {
         buf.append(&self.amount.to_bytes(env));
         buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
         buf.append(&Bytes::from_array(env, &self.to.to_array()));
-        buf.append(&Bytes::from_array(env, &(self.to_chain as u16).to_be_bytes()));
+        buf.append(&Bytes::from_array(
+            env,
+            &(self.to_chain as u16).to_be_bytes(),
+        ));
 
         if let Some(ref payload) = self.additional_payload {
             if payload.len() > u16::MAX as u32 {
@@ -237,7 +249,7 @@ impl NativeTokenTransfer {
         let amount_val = reader
             .read_u64_be()
             .map_err(|_| NttManagerError::MessageTooShort)?;
-        let amount = TrimmedAmount::new(amount_val, decimals);
+        let amount = TrimmedAmount::new(amount_val, decimals)?;
 
         let source_token: BytesN<32> = reader
             .read_bytes_n()
@@ -357,7 +369,11 @@ impl NttManagerMessage {
     /// Computes the message digest for attestation tracking.
     ///
     /// Propagates errors from `to_bytes`.
-    pub fn compute_digest(&self, env: &Env, source_chain: u16) -> Result<BytesN<32>, NttManagerError> {
+    pub fn compute_digest(
+        &self,
+        env: &Env,
+        source_chain: u16,
+    ) -> Result<BytesN<32>, NttManagerError> {
         let mut data = Bytes::new(env);
         data.append(&Bytes::from_array(env, &source_chain.to_be_bytes()));
         data.append(&self.to_bytes(env)?);
