@@ -162,6 +162,8 @@ pub struct InboundQueuedTransfer {
     pub recipient: Address,
     /// Amount in local token decimals (already untrimmed).
     pub amount: i128,
+    /// Original trimmed amount from the wire format, used for rate limit backflow.
+    pub trimmed_amount: u64,
     /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
 }

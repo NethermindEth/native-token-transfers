@@ -153,6 +153,7 @@ fn execute_inbound_transfer(
             let queued = InboundQueuedTransfer {
                 recipient,
                 amount: release_amount,
+                trimmed_amount: transfer.amount.amount,
                 release_timestamp,
             };
 
@@ -179,6 +180,8 @@ fn execute_inbound_transfer(
 /// Also refills the outbound rate limit by the transfer amount (backflow). The amount
 /// is converted back to trimmed form for the refill calculation.
 ///
+/// Also refills the outbound rate limit using the stored trimmed amount (backflow).
+/// 
 /// # Errors
 /// - `TransferNotQueued` if no queued transfer exists for the digest
 /// - `TransferNotReleasable` if current time is before `release_timestamp`
@@ -225,6 +228,7 @@ pub fn complete_inbound_queued_transfer(
         queued.amount as u128
     };
     refill_outbound(env, trimmed_amount as u64);
+    refill_outbound(env, queued.trimmed_amount);
 
     Ok(())
 }
