@@ -231,18 +231,16 @@ pub fn complete_inbound_queued_transfer(
 
 /// Manually executes an approved message that hasn't been executed yet.
 ///
-/// Allows execution of transfers where the attestation threshold was met at some
-/// point, but execution didn't occur (e.g., transceivers were disabled after
-/// attesting). Unlike `attestation_received_internal`, this counts ALL attestations
-/// regardless of whether the attesting transceivers are still enabled.
+/// Allows execution of transfers where the attestation threshold was met but
+/// automatic execution didn't occur (e.g., due to rate limiting or transaction
+/// failure). Only attestations from currently enabled transceivers count toward
+/// the threshold.
 ///
-/// This is permissionless: anyone can call it to help complete stuck transfers.
-/// The message must have been properly attested by enough transceivers at the time
-/// they attested (threshold is checked against total attestations, not just enabled).
+/// This is permissionless: anyone can call it to help complete pending transfers.
 ///
 /// # Errors
 /// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
-/// - `TransferNotApproved` if no attestation record exists or threshold not met
+/// - `TransferNotApproved` if threshold not met with currently enabled transceivers
 /// - `TransferAlreadyRedeemed` if tokens were already released
 pub fn execute_msg_internal(
     env: &Env,
@@ -266,9 +264,9 @@ pub fn execute_msg_internal(
         return Err(NttManagerError::TransferAlreadyRedeemed);
     }
 
-    // Count ALL attestations, not just from currently enabled transceivers.
-    // This allows execution when attesting transceivers were later disabled.
-    let attestation_count = attestation.attested_transceivers.count_ones() as u32;
+    let enabled_bitmap = get_enabled_bitmap(env);
+    let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
+    let attestation_count = valid_attestations.count_ones() as u32;
     let threshold = get_threshold(env);
 
     if attestation_count < threshold {
