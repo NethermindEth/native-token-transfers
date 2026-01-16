@@ -181,7 +181,7 @@ fn execute_inbound_transfer(
 /// is converted back to trimmed form for the refill calculation.
 ///
 /// Also refills the outbound rate limit using the stored trimmed amount (backflow).
-/// 
+///
 /// # Errors
 /// - `TransferNotQueued` if no queued transfer exists for the digest
 /// - `TransferNotReleasable` if current time is before `release_timestamp`
