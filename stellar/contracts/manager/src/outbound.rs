@@ -16,7 +16,7 @@ use crate::state::{
     DataKey, OutboundQueuedTransfer, TransferResult,
 };
 use crate::token_ops::{custody_tokens, get_token_decimals, release_tokens};
-use crate::transceivers::get_enabled_transceivers;
+use crate::transceivers::{get_enabled_bitmap, get_enabled_transceivers};
 
 /// Sends a transfer message to all enabled transceivers.
 ///
@@ -87,6 +87,7 @@ pub fn send_transfer(
 /// - `ZeroAmount` if amount is zero or negative
 /// - `InvalidRecipient` if recipient is all zeros
 /// - `PeerNotFound` if no peer registered for recipient chain
+/// /// - `NoEnabledTransceivers` if no transceivers are enabled
 /// - `TransferExceedsRateLimit` if rate limited and `should_queue` is false
 pub fn transfer_internal(
     env: &Env,
@@ -107,6 +108,10 @@ pub fn transfer_internal(
     }
 
     let peer = get_peer(env, recipient_chain).ok_or(NttManagerError::PeerNotFound)?;
+
+    if get_enabled_bitmap(env).is_empty() {
+        return Err(NttManagerError::NoEnabledTransceivers);
+    }
 
     let token: Address = env
         .storage()

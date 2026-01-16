@@ -49,6 +49,8 @@ pub enum NttManagerError {
     TransceiverAlreadyDisabled = 45,
     /// Cannot disable the last enabled transceiver.
     CannotDisableLastTransceiver = 46,
+    /// No transceivers are enabled; transfers cannot proceed.
+    NoEnabledTransceivers = 47,
 
     /// No peer registered for the specified chain ID.
     PeerNotFound = 50,
