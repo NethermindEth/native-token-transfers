@@ -37,6 +37,25 @@ use transceivers::{
     set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
 };
 
+/// Executes a state-modifying operation with pause and reentrancy guards.
+///
+/// Checks that the contract is not paused, prevents reentrant calls, and ensures
+/// the reentrancy flag is cleared after execution (even on error).
+fn with_transfer_guard<F, T>(env: &Env, f: F) -> Result<T, NttManagerError>
+where
+    F: FnOnce() -> Result<T, NttManagerError>,
+{
+    let storage = InstanceStorage::new(env);
+    storage.require_not_paused()?;
+    require_not_reentering(env)?;
+    set_reentering(env, true);
+
+    let result = f();
+
+    set_reentering(env, false);
+    result
+}
+
 /// NTT Manager contract for cross-chain native token transfers.
 ///
 /// Coordinates token locking/burning, message sequencing, and transceiver
@@ -218,24 +237,18 @@ impl ManagerContract {
         recipient: BytesN<32>,
         should_queue: bool,
     ) -> Result<TransferResult, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
         sender.require_auth();
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = transfer_internal(
-            &env,
-            &sender,
-            amount,
-            recipient_chain,
-            &recipient,
-            should_queue,
-            None,
-        );
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || {
+            transfer_internal(
+                &env,
+                &sender,
+                amount,
+                recipient_chain,
+                &recipient,
+                should_queue,
+                None,
+            )
+        })
     }
 
     /// Initiates a cross-chain token transfer with custom payload.
@@ -254,24 +267,18 @@ impl ManagerContract {
         should_queue: bool,
         additional_payload: Bytes,
     ) -> Result<TransferResult, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
         sender.require_auth();
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = transfer_internal(
-            &env,
-            &sender,
-            amount,
-            recipient_chain,
-            &recipient,
-            should_queue,
-            Some(additional_payload),
-        );
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || {
+            transfer_internal(
+                &env,
+                &sender,
+                amount,
+                recipient_chain,
+                &recipient,
+                should_queue,
+                Some(additional_payload.clone()),
+            )
+        })
     }
 
     /// Completes a queued transfer after its release time.
@@ -289,15 +296,7 @@ impl ManagerContract {
         env: Env,
         sequence: u64,
     ) -> Result<TransferResult, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = complete_outbound_queued_transfer(&env, sequence);
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || complete_outbound_queued_transfer(&env, sequence))
     }
 
     /// Cancels a queued transfer and refunds tokens.
@@ -335,22 +334,16 @@ impl ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
         transceiver.require_auth();
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = attestation_received_internal(
-            &env,
-            &transceiver,
-            source_chain,
-            &source_ntt_manager,
-            &payload,
-        );
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || {
+            attestation_received_internal(
+                &env,
+                &transceiver,
+                source_chain,
+                &source_ntt_manager,
+                &payload,
+            )
+        })
     }
 
     /// Completes a rate-limited inbound transfer after its delay period.
@@ -359,15 +352,7 @@ impl ManagerContract {
     /// Releases the queued tokens to the original recipient and removes
     /// the transfer from the queue.
     pub fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = complete_inbound_queued_transfer(&env, &digest);
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || complete_inbound_queued_transfer(&env, &digest))
     }
 
     /// Manually executes an approved message that hasn't been executed yet.
@@ -384,15 +369,9 @@ impl ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_not_paused()?;
-        require_not_reentering(&env)?;
-        set_reentering(&env, true);
-
-        let result = execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload);
-
-        set_reentering(&env, false);
-        result
+        with_transfer_guard(&env, || {
+            execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
+        })
     }
 
     /// Returns the token address managed by this contract.
