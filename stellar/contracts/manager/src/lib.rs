@@ -241,6 +241,7 @@ impl ManagerContract {
         require_not_paused(&env)?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
+        extend_instance_ttl(&env);
 
         let result = transfer_internal(
             &env,
@@ -276,6 +277,7 @@ impl ManagerContract {
         require_not_paused(&env)?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
+        extend_instance_ttl(&env);
 
         let result = transfer_internal(
             &env,
@@ -309,6 +311,7 @@ impl ManagerContract {
         require_not_paused(&env)?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
+        extend_instance_ttl(&env);
 
         let result = complete_outbound_queued_transfer(&env, sequence);
 
@@ -330,6 +333,7 @@ impl ManagerContract {
         sequence: u64,
     ) -> Result<(), NttManagerError> {
         sender.require_auth();
+        extend_instance_ttl(&env);
 
         cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
@@ -352,6 +356,7 @@ impl ManagerContract {
     ) -> Result<AttestationResult, NttManagerError> {
         transceiver.require_auth();
         require_not_paused(&env)?;
+        extend_instance_ttl(&env);
 
         attestation_received_internal(
             &env,
@@ -369,6 +374,7 @@ impl ManagerContract {
     /// the transfer from the queue.
     pub fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
         require_not_paused(&env)?;
+        extend_instance_ttl(&env);
 
         complete_inbound_queued_transfer(&env, &digest)
     }
@@ -388,6 +394,7 @@ impl ManagerContract {
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
         require_not_paused(&env)?;
+        extend_instance_ttl(&env);
 
         execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
