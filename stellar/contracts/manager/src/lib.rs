@@ -356,15 +356,20 @@ impl ManagerContract {
     ) -> Result<AttestationResult, NttManagerError> {
         transceiver.require_auth();
         require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
         extend_instance_ttl(&env);
 
-        attestation_received_internal(
+        let result = attestation_received_internal(
             &env,
             &transceiver,
             source_chain,
             &source_ntt_manager,
             &payload,
-        )
+        );
+
+        set_reentering(&env, false);
+        result
     }
 
     /// Completes a rate-limited inbound transfer after its delay period.
@@ -374,19 +379,24 @@ impl ManagerContract {
     /// the transfer from the queue.
     pub fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
         require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
         extend_instance_ttl(&env);
 
-        complete_inbound_queued_transfer(&env, &digest)
+        let result = complete_inbound_queued_transfer(&env, &digest);
+
+        set_reentering(&env, false);
+        result
     }
 
     /// Manually executes an approved message that hasn't been executed yet.
     ///
     /// Permissionless recovery function for transfers where transceivers were
-    /// disabled after attesting but before execution. Counts all attestations
-    /// (even from now-disabled transceivers) when checking the threshold.
+    /// disabled after attesting but before execution. Only attestations from
+    /// currently enabled transceivers count toward the threshold.
     ///
-    /// Useful when the normal `attestation_received` path can't complete because
-    /// attesting transceivers were subsequently disabled.
+    /// Useful when the normal `attestation_received` path can't complete due
+    /// to rate limiting or transaction failure.
     pub fn execute_msg(
         env: Env,
         source_chain: u32,
@@ -394,9 +404,14 @@ impl ManagerContract {
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
         require_not_paused(&env)?;
+        require_not_reentering(&env)?;
+        set_reentering(&env, true);
         extend_instance_ttl(&env);
 
-        execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
+        let result = execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload);
+
+        set_reentering(&env, false);
+        result
     }
 
     /// Returns the token address managed by this contract.
