@@ -199,14 +199,6 @@ pub fn complete_inbound_queued_transfer(
     queue_entry.remove();
 
     release_tokens(env, &queued.recipient, queued.amount)?;
-
-    let decimals = get_token_decimals(env)?;
-    let trimmed_amount = if decimals > 8 {
-        (queued.amount as u128) / 10u128.pow((decimals - 8) as u32)
-    } else {
-        queued.amount as u128
-    };
-    refill_outbound(env, trimmed_amount as u64);
     refill_outbound(env, queued.trimmed_amount);
 
     Ok(())
