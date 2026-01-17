@@ -183,74 +183,6 @@ pub struct AttestationResult {
     pub queued: bool,
 }
 
-/// Retrieves the current admin address.
-///
-/// # Panics
-/// Panics if the contract has not been initialized (admin not set).
-pub fn get_admin(env: &Env) -> Address {
-    env.storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .expect("admin not set")
-}
-
-/// Verifies the caller is the current admin.
-///
-/// Requires authentication from `caller` and checks they match the stored admin.
-/// Returns `Unauthorized` if the caller is not the admin.
-pub fn require_admin(env: &Env, caller: &Address) -> Result<(), NttManagerError> {
-    caller.require_auth();
-    let admin = get_admin(env);
-    if *caller != admin {
-        return Err(NttManagerError::Unauthorized);
-    }
-    Ok(())
-}
-
-/// Returns the current pauser address, if set.
-///
-/// Returns `None` if no pauser has been configured. When no pauser is set,
-/// only the admin can pause/unpause.
-pub fn get_pauser(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Pauser)
-}
-
-/// Verifies the caller is the admin or the pauser.
-///
-/// Requires authentication from `caller` and checks they match either the stored
-/// admin or pauser address. Returns `InvalidPauser` if the caller is neither.
-pub fn require_admin_or_pauser(env: &Env, caller: &Address) -> Result<(), NttManagerError> {
-    caller.require_auth();
-    let admin = get_admin(env);
-    if *caller == admin {
-        return Ok(());
-    }
-    if let Some(pauser) = get_pauser(env) {
-        if *caller == pauser {
-            return Ok(());
-        }
-    }
-    Err(NttManagerError::InvalidPauser)
-}
-
-/// Returns whether the contract is currently paused.
-pub fn is_paused(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false)
-}
-
-/// Ensures the contract is not paused.
-///
-/// Returns `ContractPaused` if the contract is currently paused.
-pub fn require_not_paused(env: &Env) -> Result<(), NttManagerError> {
-    if is_paused(env) {
-        return Err(NttManagerError::ContractPaused);
-    }
-    Ok(())
-}
-
 /// Ensures no reentrant call is in progress.
 ///
 /// Checks temporary storage for the reentrancy guard flag. Returns `Reentering`
@@ -275,23 +207,6 @@ pub fn set_reentering(env: &Env, reentering: bool) {
     env.storage()
         .temporary()
         .set(&DataKey::Reentering, &reentering);
-}
-
-/// Atomically increments and returns the next message sequence number.
-///
-/// Sequence numbers start at 1 and are used to uniquely identify outbound
-/// transfers. The counter is incremented before returning, so each call
-/// gets a unique, monotonically increasing value.
-pub fn use_message_sequence(env: &Env) -> u64 {
-    let current: u64 = env
-        .storage()
-        .instance()
-        .get(&DataKey::NextSequence)
-        .unwrap_or(1);
-    env.storage()
-        .instance()
-        .set(&DataKey::NextSequence, &(current + 1));
-    current
 }
 
 /// Converts a sequence number to a 32-byte message ID.

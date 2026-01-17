@@ -395,39 +395,23 @@ impl ManagerContract {
     }
 
     /// Returns the token address managed by this contract.
-    ///
-    /// # Panics
-    /// Panics if the contract has not been initialized.
-    pub fn get_token(env: Env) -> Address {
-        let storage = InstanceStorage::new(&env);
-        storage.token().expect("not initialized")
+    pub fn get_token(env: Env) -> Result<Address, NttManagerError> {
+        InstanceStorage::new(&env).token()
     }
 
     /// Returns the operating mode (`Locking` or `Burning`).
-    ///
-    /// # Panics
-    /// Panics if the contract has not been initialized.
-    pub fn get_mode(env: Env) -> Mode {
-        let storage = InstanceStorage::new(&env);
-        storage.mode().expect("not initialized")
+    pub fn get_mode(env: Env) -> Result<Mode, NttManagerError> {
+        InstanceStorage::new(&env).mode()
     }
 
     /// Returns this chain's Wormhole chain ID.
-    ///
-    /// # Panics
-    /// Panics if the contract has not been initialized.
-    pub fn get_chain_id(env: Env) -> u32 {
-        let storage = InstanceStorage::new(&env);
-        storage.chain_id().expect("not initialized")
+    pub fn get_chain_id(env: Env) -> Result<u32, NttManagerError> {
+        InstanceStorage::new(&env).chain_id()
     }
 
     /// Returns the current admin address.
-    ///
-    /// # Panics
-    /// Panics if the contract has not been initialized.
-    pub fn get_admin(env: Env) -> Address {
-        let storage = InstanceStorage::new(&env);
-        storage.admin().expect("not initialized")
+    pub fn get_admin(env: Env) -> Result<Address, NttManagerError> {
+        InstanceStorage::new(&env).admin()
     }
 
     /// Returns the designated pauser address, if one has been set.
@@ -435,17 +419,12 @@ impl ManagerContract {
     /// When set, this address can pause/unpause the contract independently
     /// of the admin. Returns `None` if no pauser has been configured.
     pub fn get_pauser(env: Env) -> Option<Address> {
-        let storage = InstanceStorage::new(&env);
-        storage.pauser()
+        InstanceStorage::new(&env).pauser()
     }
 
     /// Returns the token's decimal precision (0-18).
-    ///
-    /// # Panics
-    /// Panics if the contract has not been initialized.
-    pub fn token_decimals(env: Env) -> u32 {
-        let storage = InstanceStorage::new(&env);
-        storage.token_decimals().expect("not initialized")
+    pub fn token_decimals(env: Env) -> Result<u32, NttManagerError> {
+        InstanceStorage::new(&env).token_decimals()
     }
 
     /// Returns the minimum number of transceiver attestations required
