@@ -12,9 +12,10 @@ use crate::messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount};
 use crate::peers::{get_peer, refill_inbound};
 use crate::rate_limit::{consume_or_queue_outbound, RateLimitResult};
 use crate::state::{
-    address_to_bytes32, extend_persistent_ttl, sequence_to_message_id, use_message_sequence,
-    DataKey, OutboundQueuedTransfer, TransferResult,
+    address_to_bytes32, extend_persistent_ttl, sequence_to_message_id, DataKey,
+    OutboundQueuedTransfer, TransferResult,
 };
+use crate::storage::InstanceStorage;
 use crate::token_ops::{custody_tokens, get_token_decimals, release_tokens};
 use crate::transceivers::{get_enabled_bitmap, get_enabled_transceivers};
 
@@ -34,7 +35,8 @@ pub fn send_transfer(
     source_token: &BytesN<32>,
     additional_payload: &Option<Bytes>,
 ) -> Result<(u64, BytesN<32>), NttManagerError> {
-    let sequence = use_message_sequence(env);
+    let storage = InstanceStorage::new(env);
+    let sequence = storage.use_sequence();
     let message_id = sequence_to_message_id(env, sequence);
     let sender_bytes = address_to_bytes32(env, sender);
 
@@ -50,11 +52,7 @@ pub fn send_transfer(
         },
     };
 
-    let our_chain_id: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::ChainId)
-        .ok_or(NttManagerError::NotInitialized)?;
+    let our_chain_id = storage.chain_id()?;
 
     let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
     let payload = ntt_message.to_bytes(env)?;
@@ -87,7 +85,7 @@ pub fn send_transfer(
 /// - `ZeroAmount` if amount is zero or negative
 /// - `InvalidRecipient` if recipient is all zeros
 /// - `PeerNotFound` if no peer registered for recipient chain
-/// /// - `NoEnabledTransceivers` if no transceivers are enabled
+/// - `NoEnabledTransceivers` if no transceivers are enabled
 /// - `TransferExceedsRateLimit` if rate limited and `should_queue` is false
 pub fn transfer_internal(
     env: &Env,
@@ -113,12 +111,9 @@ pub fn transfer_internal(
         return Err(NttManagerError::NoEnabledTransceivers);
     }
 
-    let token: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::Token)
-        .ok_or(NttManagerError::NotInitialized)?;
-    let our_decimals = get_token_decimals(&env)?;
+    let storage = InstanceStorage::new(env);
+    let token = storage.token()?;
+    let our_decimals = get_token_decimals(env)?;
 
     let mut transfer_amount = amount as u128;
     let trimmed = TrimmedAmount::remove_dust(
@@ -160,7 +155,7 @@ pub fn transfer_internal(
                 return Err(NttManagerError::TransferExceedsRateLimit);
             }
 
-            let sequence = use_message_sequence(env);
+            let sequence = storage.use_sequence();
 
             let queued = OutboundQueuedTransfer {
                 sender: sender.clone(),
@@ -191,11 +186,7 @@ pub fn transfer_internal(
                     additional_payload,
                 },
             };
-            let our_chain_id: u32 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ChainId)
-                .ok_or(NttManagerError::NotInitialized)?;
+            let our_chain_id = storage.chain_id()?;
             let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
 
             Ok(TransferResult {

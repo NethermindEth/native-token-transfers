@@ -8,6 +8,7 @@ mod outbound;
 mod peers;
 mod rate_limit;
 mod state;
+mod storage;
 mod token_ops;
 mod transceivers;
 
@@ -25,26 +26,15 @@ use peers::{
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    require_admin, require_admin_or_pauser, require_not_paused, require_not_reentering,
-    set_reentering, AttestationInfo, AttestationResult, DataKey, InboundQueuedTransfer, Mode,
-    OutboundQueuedTransfer, TransferResult,
+    require_not_reentering, set_reentering, AttestationInfo, AttestationResult, DataKey,
+    InboundQueuedTransfer, Mode, OutboundQueuedTransfer, TransferResult,
 };
+use storage::InstanceStorage;
 use token_ops::query_token_decimals;
 use transceivers::{
     check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
     set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
 };
-
-use constants::{
-    INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
-};
-
-/// Extends the instance storage TTL to prevent expiration.
-fn extend_instance_ttl(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
-}
 
 /// NTT Manager contract for cross-chain native token transfers.
 ///
@@ -75,31 +65,26 @@ impl ManagerContract {
     ) {
         let token_decimals = query_token_decimals(&env, &token);
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenDecimals, &token_decimals);
-        env.storage().instance().set(&DataKey::Mode, &mode);
-        env.storage().instance().set(&DataKey::ChainId, &chain_id);
-        env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().set(&DataKey::Threshold, &0u32);
-        env.storage().instance().set(&DataKey::NextSequence, &1u64);
-        env.storage().instance().set(&DataKey::Version, &1u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::TransceiverCount, &0u32);
-        env.storage().instance().set(&DataKey::EnabledBitmap, &0u64);
-        env.storage()
-            .instance()
-            .set(&DataKey::RateLimitDuration, &rate_limit_duration);
+        // Use direct storage access for initialization (InstanceStorage extends TTL)
+        let storage = env.storage().instance();
+        storage.set(&DataKey::Admin, &admin);
+        storage.set(&DataKey::Token, &token);
+        storage.set(&DataKey::TokenDecimals, &token_decimals);
+        storage.set(&DataKey::Mode, &mode);
+        storage.set(&DataKey::ChainId, &chain_id);
+        storage.set(&DataKey::Paused, &false);
+        storage.set(&DataKey::Threshold, &0u32);
+        storage.set(&DataKey::NextSequence, &1u64);
+        storage.set(&DataKey::Version, &1u32);
+        storage.set(&DataKey::TransceiverCount, &0u32);
+        storage.set(&DataKey::EnabledBitmap, &0u64);
+        storage.set(&DataKey::RateLimitDuration, &rate_limit_duration);
 
         let rate_limit_params = rate_limit::RateLimitParams::new(outbound_limit, &env);
-        env.storage()
-            .instance()
-            .set(&DataKey::OutboundRateLimit, &rate_limit_params);
+        storage.set(&DataKey::OutboundRateLimit, &rate_limit_params);
 
-        extend_instance_ttl(&env);
+        // Extend TTL after initialization
+        let _ = InstanceStorage::new(&env);
     }
 
     pub fn receive_wormhole_message(
@@ -121,11 +106,9 @@ impl ManagerContract {
         current_admin: Address,
         new_admin: Address,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &current_admin)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::PendingAdmin, &new_admin);
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&current_admin)?;
+        storage.set_pending_admin(&new_admin);
         Ok(())
     }
 
@@ -134,29 +117,29 @@ impl ManagerContract {
     /// Must be called by the address set as pending admin in `transfer_ownership`.
     /// Clears the pending admin after successful transfer.
     pub fn accept_ownership(env: Env, pending_admin: Address) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
+        let storage = InstanceStorage::new(&env);
         pending_admin.require_auth();
 
-        let stored_pending: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
-        match stored_pending {
-            Some(stored) if stored == pending_admin => {
-                env.storage()
-                    .instance()
-                    .set(&DataKey::Admin, &pending_admin);
-                env.storage().instance().remove(&DataKey::PendingAdmin);
-                Ok(())
-            }
-            _ => Err(NttManagerError::InvalidPendingAdmin),
+        let stored = storage
+            .pending_admin()
+            .ok_or(NttManagerError::InvalidPendingAdmin)?;
+
+        if stored != pending_admin {
+            return Err(NttManagerError::InvalidPendingAdmin);
         }
+
+        storage.set_admin(&pending_admin);
+        storage.remove_pending_admin();
+        Ok(())
     }
 
     /// Pauses the contract, blocking transfers and redemptions.
     ///
     /// Only callable by the admin. Use `unpause` to resume operations.
-    pub fn pause(env: Env, admin: Address) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
-        env.storage().instance().set(&DataKey::Paused, &true);
+    pub fn pause(env: Env, caller: Address) -> Result<(), NttManagerError> {
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin_or_pauser(&caller)?;
+        storage.set_paused(true);
         Ok(())
     }
 
@@ -164,15 +147,15 @@ impl ManagerContract {
     ///
     /// Callable by either the admin or the designated pauser (if set).
     pub fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin_or_pauser(&env, &caller)?;
-        env.storage().instance().set(&DataKey::Paused, &false);
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin_or_pauser(&caller)?;
+        storage.set_paused(false);
         Ok(())
     }
 
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
-        state::is_paused(&env)
+        InstanceStorage::new(&env).is_paused()
     }
 
     /// Transfers the pauser capability to a new address.
@@ -184,12 +167,9 @@ impl ManagerContract {
         caller: Address,
         new_pauser: Option<Address>,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin_or_pauser(&env, &caller)?;
-        match new_pauser {
-            Some(pauser) => env.storage().instance().set(&DataKey::Pauser, &pauser),
-            None => env.storage().instance().remove(&DataKey::Pauser),
-        }
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin_or_pauser(&caller)?;
+        storage.set_pauser(new_pauser.as_ref());
         Ok(())
     }
 
@@ -200,8 +180,8 @@ impl ManagerContract {
     ///
     /// Only callable by the admin.
     pub fn set_outbound_limit(env: Env, admin: Address, limit: u64) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
 
         let mut rate_limit_params = rate_limit::get_outbound_rate_limit(&env);
         rate_limit_params.set_limit(limit, &env);
@@ -237,11 +217,11 @@ impl ManagerContract {
         recipient: BytesN<32>,
         should_queue: bool,
     ) -> Result<TransferResult, NttManagerError> {
+        let storage = InstanceStorage::new(&env);
         sender.require_auth();
-        require_not_paused(&env)?;
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = transfer_internal(
             &env,
@@ -273,11 +253,11 @@ impl ManagerContract {
         should_queue: bool,
         additional_payload: Bytes,
     ) -> Result<TransferResult, NttManagerError> {
+        let storage = InstanceStorage::new(&env);
         sender.require_auth();
-        require_not_paused(&env)?;
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = transfer_internal(
             &env,
@@ -308,10 +288,10 @@ impl ManagerContract {
         env: Env,
         sequence: u64,
     ) -> Result<TransferResult, NttManagerError> {
-        require_not_paused(&env)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = complete_outbound_queued_transfer(&env, sequence);
 
@@ -332,8 +312,8 @@ impl ManagerContract {
         sender: Address,
         sequence: u64,
     ) -> Result<(), NttManagerError> {
+        let _ = InstanceStorage::new(&env);
         sender.require_auth();
-        extend_instance_ttl(&env);
 
         cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
@@ -354,11 +334,11 @@ impl ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
+        let storage = InstanceStorage::new(&env);
         transceiver.require_auth();
-        require_not_paused(&env)?;
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = attestation_received_internal(
             &env,
@@ -378,10 +358,10 @@ impl ManagerContract {
     /// Releases the queued tokens to the original recipient and removes
     /// the transfer from the queue.
     pub fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
-        require_not_paused(&env)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = complete_inbound_queued_transfer(&env, &digest);
 
@@ -403,10 +383,10 @@ impl ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
-        require_not_paused(&env)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_not_paused()?;
         require_not_reentering(&env)?;
         set_reentering(&env, true);
-        extend_instance_ttl(&env);
 
         let result = execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload);
 
@@ -419,10 +399,8 @@ impl ManagerContract {
     /// # Panics
     /// Panics if the contract has not been initialized.
     pub fn get_token(env: Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&DataKey::Token)
-            .expect("not initialized")
+        let storage = InstanceStorage::new(&env);
+        storage.token().expect("not initialized")
     }
 
     /// Returns the operating mode (`Locking` or `Burning`).
@@ -430,10 +408,8 @@ impl ManagerContract {
     /// # Panics
     /// Panics if the contract has not been initialized.
     pub fn get_mode(env: Env) -> Mode {
-        env.storage()
-            .instance()
-            .get(&DataKey::Mode)
-            .expect("not initialized")
+        let storage = InstanceStorage::new(&env);
+        storage.mode().expect("not initialized")
     }
 
     /// Returns this chain's Wormhole chain ID.
@@ -441,10 +417,8 @@ impl ManagerContract {
     /// # Panics
     /// Panics if the contract has not been initialized.
     pub fn get_chain_id(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::ChainId)
-            .expect("not initialized")
+        let storage = InstanceStorage::new(&env);
+        storage.chain_id().expect("not initialized")
     }
 
     /// Returns the current admin address.
@@ -452,10 +426,8 @@ impl ManagerContract {
     /// # Panics
     /// Panics if the contract has not been initialized.
     pub fn get_admin(env: Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("not initialized")
+        let storage = InstanceStorage::new(&env);
+        storage.admin().expect("not initialized")
     }
 
     /// Returns the designated pauser address, if one has been set.
@@ -463,7 +435,8 @@ impl ManagerContract {
     /// When set, this address can pause/unpause the contract independently
     /// of the admin. Returns `None` if no pauser has been configured.
     pub fn get_pauser(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::Pauser)
+        let storage = InstanceStorage::new(&env);
+        storage.pauser()
     }
 
     /// Returns the token's decimal precision (0-18).
@@ -471,35 +444,27 @@ impl ManagerContract {
     /// # Panics
     /// Panics if the contract has not been initialized.
     pub fn token_decimals(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TokenDecimals)
-            .expect("not initialized")
+        let storage = InstanceStorage::new(&env);
+        storage.token_decimals().expect("not initialized")
     }
 
     /// Returns the minimum number of transceiver attestations required
     /// to execute an inbound transfer. Returns 0 if no transceivers are registered.
     pub fn get_threshold(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::Threshold)
-            .unwrap_or(0)
+        let storage = InstanceStorage::new(&env);
+        storage.threshold()
     }
 
     /// Returns the total number of registered transceivers (enabled or disabled).
     pub fn get_transceiver_count(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TransceiverCount)
-            .unwrap_or(0)
+        let storage = InstanceStorage::new(&env);
+        storage.transceiver_count()
     }
 
     /// Returns a bitmap where bit N is set if transceiver index N is enabled.
     pub fn get_enabled_bitmap(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::EnabledBitmap)
-            .unwrap_or(0)
+        let storage = InstanceStorage::new(&env);
+        storage.enabled_bitmap()
     }
 
     /// Returns transceiver metadata by its permanent index.
@@ -544,10 +509,8 @@ impl ManagerContract {
     /// Returns the next outbound message sequence number.
     /// Sequence numbers start at 1 and increment with each transfer.
     pub fn get_next_sequence(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::NextSequence)
-            .unwrap_or(1)
+        let storage = InstanceStorage::new(&env);
+        storage.next_sequence()
     }
 
     /// Checks whether tokens have been released for a given message digest.
@@ -598,17 +561,15 @@ impl ManagerContract {
         amount: i128,
         recipient_chain: u32,
     ) -> Result<(u64, u64), NttManagerError> {
+        let storage = InstanceStorage::new(&env);
+
         let peer: NttManagerPeer = env
             .storage()
             .persistent()
             .get(&DataKey::Peer(recipient_chain))
             .ok_or(NttManagerError::PeerNotFound)?;
 
-        let our_decimals: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TokenDecimals)
-            .ok_or(NttManagerError::NotInitialized)?;
+        let our_decimals = storage.token_decimals()?;
 
         let (trimmed, dust) = TrimmedAmount::trim(
             amount as u128,
@@ -623,17 +584,16 @@ impl ManagerContract {
     ///
     /// Defaults to 1 if no version has been explicitly set.
     pub fn get_version(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::Version).unwrap_or(1)
+        let storage = InstanceStorage::new(&env);
+        storage.version()
     }
 
     /// Returns the rate limit duration in seconds.
     ///
     /// Defaults to 86400 (24 hours) if not explicitly set.
     pub fn get_rate_limit_duration(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::RateLimitDuration)
-            .unwrap_or(constants::RATE_LIMIT_DURATION)
+        let storage = InstanceStorage::new(&env);
+        storage.rate_limit_duration()
     }
 
     /// Upgrades the contract to a new WASM implementation.
@@ -649,8 +609,8 @@ impl ManagerContract {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
 
@@ -684,8 +644,8 @@ impl ManagerContract {
         admin: Address,
         transceiver: Address,
     ) -> Result<u32, NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
         set_transceiver_internal(&env, transceiver)
     }
 
@@ -704,8 +664,8 @@ impl ManagerContract {
         admin: Address,
         transceiver: Address,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
         remove_transceiver_internal(&env, &transceiver)
     }
 
@@ -719,8 +679,8 @@ impl ManagerContract {
     /// - `ZeroThreshold` if threshold is 0
     /// - `ThresholdTooHigh` if threshold exceeds enabled count
     pub fn set_threshold(env: Env, admin: Address, threshold: u32) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
         set_threshold_value(&env, threshold)
     }
 
@@ -743,8 +703,8 @@ impl ManagerContract {
         token_decimals: u32,
         inbound_limit: u64,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
         set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
     }
 
@@ -761,8 +721,8 @@ impl ManagerContract {
         chain_id: u32,
         limit: u64,
     ) -> Result<(), NttManagerError> {
-        extend_instance_ttl(&env);
-        require_admin(&env, &admin)?;
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin(&admin)?;
         set_inbound_limit_internal(&env, chain_id, limit)
     }
 }

@@ -8,7 +8,8 @@ use soroban_sdk::{contracttype, BytesN, Env};
 
 use crate::errors::NttManagerError;
 use crate::rate_limit::{RateLimitParams, RateLimitResult};
-use crate::state::DataKey;
+use crate::state::{extend_persistent_ttl, DataKey};
+use crate::storage::InstanceStorage;
 
 /// Peer NTT Manager on another chain.
 ///
@@ -54,11 +55,8 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerChainIdZero);
     }
 
-    let our_chain_id: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::ChainId)
-        .ok_or(NttManagerError::NotInitialized)?;
+    let storage = InstanceStorage::new(env);
+    let our_chain_id = storage.chain_id()?;
 
     if chain_id == our_chain_id {
         return Err(NttManagerError::InvalidPeerSameChainId);
@@ -93,6 +91,7 @@ pub fn set_peer(
     env.storage()
         .persistent()
         .set(&DataKey::Peer(chain_id), &peer);
+    extend_persistent_ttl(env, &DataKey::Peer(chain_id));
 
     Ok(())
 }
@@ -111,6 +110,7 @@ pub fn set_inbound_limit(env: &Env, chain_id: u32, limit: u64) -> Result<(), Ntt
     env.storage()
         .persistent()
         .set(&DataKey::Peer(chain_id), &peer);
+    extend_persistent_ttl(env, &DataKey::Peer(chain_id));
 
     Ok(())
 }
@@ -156,6 +156,7 @@ pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
         env.storage()
             .persistent()
             .set(&DataKey::Peer(chain_id), &peer);
+        extend_persistent_ttl(env, &DataKey::Peer(chain_id));
     }
 }
 
@@ -180,6 +181,7 @@ pub fn consume_or_queue_inbound(
         env.storage()
             .persistent()
             .set(&DataKey::Peer(chain_id), &peer);
+        extend_persistent_ttl(env, &DataKey::Peer(chain_id));
     }
 
     Ok(result)
