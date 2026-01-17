@@ -20,16 +20,17 @@ use messages::TrimmedAmount;
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
-use peers::{
-    set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal, NttManagerPeer,
-};
+use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
     require_not_reentering, set_reentering, AttestationInfo, AttestationResult, DataKey,
-    InboundQueuedTransfer, Mode, OutboundQueuedTransfer, TransferResult,
+    InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer, TransferResult,
 };
-use storage::InstanceStorage;
+use storage::{
+    AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
+    TransceiverEntry,
+};
 use token_ops::query_token_decimals;
 use transceivers::{
     check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
@@ -481,8 +482,9 @@ impl ManagerContract {
     /// Returns the inbound rate limit parameters for a specific source chain.
     /// Returns `None` if no peer is registered for the chain ID.
     pub fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams> {
-        let peer: Option<NttManagerPeer> = env.storage().persistent().get(&DataKey::Peer(chain_id));
-        peer.map(|p| p.inbound_rate_limit)
+        PeerEntry::new(&env, chain_id)
+            .get()
+            .map(|p| p.inbound_rate_limit)
     }
 
     /// Returns the next outbound message sequence number.
@@ -495,9 +497,8 @@ impl ManagerContract {
     /// Checks whether tokens have been released for a given message digest.
     /// Returns `false` if the message has not been attested or executed.
     pub fn is_message_executed(env: Env, digest: BytesN<32>) -> bool {
-        env.storage()
-            .persistent()
-            .get::<_, AttestationInfo>(&DataKey::Attestation(digest))
+        AttestationEntry::new(&env, digest)
+            .get()
             .map(|a| a.executed)
             .unwrap_or(false)
     }
@@ -505,25 +506,19 @@ impl ManagerContract {
     /// Returns attestation tracking info for a message digest, including
     /// which transceivers have attested and whether execution occurred.
     pub fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Attestation(digest))
+        AttestationEntry::new(&env, digest).get()
     }
 
     /// Returns a queued outbound transfer by its sequence number.
     /// Returns `None` if no transfer is queued for this sequence.
     pub fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::OutboundQueue(sequence))
+        OutboundQueueEntry::new(&env, sequence).get()
     }
 
     /// Returns a queued inbound transfer by its message digest.
     /// Returns `None` if no transfer is queued for this digest.
     pub fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::InboundQueue(digest))
+        InboundQueueEntry::new(&env, digest).get()
     }
 
     /// Computes the effective transfer amount after decimal normalization.
@@ -542,11 +537,7 @@ impl ManagerContract {
     ) -> Result<(u64, u64), NttManagerError> {
         let storage = InstanceStorage::new(&env);
 
-        let peer: NttManagerPeer = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Peer(recipient_chain))
-            .ok_or(NttManagerError::PeerNotFound)?;
+        let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;
 
         let our_decimals = storage.token_decimals()?;
 

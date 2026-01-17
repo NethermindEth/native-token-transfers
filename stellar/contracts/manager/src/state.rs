@@ -1,6 +1,7 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
 use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
+use crate::rate_limit::RateLimitParams;
 use crate::{errors::NttManagerError, messages::TrimmedAmount};
 
 pub fn extend_persistent_ttl(env: &Env, key: &DataKey) {
@@ -166,6 +167,21 @@ pub struct InboundQueuedTransfer {
     pub trimmed_amount: u64,
     /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
+}
+
+/// Peer NTT Manager on another chain.
+///
+/// Each peer maintains its own inbound rate limit, allowing independent
+/// throttling of transfers from different source chains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[contracttype]
+pub struct NttManagerPeer {
+    /// 32-byte address of the NTT Manager on the peer chain.
+    pub address: BytesN<32>,
+    /// Token decimals on the peer chain (1-18). Used for amount normalization.
+    pub token_decimals: u32,
+    /// Rate limiter for inbound transfers from this chain.
+    pub inbound_rate_limit: RateLimitParams,
 }
 
 /// Result of processing an attestation from a transceiver.

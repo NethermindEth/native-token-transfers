@@ -5,6 +5,7 @@
 //! - Threshold verification before releasing tokens
 //! - Rate-limited queuing for large inbound transfers
 //! - Queue completion after rate limit delay expires
+//! - Manual execution of approved but unexecuted messages
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -12,10 +13,8 @@ use crate::errors::NttManagerError;
 use crate::messages::NttManagerMessage;
 use crate::peers::{consume_or_queue_inbound, verify_peer};
 use crate::rate_limit::{refill_outbound, RateLimitResult};
-use crate::state::{
-    bytes32_to_address, extend_persistent_ttl, AttestationInfo, AttestationResult, DataKey,
-    InboundQueuedTransfer,
-};
+use crate::state::{bytes32_to_address, AttestationResult, InboundQueuedTransfer};
+use crate::storage::{AttestationEntry, InboundQueueEntry, InstanceStorage};
 use crate::token_ops::{get_token_decimals, release_tokens};
 use crate::transceivers::{
     get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index,
@@ -59,15 +58,8 @@ pub fn attestation_received_internal(
 
     let digest = ntt_message.compute_digest(env, source_chain as u16)?;
 
-    let key = DataKey::Attestation(digest.clone());
-    let mut attestation: AttestationInfo =
-        env.storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or(AttestationInfo {
-                executed: false,
-                attested_transceivers: 0,
-            });
+    let attestation_entry = AttestationEntry::new(env, digest.clone());
+    let mut attestation = attestation_entry.get_or_default();
 
     if attestation.executed {
         return Err(NttManagerError::TransferAlreadyRedeemed);
@@ -79,8 +71,7 @@ pub fn attestation_received_internal(
     }
 
     attestation.attested_transceivers |= attester_bit;
-    env.storage().persistent().set(&key, &attestation);
-    extend_persistent_ttl(env, &key);
+    attestation_entry.set(&attestation);
 
     let enabled_bitmap = get_enabled_bitmap(env);
     let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
@@ -113,13 +104,10 @@ fn execute_inbound_transfer(
     message: &NttManagerMessage,
     digest: &BytesN<32>,
 ) -> Result<AttestationResult, NttManagerError> {
+    let storage = InstanceStorage::new(env);
     let transfer = &message.payload;
 
-    let our_chain_id: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::ChainId)
-        .ok_or(NttManagerError::NotInitialized)?;
+    let our_chain_id = storage.chain_id()?;
 
     if transfer.to_chain != our_chain_id {
         return Err(NttManagerError::InvalidTargetChain);
@@ -134,10 +122,10 @@ fn execute_inbound_transfer(
 
     match rate_result {
         RateLimitResult::Consumed => {
-            let key = DataKey::Attestation(digest.clone());
-            let mut attestation: AttestationInfo = env.storage().persistent().get(&key).unwrap();
+            let attestation_entry = AttestationEntry::new(env, digest.clone());
+            let mut attestation = attestation_entry.get_or_default();
             attestation.executed = true;
-            env.storage().persistent().set(&key, &attestation);
+            attestation_entry.set(&attestation);
 
             release_tokens(env, &recipient, release_amount)?;
 
@@ -157,10 +145,7 @@ fn execute_inbound_transfer(
                 release_timestamp,
             };
 
-            env.storage()
-                .persistent()
-                .set(&DataKey::InboundQueue(digest.clone()), &queued);
-            extend_persistent_ttl(env, &DataKey::InboundQueue(digest.clone()));
+            InboundQueueEntry::new(env, digest.clone()).set(&queued);
 
             Ok(AttestationResult {
                 approved: true,
@@ -191,23 +176,17 @@ pub fn complete_inbound_queued_transfer(
     env: &Env,
     digest: &BytesN<32>,
 ) -> Result<(), NttManagerError> {
-    let queue_key = DataKey::InboundQueue(digest.clone());
-    let queued: InboundQueuedTransfer = env
-        .storage()
-        .persistent()
-        .get(&queue_key)
-        .ok_or(NttManagerError::TransferNotQueued)?;
+    let queue_entry = InboundQueueEntry::new(env, digest.clone());
+    let queued = queue_entry.get_or_err()?;
 
     let now = env.ledger().timestamp();
     if now < queued.release_timestamp {
         return Err(NttManagerError::TransferNotReleasable);
     }
 
-    let attest_key = DataKey::Attestation(digest.clone());
-    let mut attestation: AttestationInfo = env
-        .storage()
-        .persistent()
-        .get(&attest_key)
+    let attestation_entry = AttestationEntry::new(env, digest.clone());
+    let mut attestation = attestation_entry
+        .get()
         .ok_or(NttManagerError::TransferNotApproved)?;
 
     if attestation.executed {
@@ -215,9 +194,9 @@ pub fn complete_inbound_queued_transfer(
     }
 
     attestation.executed = true;
-    env.storage().persistent().set(&attest_key, &attestation);
+    attestation_entry.set(&attestation);
 
-    env.storage().persistent().remove(&queue_key);
+    queue_entry.remove();
 
     release_tokens(env, &queued.recipient, queued.amount)?;
 
@@ -257,11 +236,8 @@ pub fn execute_msg_internal(
     let ntt_message = NttManagerMessage::from_bytes(env, payload)?;
     let digest = ntt_message.compute_digest(env, source_chain as u16)?;
 
-    let key = DataKey::Attestation(digest.clone());
-    let attestation: AttestationInfo = env
-        .storage()
-        .persistent()
-        .get(&key)
+    let attestation = AttestationEntry::new(env, digest.clone())
+        .get()
         .ok_or(NttManagerError::TransferNotApproved)?;
 
     if attestation.executed {

@@ -4,33 +4,18 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_sdk::{contracttype, BytesN, Env};
+use soroban_sdk::{BytesN, Env};
 
 use crate::errors::NttManagerError;
 use crate::rate_limit::{RateLimitParams, RateLimitResult};
-use crate::state::{extend_persistent_ttl, DataKey};
-use crate::storage::InstanceStorage;
-
-/// Peer NTT Manager on another chain.
-///
-/// Each peer maintains its own inbound rate limit, allowing independent
-/// throttling of transfers from different source chains.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[contracttype]
-pub struct NttManagerPeer {
-    /// 32-byte address of the NTT Manager on the peer chain.
-    pub address: BytesN<32>,
-    /// Token decimals on the peer chain (1-18). Used for amount normalization.
-    pub token_decimals: u32,
-    /// Rate limiter for inbound transfers from this chain.
-    pub inbound_rate_limit: RateLimitParams,
-}
+use crate::state::NttManagerPeer;
+use crate::storage::{InstanceStorage, PeerEntry};
 
 /// Retrieves peer configuration for a given chain.
 ///
 /// Returns `None` if no peer is registered for the chain ID.
 pub fn get_peer(env: &Env, chain_id: u32) -> Option<NttManagerPeer> {
-    env.storage().persistent().get(&DataKey::Peer(chain_id))
+    PeerEntry::new(env, chain_id).get()
 }
 
 /// Registers or updates a peer NTT Manager.
@@ -71,9 +56,8 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerDecimals);
     }
 
-    let existing: Option<NttManagerPeer> = get_peer(env, chain_id);
-
-    let peer = if let Some(mut existing_peer) = existing {
+    let entry = PeerEntry::new(env, chain_id);
+    let peer = if let Some(mut existing_peer) = entry.get() {
         existing_peer.address = address;
         existing_peer.token_decimals = token_decimals;
         existing_peer
@@ -88,11 +72,7 @@ pub fn set_peer(
         }
     };
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::Peer(chain_id), &peer);
-    extend_persistent_ttl(env, &DataKey::Peer(chain_id));
-
+    entry.set(&peer);
     Ok(())
 }
 
@@ -103,15 +83,10 @@ pub fn set_peer(
 /// # Errors
 /// - `PeerNotFound` if no peer is registered for the chain ID
 pub fn set_inbound_limit(env: &Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError> {
-    let mut peer: NttManagerPeer = get_peer(env, chain_id).ok_or(NttManagerError::PeerNotFound)?;
-
+    let entry = PeerEntry::new(env, chain_id);
+    let mut peer = entry.get_or_err()?;
     peer.inbound_rate_limit.set_limit(limit, env);
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::Peer(chain_id), &peer);
-    extend_persistent_ttl(env, &DataKey::Peer(chain_id));
-
+    entry.set(&peer);
     Ok(())
 }
 
@@ -128,12 +103,10 @@ pub fn verify_peer(
     chain_id: u32,
     source_address: &BytesN<32>,
 ) -> Result<(), NttManagerError> {
-    let peer = get_peer(env, chain_id).ok_or(NttManagerError::PeerNotFound)?;
-
+    let peer = PeerEntry::new(env, chain_id).get_or_err()?;
     if peer.address != *source_address {
         return Err(NttManagerError::InvalidPeer);
     }
-
     Ok(())
 }
 
@@ -141,7 +114,9 @@ pub fn verify_peer(
 ///
 /// Returns `None` if no peer is registered for the chain ID.
 pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParams> {
-    get_peer(env, chain_id).map(|p| p.inbound_rate_limit)
+    PeerEntry::new(env, chain_id)
+        .get()
+        .map(|p| p.inbound_rate_limit)
 }
 
 /// Refills the inbound rate limit for a specific peer chain.
@@ -151,12 +126,10 @@ pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParam
 /// balance and prevents rate limit deadlocks. Does nothing if no peer exists
 /// for the chain ID.
 pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
-    if let Some(mut peer) = get_peer(env, chain_id) {
+    let entry = PeerEntry::new(env, chain_id);
+    if let Some(mut peer) = entry.get() {
         peer.inbound_rate_limit.refill(amount, env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Peer(chain_id), &peer);
-        extend_persistent_ttl(env, &DataKey::Peer(chain_id));
+        entry.set(&peer);
     }
 }
 
@@ -174,14 +147,12 @@ pub fn consume_or_queue_inbound(
     chain_id: u32,
     amount: u64,
 ) -> Result<RateLimitResult, NttManagerError> {
-    let mut peer = get_peer(env, chain_id).ok_or(NttManagerError::PeerNotFound)?;
+    let entry = PeerEntry::new(env, chain_id);
+    let mut peer = entry.get_or_err()?;
     let result = peer.inbound_rate_limit.consume_or_delay(amount, env);
 
     if matches!(result, RateLimitResult::Consumed) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::Peer(chain_id), &peer);
-        extend_persistent_ttl(env, &DataKey::Peer(chain_id));
+        entry.set(&peer);
     }
 
     Ok(result)

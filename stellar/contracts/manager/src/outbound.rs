@@ -12,10 +12,9 @@ use crate::messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount};
 use crate::peers::{get_peer, refill_inbound};
 use crate::rate_limit::{consume_or_queue_outbound, RateLimitResult};
 use crate::state::{
-    address_to_bytes32, extend_persistent_ttl, sequence_to_message_id, DataKey,
-    OutboundQueuedTransfer, TransferResult,
+    address_to_bytes32, sequence_to_message_id, OutboundQueuedTransfer, TransferResult,
 };
-use crate::storage::InstanceStorage;
+use crate::storage::{InstanceStorage, OutboundQueueEntry};
 use crate::token_ops::{custody_tokens, get_token_decimals, release_tokens};
 use crate::transceivers::{get_enabled_bitmap, get_enabled_transceivers};
 
@@ -168,10 +167,7 @@ pub fn transfer_internal(
                 additional_payload: additional_payload.clone(),
             };
 
-            env.storage()
-                .persistent()
-                .set(&DataKey::OutboundQueue(sequence), &queued);
-            extend_persistent_ttl(env, &DataKey::OutboundQueue(sequence));
+            OutboundQueueEntry::new(env, sequence).set(&queued);
 
             let message_id = sequence_to_message_id(env, sequence);
             let sender_bytes = address_to_bytes32(env, sender);
@@ -213,19 +209,19 @@ pub fn complete_outbound_queued_transfer(
     env: &Env,
     sequence: u64,
 ) -> Result<TransferResult, NttManagerError> {
-    let key = DataKey::OutboundQueue(sequence);
-    let queued: OutboundQueuedTransfer = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(NttManagerError::TransferNotQueued)?;
+    let entry = OutboundQueueEntry::new(env, sequence);
+    let queued = entry.get_or_err()?;
 
     let now = env.ledger().timestamp();
     if now < queued.release_timestamp {
         return Err(NttManagerError::TransferNotReleasable);
     }
 
-    env.storage().persistent().remove(&key);
+    entry.remove();
+
+    // Rate limit check is intentionally skipped here.
+    // The user already served their delay in the queue, so we proceed directly.
+    // This matches EVM behavior in NttManager.sol:completeOutboundQueuedTransfer
 
     let (new_sequence, digest) = send_transfer(
         env,
@@ -261,18 +257,14 @@ pub fn cancel_outbound_queued_transfer(
     sender: &Address,
     sequence: u64,
 ) -> Result<(), NttManagerError> {
-    let key = DataKey::OutboundQueue(sequence);
-    let queued: OutboundQueuedTransfer = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(NttManagerError::TransferNotQueued)?;
+    let entry = OutboundQueueEntry::new(env, sequence);
+    let queued = entry.get_or_err()?;
 
     if queued.sender != *sender {
         return Err(NttManagerError::CancellerNotSender);
     }
 
-    env.storage().persistent().remove(&key);
+    entry.remove();
 
     let token_decimals = get_token_decimals(env)?;
     let refund_amount = queued.amount.untrim(token_decimals as u8) as i128;

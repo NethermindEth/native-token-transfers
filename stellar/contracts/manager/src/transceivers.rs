@@ -7,8 +7,7 @@ use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::constants::MAX_TRANSCEIVERS;
 use crate::errors::NttManagerError;
-use crate::state::{extend_persistent_ttl, DataKey};
-use crate::storage::InstanceStorage;
+use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
 
 /// 64-bit bitmap for tracking transceiver registration and attestations.
 ///
@@ -112,16 +111,14 @@ pub fn get_threshold(env: &Env) -> u32 {
 ///
 /// Returns `None` if no transceiver exists at the given index.
 pub fn get_transceiver(env: &Env, index: u32) -> Option<TransceiverInfo> {
-    env.storage().persistent().get(&DataKey::Transceiver(index))
+    TransceiverEntry::new(env, index).get()
 }
 
 /// Looks up a transceiver's index by its contract address.
 ///
 /// Returns `None` if the address is not registered.
 pub fn get_transceiver_index(env: &Env, address: &Address) -> Option<u32> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::TransceiverIndex(address.clone()))
+    TransceiverIndexEntry::new(env, address.clone()).get()
 }
 
 /// Checks whether a transceiver is currently enabled.
@@ -193,10 +190,9 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
     let existing_index = get_transceiver_index(env, &transceiver);
 
     if let Some(index) = existing_index {
-        let mut info: TransceiverInfo = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Transceiver(index))
+        let entry = TransceiverEntry::new(env, index);
+        let mut info = entry
+            .get()
             .ok_or(NttManagerError::TransceiverNotRegistered)?;
 
         if info.enabled {
@@ -204,10 +200,7 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
         }
 
         info.enabled = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Transceiver(index), &info);
-        extend_persistent_ttl(env, &DataKey::Transceiver(index));
+        entry.set(&info);
 
         let mut bitmap = Bitmap(storage.enabled_bitmap());
         bitmap.set(index as u8);
@@ -230,14 +223,8 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
         index,
     };
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::Transceiver(index), &info);
-    extend_persistent_ttl(env, &DataKey::Transceiver(index));
-    env.storage()
-        .persistent()
-        .set(&DataKey::TransceiverIndex(transceiver.clone()), &index);
-    extend_persistent_ttl(env, &DataKey::TransceiverIndex(transceiver));
+    TransceiverEntry::new(env, index).set(&info);
+    TransceiverIndexEntry::new(env, transceiver).set(&index);
     storage.set_transceiver_count(count + 1);
 
     let mut bitmap = Bitmap(storage.enabled_bitmap());
@@ -268,13 +255,12 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
 pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttManagerError> {
     let storage = InstanceStorage::new(env);
 
-    let index: u32 =
+    let index =
         get_transceiver_index(env, transceiver).ok_or(NttManagerError::TransceiverNotRegistered)?;
 
-    let mut info: TransceiverInfo = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Transceiver(index))
+    let entry = TransceiverEntry::new(env, index);
+    let mut info = entry
+        .get()
         .ok_or(NttManagerError::TransceiverNotRegistered)?;
 
     if !info.enabled {
@@ -289,10 +275,7 @@ pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttMan
     }
 
     info.enabled = false;
-    env.storage()
-        .persistent()
-        .set(&DataKey::Transceiver(index), &info);
-    extend_persistent_ttl(env, &DataKey::Transceiver(index));
+    entry.set(&info);
 
     storage.set_enabled_bitmap(bitmap.raw());
 
