@@ -2,6 +2,8 @@
 members = [
   "contracts/manager",
   "contracts/transceiver",
+  "contracts/mock-token",
+  "integration-tests",
 ]
 
 resolver = "3"
