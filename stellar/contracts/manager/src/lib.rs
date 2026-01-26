@@ -12,7 +12,7 @@ mod storage;
 mod token_ops;
 mod transceivers;
 
-use errors::NttManagerError;
+pub use errors::NttManagerError;
 use inbound::{
     attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
 };
@@ -23,9 +23,11 @@ use outbound::{
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+pub use state::AttestationResult;
 use state::{
-    AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerPeer,
-    OutboundQueuedTransfer, TransferResult,
+    require_admin, require_admin_or_pauser, require_not_paused, require_not_reentering,
+    set_reentering, AttestationInfo, DataKey, InboundQueuedTransfer, Mode, OutboundQueuedTransfer,
+    TransferResult,
 };
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
@@ -424,7 +426,9 @@ impl ManagerContract {
     /// Returns the current outbound capacity, accounting for time-based refill.
     /// This is the maximum amount that can be transferred immediately without queueing.
     pub fn get_outbound_capacity(env: Env) -> u64 {
-        InstanceStorage::new(&env).outbound_rate_limit().capacity_at(&env)
+        InstanceStorage::new(&env)
+            .outbound_rate_limit()
+            .capacity_at(&env)
     }
 
     /// Returns the inbound rate limit parameters for a specific source chain.

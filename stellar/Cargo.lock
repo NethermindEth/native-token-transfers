@@ -1432,6 +1432,7 @@ name = "stellar-ntt-transceiver"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellar-ntt-manager",
  "wormhole-interface",
 ]
 
