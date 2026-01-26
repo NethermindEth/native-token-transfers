@@ -249,10 +249,8 @@ fn decode_transceiver_message(env: &Env, msg: &Bytes) -> Result<DecodedMessage, 
         return Err(TransceiverError::MessageTooShort);
     }
 
-    let mut prefix = [0u8; 4];
-    for i in 0..4 {
-        prefix[i] = msg.get(i as u32).ok_or(TransceiverError::MessageTooShort)?;
-    }
+    let prefix: [u8; 4] = msg.slice(0..4).try_into().unwrap();
+
     if prefix != WH_TRANSCEIVER_PREFIX {
         return Err(TransceiverError::InvalidTransceiverPrefix);
     }
@@ -856,6 +854,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn setup_transceiver(env: &Env) -> (TransceiverContractClient<'_>, Address, Address) {
         let admin = Address::generate(env);
         let manager = Address::generate(env);

@@ -57,8 +57,7 @@ impl TrimmedAmount {
         );
 
         if from_decimals <= target_decimals {
-            let amount_u64 =
-                u64::try_from(amount).map_err(|_| NttManagerError::AmountOverflow)?;
+            let amount_u64 = u64::try_from(amount).map_err(|_| NttManagerError::AmountOverflow)?;
             return Ok((
                 Self::new(amount_u64, from_decimals).expect("decimals <= MAX"),
                 0,
