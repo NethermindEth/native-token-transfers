@@ -894,9 +894,6 @@ mod tests {
 
     #[test]
     fn receive_message_panics_on_replay() {
-        use core::panic::AssertUnwindSafe;
-        use soroban_sdk::testutils::arbitrary::std::panic::catch_unwind;
-
         let env = Env::default();
         env.mock_all_auths();
 
@@ -937,10 +934,13 @@ mod tests {
         let vaa_bytes = Bytes::from_array(&env, &[0xaa]);
         transceiver.receive_message(&vaa_bytes);
 
-        let res = catch_unwind(AssertUnwindSafe(|| {
-            transceiver.receive_message(&vaa_bytes);
-        }));
-        assert!(res.is_err());
+        let res = transceiver.try_receive_message(&vaa_bytes);
+        assert_eq!(
+            res,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                TransceiverError::ReplayDetected as u32
+            )))
+        );
     }
 
     #[test]
