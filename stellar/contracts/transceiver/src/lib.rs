@@ -6,7 +6,7 @@ use soroban_sdk::{
     panic_with_error, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
 };
 use stellar_ntt_manager::{AttestationResult, NttManagerError};
-use wormhole_interface::{ConsistencyLevel, Error as WormholeError, VAA};
+use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
 
 const WH_TRANSCEIVER_PREFIX: [u8; 4] = [0x99, 0x45, 0xff, 0x10];
 const PREFIX_LEN: u32 = 4;
@@ -505,10 +505,12 @@ impl TransceiverContract {
         let core_addr = get_wormhole_core_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::WormholeCoreNotSet));
 
+        let emitter = env.current_contract_address();
         let nonce: u32 = 0;
         let consistency = ConsistencyLevel::Confirmed;
 
         let mut args: Vec<soroban_sdk::Val> = Vec::new(&env);
+        args.push_back(emitter.into_val(&env));
         args.push_back(nonce.into_val(&env));
         args.push_back(payload.into_val(&env));
         args.push_back(consistency.into_val(&env));
@@ -521,52 +523,6 @@ impl TransceiverContract {
         }
     }
 
-    pub fn send(
-        env: Env,
-        recipient_chain: u32,
-        recipient_manager: BytesN<32>,
-        manager_payload: Bytes,
-    ) -> u64 {
-        require_initialized(&env);
-        extend_instance_ttl(&env);
-
-        let _manager = require_manager_auth(&env);
-
-        let peer = get_peer_info_internal(&env, recipient_chain)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
-        if !peer.enabled {
-            panic_with_error!(&env, TransceiverError::PeerDisabled);
-        }
-
-        let source_manager = get_manager_id_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized));
-
-        let payload =
-            encode_transceiver_message(&env, &source_manager, &recipient_manager, &manager_payload)
-                .unwrap_or_else(|err| panic_with_error!(&env, err));
-
-        let core_addr = get_wormhole_core_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::WormholeCoreNotSet));
-
-        let nonce: u32 = 0;
-        let consistency = ConsistencyLevel::Confirmed;
-
-        let mut args: Vec<soroban_sdk::Val> = Vec::new(&env);
-        args.push_back(nonce.into_val(&env));
-        args.push_back(payload.into_val(&env));
-        args.push_back(consistency.into_val(&env));
-
-        let res: Result<u64, WormholeError> =
-            env.invoke_contract(&core_addr, &Symbol::new(&env, "post_message"), args);
-
-        match res {
-            Ok(seq) => seq,
-            Err(_) => {
-                panic_with_error!(&env, TransceiverError::WormholePostFailed);
-            }
-        }
-    }
-
     pub fn receive_message(env: Env, vaa_bytes: Bytes) {
         require_initialized(&env);
         extend_instance_ttl(&env);
@@ -576,13 +532,11 @@ impl TransceiverContract {
 
         let mut verify_args: Vec<soroban_sdk::Val> = Vec::new(&env);
         verify_args.push_back(vaa_bytes.clone().into_val(&env));
-        let verified: Result<bool, WormholeError> =
+        let verified: Result<(), WormholeError> =
             env.invoke_contract(&core_addr, &Symbol::new(&env, "verify_vaa"), verify_args);
 
-        match verified {
-            Ok(true) => {}
-            Ok(false) => panic_with_error!(&env, TransceiverError::WormholeVerificationFailed),
-            Err(_) => panic_with_error!(&env, TransceiverError::WormholeVerificationFailed),
+        if verified.is_err() {
+            panic_with_error!(&env, TransceiverError::WormholeVerificationFailed);
         }
 
         let mut parse_args: Vec<soroban_sdk::Val> = Vec::new(&env);
@@ -597,7 +551,7 @@ impl TransceiverContract {
             }
         };
 
-        let now = env.ledger().timestamp();
+        let now = env.ledger().timestamp() as u64;
         let vaa_timestamp = vaa.timestamp as u64;
         let max_timestamp = now.saturating_add(VAA_FUTURE_SKEW_SECONDS);
         if vaa_timestamp > max_timestamp {
@@ -746,6 +700,7 @@ mod tests {
     impl DummyWormholeCore {
         pub fn post_message(
             env: Env,
+            _emitter: Address,
             _nonce: u32,
             payload: Bytes,
             _consistency_level: ConsistencyLevel,
@@ -771,7 +726,7 @@ mod tests {
                 .set(&Symbol::new(&env, KEY_VERIFY_ERR), &should_error);
         }
 
-        pub fn verify_vaa(env: Env, _vaa_bytes: Bytes) -> Result<bool, WormholeError> {
+        pub fn verify_vaa(env: Env, _vaa_bytes: Bytes) -> Result<(), WormholeError> {
             let should_error: bool = env
                 .storage()
                 .instance()
@@ -780,11 +735,15 @@ mod tests {
             if should_error {
                 return Err(WormholeError::InvalidVAAFormat);
             }
-            Ok(env
+            let ok: bool = env
                 .storage()
                 .instance()
                 .get(&Symbol::new(&env, KEY_VERIFY_OK))
-                .unwrap_or(true))
+                .unwrap_or(true);
+            if !ok {
+                return Err(WormholeError::InvalidSignature);
+            }
+            Ok(())
         }
 
         pub fn set_parsed_vaa(
@@ -845,7 +804,7 @@ mod tests {
                 payload,
                 nonce: 0,
                 sequence,
-                consistency_level: 0,
+                consistency_level: ConsistencyLevel::Confirmed,
                 guardian_set_index: 0,
                 timestamp,
                 signatures: Vec::new(&env),

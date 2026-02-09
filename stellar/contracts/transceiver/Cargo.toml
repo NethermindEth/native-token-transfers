@@ -9,7 +9,7 @@ name = "stellar_ntt_transceiver"
 
 [dependencies]
 soroban-sdk = { workspace = true }
-wormhole-interface = { workspace = true }
+wormhole-soroban-client = { workspace = true }
 stellar-ntt-manager = { path = "../manager" }
 
 [dev-dependencies]
