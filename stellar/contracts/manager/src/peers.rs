@@ -42,6 +42,11 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerChainIdZero);
     }
 
+    // TODO: Implement as validation function in core contract interface
+    if chain_id > u16::MAX as u32 {
+        return Err(NttManagerError::ChainIdTooLarge);
+    }
+
     let storage = InstanceStorage::new(env);
     let our_chain_id = storage.chain_id()?;
 

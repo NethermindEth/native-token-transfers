@@ -38,6 +38,7 @@ pub enum TransceiverError {
     PeerAlreadySet = 12,
     PeerNotFound = 13,
     PeerDisabled = 14,
+    ChainIdTooLarge = 15,
 
     WormholeVerificationFailed = 20,
     WormholeParseFailed = 21,
@@ -410,6 +411,10 @@ impl TransceiverContract {
         if chain_id == 0 {
             panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
         }
+        // TODO: Implement as validation function in core contract interface
+        if chain_id > u16::MAX as u32 {
+            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
+        }
         if emitter.to_array() == [0u8; 32] {
             panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);
         }
@@ -428,6 +433,10 @@ impl TransceiverContract {
         let _admin = require_admin_auth(&env);
         if chain_id == 0 {
             panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
+        }
+        // TODO: Implement as validation function in core contract interface
+        if chain_id > u16::MAX as u32 {
+            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
         }
         if emitter.to_array() == [0u8; 32] {
             panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);

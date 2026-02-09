@@ -80,6 +80,12 @@ impl ManagerContract {
         let token_decimals = query_token_decimals(&env, &token);
         let storage = InstanceStorage::new(&env);
 
+        // TODO: Implement as validation function in core contract interface
+        // Can we panic here?
+        if chain_id > u16::MAX as u32 {
+            panic!("chain_id exceeds u16::MAX");
+        }
+
         storage.set_admin(&admin);
         storage.set_token(&token);
         storage.set_token_decimals(token_decimals);
