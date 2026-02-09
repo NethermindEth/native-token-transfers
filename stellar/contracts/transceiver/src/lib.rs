@@ -19,8 +19,6 @@ const INSTANCE_TTL_THRESHOLD: u32 = 17280;
 const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
 const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
-const VAA_VALIDITY_WINDOW_SECONDS: u64 = 7 * 60 * 60;
-const VAA_FUTURE_SKEW_SECONDS: u64 = 60 * 60;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracterror]
@@ -51,8 +49,6 @@ pub enum TransceiverError {
     ReplayDetected = 34,
     UnexpectedEmitter = 35,
     ManagerRejectedMessage = 36,
-    VaaTooOld = 37,
-    VaaTooNew = 38,
 }
 
 #[derive(Clone)]
@@ -384,8 +380,6 @@ impl TransceiverContract {
         extend_instance_ttl(&env);
     }
 
-
-
     pub fn get_manager(env: Env) -> Address {
         require_initialized(&env);
         get_manager_internal(&env)
@@ -397,8 +391,6 @@ impl TransceiverContract {
         get_manager_id_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
     }
-
-
 
     pub fn get_wormhole_core(env: Env) -> Address {
         require_initialized(&env);
@@ -546,16 +538,6 @@ impl TransceiverContract {
                 panic_with_error!(&env, TransceiverError::WormholeParseFailed);
             }
         };
-
-        let now = env.ledger().timestamp() as u64;
-        let vaa_timestamp = vaa.timestamp as u64;
-        let max_timestamp = now.saturating_add(VAA_FUTURE_SKEW_SECONDS);
-        if vaa_timestamp > max_timestamp {
-            panic_with_error!(&env, TransceiverError::VaaTooNew);
-        }
-        if now.saturating_sub(vaa_timestamp) > VAA_VALIDITY_WINDOW_SECONDS {
-            panic_with_error!(&env, TransceiverError::VaaTooOld);
-        }
 
         let peer = get_peer_info_internal(&env, vaa.emitter_chain)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
@@ -959,53 +941,6 @@ mod tests {
             transceiver.receive_message(&vaa_bytes);
         }));
         assert!(res.is_err());
-    }
-
-    #[test]
-    #[should_panic]
-    fn receive_message_panics_on_future_timestamp() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let manager_contract_id = env.register(DummyManager, ());
-        let manager_addr = manager_contract_id.clone();
-        let manager_id = manager_id_for(&env, &manager_addr);
-
-        let core_id = env.register(DummyWormholeCore, ());
-        let core_client = DummyWormholeCoreClient::new(&env, &core_id);
-
-        let admin = Address::generate(&env);
-        let transceiver_id = env.register(
-            TransceiverContract,
-            TransceiverContractArgs::__constructor(&admin, &manager_addr, &manager_id, &core_id),
-        );
-        let transceiver = TransceiverContractClient::new(&env, &transceiver_id);
-
-        let emitter_chain: u32 = 2;
-        let emitter_address = BytesN::<32>::from_array(&env, &[7u8; 32]);
-        transceiver.set_peer(&emitter_chain, &emitter_address);
-
-        let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
-        let manager_payload = Bytes::from_array(&env, &[1u8, 2, 3, 4]);
-        let tm_payload =
-            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
-                .expect("encode should succeed");
-
-        let seq: u64 = 1;
-        let timestamp = env
-            .ledger()
-            .timestamp()
-            .saturating_add(VAA_FUTURE_SKEW_SECONDS + 1) as u32;
-        core_client.set_parsed_vaa(
-            &emitter_chain,
-            &emitter_address,
-            &seq,
-            &timestamp,
-            &tm_payload,
-        );
-
-        let vaa_bytes = Bytes::from_array(&env, &[0xaa]);
-        transceiver.receive_message(&vaa_bytes);
     }
 
     #[test]
