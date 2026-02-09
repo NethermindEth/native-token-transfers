@@ -383,16 +383,7 @@ impl TransceiverContract {
         extend_instance_ttl(&env);
     }
 
-    pub fn set_manager(env: Env, manager: Address, manager_id: BytesN<32>) {
-        let _admin = require_admin_auth(&env);
-        let derived_manager_id = address_to_bytes32(&env, &manager);
-        if derived_manager_id != manager_id {
-            panic_with_error!(&env, TransceiverError::InvalidManagerId);
-        }
-        set_manager_internal(&env, &manager);
-        set_manager_id_internal(&env, &manager_id);
-        extend_instance_ttl(&env);
-    }
+
 
     pub fn get_manager(env: Env) -> Address {
         require_initialized(&env);
@@ -406,11 +397,7 @@ impl TransceiverContract {
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
     }
 
-    pub fn set_wormhole_core(env: Env, wormhole_core: Address) {
-        let _admin = require_admin_auth(&env);
-        set_wormhole_core_internal(&env, &wormhole_core);
-        extend_instance_ttl(&env);
-    }
+
 
     pub fn get_wormhole_core(env: Env) -> Address {
         require_initialized(&env);
