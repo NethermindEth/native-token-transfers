@@ -14,7 +14,8 @@ mod transceivers;
 
 use errors::NttManagerError;
 use inbound::{
-    attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
+    attestation_received_internal, claim_pending_transfer_internal,
+    complete_inbound_queued_transfer, execute_msg_internal,
 };
 use messages::TrimmedAmount;
 use outbound::{
@@ -25,11 +26,12 @@ use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
     require_not_reentering, set_reentering, AttestationInfo, AttestationResult, DataKey,
-    InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer, TransferResult,
+    InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer, PendingAddressTransfer,
+    TransferResult,
 };
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
-    TransceiverEntry,
+    PendingAddressEntry, TransceiverEntry,
 };
 use token_ops::query_token_decimals;
 use transceivers::{
@@ -355,6 +357,32 @@ impl ManagerContract {
         with_transfer_guard(&env, || complete_inbound_queued_transfer(&env, &digest))
     }
 
+    /// Claims a pending address transfer for a recipient that wasn't on-chain at execution time.
+    ///
+    /// When an inbound transfer targets a 32-byte address that doesn't exist on Stellar
+    /// (neither as Account G... nor Contract C...), the transfer is parked. The real
+    /// recipient calls this function once their address is live on ledger.
+    ///
+    /// Requires authentication from `recipient`. Their `address_to_bytes32` must match
+    /// the original 32-byte recipient in the wire message.
+    ///
+    /// # Errors
+    /// - `ContractPaused` if the contract is paused
+    /// - `Reentering` if another transfer is in progress
+    /// - `PendingTransferNotFound` if no pending transfer for this digest
+    /// - `PendingTransferRecipientMismatch` if caller's bytes don't match
+    /// - `TransferAlreadyRedeemed` if already executed
+    pub fn claim_pending_transfer(
+        env: Env,
+        recipient: Address,
+        digest: BytesN<32>,
+    ) -> Result<AttestationResult, NttManagerError> {
+        recipient.require_auth();
+        with_transfer_guard(&env, || {
+            claim_pending_transfer_internal(&env, &recipient, &digest)
+        })
+    }
+
     /// Manually executes an approved message that hasn't been executed yet.
     ///
     /// Permissionless recovery function for transfers where transceivers were
@@ -498,6 +526,12 @@ impl ManagerContract {
     /// Returns `None` if no transfer is queued for this digest.
     pub fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
         InboundQueueEntry::new(&env, digest).get()
+    }
+
+    /// Returns a pending address transfer by its message digest.
+    /// Returns `None` if no pending transfer exists for this digest.
+    pub fn get_pending_transfer(env: Env, digest: BytesN<32>) -> Option<PendingAddressTransfer> {
+        PendingAddressEntry::new(&env, digest).get()
     }
 
     /// Computes the effective transfer amount after decimal normalization.

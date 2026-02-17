@@ -9,6 +9,7 @@ use crate::constants::{
 use crate::errors::NttManagerError;
 use crate::state::{
     AttestationInfo, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer,
+    PendingAddressTransfer,
 };
 use crate::transceivers::TransceiverInfo;
 
@@ -405,6 +406,44 @@ impl<'a> InboundQueueEntry<'a> {
     #[inline]
     pub fn get_or_err(&self) -> Result<InboundQueuedTransfer, NttManagerError> {
         self.get().ok_or(NttManagerError::TransferNotQueued)
+    }
+
+    #[inline]
+    pub fn remove(&self) {
+        self.env.storage().persistent().remove(&self.key);
+    }
+}
+
+/// Accessor for pending address transfers, keyed by message digest.
+pub struct PendingAddressEntry<'a> {
+    env: &'a Env,
+    key: DataKey,
+}
+
+impl<'a> PendingAddressEntry<'a> {
+    #[inline]
+    pub fn new(env: &'a Env, digest: BytesN<32>) -> Self {
+        Self {
+            env,
+            key: DataKey::PendingAddress(digest),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self) -> Option<PendingAddressTransfer> {
+        self.env.storage().persistent().get(&self.key)
+    }
+
+    #[inline]
+    pub fn set(&self, value: &PendingAddressTransfer) {
+        self.env.storage().persistent().set(&self.key, value);
+        extend_ttl(self.env, &self.key);
+    }
+
+    /// Returns `PendingTransferNotFound` if no pending transfer exists.
+    #[inline]
+    pub fn get_or_err(&self) -> Result<PendingAddressTransfer, NttManagerError> {
+        self.get().ok_or(NttManagerError::PendingTransferNotFound)
     }
 
     #[inline]

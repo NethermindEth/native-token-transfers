@@ -86,4 +86,11 @@ pub enum NttManagerError {
     TransferAlreadyRedeemed = 82,
     InvalidTargetChain = 83,
     TransferNotApproved = 84,
+
+    /// Recipient address does not exist on-chain as either an Account or Contract.
+    RecipientNotFound = 90,
+    /// No pending address transfer exists for the given digest.
+    PendingTransferNotFound = 91,
+    /// Claimant's bytes32 representation does not match the pending transfer's recipient bytes.
+    PendingTransferRecipientMismatch = 92,
 }

@@ -1,4 +1,6 @@
-use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
+use soroban_sdk::{
+    address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env, Symbol,
+};
 
 use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
 use crate::rate_limit::RateLimitParams;
@@ -81,6 +83,9 @@ pub enum DataKey {
 
     /// Reentrancy guard flag.
     Reentering,
+
+    /// Pending address transfer for recipients that couldn't be resolved on-chain.
+    PendingAddress(BytesN<32>),
 }
 
 /// Aggregated configuration for the NTT Manager.
@@ -167,6 +172,25 @@ pub struct InboundQueuedTransfer {
     pub trimmed_amount: u64,
     /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
+}
+
+/// An inbound transfer whose recipient could not be resolved on-chain.
+///
+/// Stored in persistent storage keyed by message digest. The 32-byte recipient
+/// from the wire format is ambiguous on Stellar (could be Account or Contract).
+/// When neither interpretation exists on ledger, the transfer is parked here
+/// until the real recipient calls `claim_pending_transfer`.
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct PendingAddressTransfer {
+    /// The raw 32-byte recipient from the NTT wire format.
+    pub recipient_bytes: BytesN<32>,
+    /// Amount in local token decimals (already untrimmed).
+    pub amount: i128,
+    /// Trimmed amount for rate limit accounting.
+    pub trimmed_amount: u64,
+    /// Source chain ID (needed for inbound rate limit at claim time).
+    pub source_chain: u32,
 }
 
 /// Peer NTT Manager on another chain.
@@ -258,4 +282,48 @@ pub fn bytes32_to_address(env: &Env, bytes: &BytesN<32>) -> Address {
         env,
         AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()),
     )
+}
+
+/// Result of probing both address interpretations on ledger.
+///
+/// Internal enum, not stored in contract state.
+pub enum AddressResolution {
+    /// Exactly one interpretation exists on-chain.
+    Resolved(Address),
+    /// Neither Account nor Contract exists for these bytes.
+    NotFound,
+}
+
+/// Probes the ledger to determine whether 32 bytes correspond to an
+/// Account (G...) or Contract (C...) address on Stellar.
+///
+/// The NTT wire format uses 32 bytes for all addresses, but Stellar needs
+/// an additional type byte to distinguish Account from Contract. This function
+/// constructs both interpretations and checks which exists on ledger.
+///
+/// - `(contract exists, account !exists)` -> Contract address
+/// - `(contract !exists, account exists)` -> Account address
+/// - `(both exist)` -> Contract address + diagnostic event (2^-256 probability)
+/// - `(neither exists)` -> `NotFound` (recipient must claim later)
+pub fn resolve_stellar_address(env: &Env, bytes: &BytesN<32>) -> AddressResolution {
+    let contract_addr = Address::from_payload(env, AddressPayload::ContractIdHash(bytes.clone()));
+    let account_addr = Address::from_payload(
+        env,
+        AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()),
+    );
+
+    let contract_exists = contract_addr.exists();
+    let account_exists = account_addr.exists();
+
+    match (contract_exists, account_exists) {
+        (true, false) => AddressResolution::Resolved(contract_addr),
+        (false, true) => AddressResolution::Resolved(account_addr),
+        (true, true) => {
+            // Cryptographically infeasible (2^-256). Log for observability, prefer Contract.
+            env.events()
+                .publish((Symbol::new(env, "ambiguous_addr"),), bytes.clone());
+            AddressResolution::Resolved(contract_addr)
+        }
+        (false, false) => AddressResolution::NotFound,
+    }
 }
