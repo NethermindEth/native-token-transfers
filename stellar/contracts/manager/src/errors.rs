@@ -80,9 +80,6 @@ pub enum NttManagerError {
     /// Caller is not the original sender of the queued transfer.
     CancellerNotSender = 65,
 
-    /// Function is re-entering (reentrancy guard triggered).
-    Reentering = 70,
-
     /// Transceiver exists but is currently disabled; cannot attest.
     TransceiverNotEnabled = 80,
     /// This transceiver has already attested to this message digest.

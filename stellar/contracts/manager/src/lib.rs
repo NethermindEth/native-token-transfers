@@ -24,8 +24,8 @@ use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_pee
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    require_not_reentering, set_reentering, AttestationInfo, AttestationResult, DataKey,
-    InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer, TransferResult,
+    AttestationInfo, AttestationResult, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer,
+    OutboundQueuedTransfer, TransferResult,
 };
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
@@ -37,23 +37,15 @@ use transceivers::{
     set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
 };
 
-/// Executes a state-modifying operation with pause and reentrancy guards.
+/// Executes a state-modifying operation with a pause guard.
 ///
-/// Checks that the contract is not paused, prevents reentrant calls, and ensures
-/// the reentrancy flag is cleared after execution (even on error).
+/// Checks that the contract is not paused before executing the closure.
 fn with_transfer_guard<F, T>(env: &Env, f: F) -> Result<T, NttManagerError>
 where
     F: FnOnce() -> Result<T, NttManagerError>,
 {
-    let storage = InstanceStorage::new(env);
-    storage.require_not_paused()?;
-    require_not_reentering(env)?;
-    set_reentering(env, true);
-
-    let result = f();
-
-    set_reentering(env, false);
-    result
+    InstanceStorage::new(env).require_not_paused()?;
+    f()
 }
 
 /// NTT Manager contract for cross-chain native token transfers.
@@ -221,7 +213,6 @@ impl ManagerContract {
     ///
     /// # Errors
     /// - `ContractPaused` if the contract is paused
-    /// - `Reentering` if a transfer is already in progress
     /// - `ZeroAmount` if amount is zero or negative
     /// - `InvalidRecipient` if recipient is all zeros
     /// - `PeerNotFound` if no peer registered for recipient chain
@@ -285,7 +276,6 @@ impl ManagerContract {
     ///
     /// # Errors
     /// - `ContractPaused` if the contract is paused
-    /// - `Reentering` if another transfer is in progress
     /// - `TransferNotQueued` if no transfer exists for this sequence
     /// - `TransferNotReleasable` if release timestamp not yet reached
     /// - `TransferExceedsRateLimit` if still rate limited

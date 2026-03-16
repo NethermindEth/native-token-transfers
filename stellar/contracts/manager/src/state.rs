@@ -74,9 +74,6 @@ pub enum DataKey {
     OutboundQueue(u64),
     /// Queued inbound transfer by message digest.
     InboundQueue(BytesN<32>),
-
-    /// Reentrancy guard flag.
-    Reentering,
 }
 
 /// Aggregated configuration for the NTT Manager.
@@ -193,32 +190,6 @@ pub struct AttestationResult {
     pub executed: bool,
     /// Whether the transfer was queued due to rate limiting.
     pub queued: bool,
-}
-
-/// Ensures no reentrant call is in progress.
-///
-/// Checks temporary storage for the reentrancy guard flag. Returns `Reentering`
-/// error if a transfer operation is already executing in the call stack.
-pub fn require_not_reentering(env: &Env) -> Result<(), NttManagerError> {
-    let reentering: bool = env
-        .storage()
-        .temporary()
-        .get(&DataKey::Reentering)
-        .unwrap_or(false);
-    if reentering {
-        return Err(NttManagerError::Reentering);
-    }
-    Ok(())
-}
-
-/// Sets the reentrancy guard flag in temporary storage.
-///
-/// Used to prevent reentrant calls during token operations. The flag is automatically
-/// cleared at the end of the transaction since it uses temporary storage.
-pub fn set_reentering(env: &Env, reentering: bool) {
-    env.storage()
-        .temporary()
-        .set(&DataKey::Reentering, &reentering);
 }
 
 /// Converts a sequence number to a 32-byte message ID.
