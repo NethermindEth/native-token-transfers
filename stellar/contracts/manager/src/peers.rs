@@ -59,20 +59,19 @@ pub fn set_peer(
     }
 
     let entry = PeerEntry::new(env, chain_id);
-    let peer = if let Some(mut existing_peer) = entry.get() {
-        existing_peer.address = address;
-        existing_peer.token_decimals = token_decimals;
-        existing_peer
-            .inbound_rate_limit
-            .set_limit(inbound_limit, env);
-        existing_peer
-    } else {
-        NttManagerPeer {
-            address,
+    let peer = entry.get().map_or_else(
+        || NttManagerPeer {
+            address: address.clone(),
             token_decimals,
             inbound_rate_limit: RateLimitParams::new(inbound_limit, env),
-        }
-    };
+        },
+        |mut existing| {
+            existing.address = address.clone();
+            existing.token_decimals = token_decimals;
+            existing.inbound_rate_limit.set_limit(inbound_limit, env);
+            existing
+        },
+    );
 
     entry.set(&peer);
     Ok(())

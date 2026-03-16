@@ -37,7 +37,7 @@ pub fn send_transfer(
     let storage = InstanceStorage::new(env);
     let sequence = storage.use_sequence();
     let message_id = sequence_to_message_id(env, sequence);
-    let sender_bytes = address_to_bytes32(env, sender);
+    let sender_bytes = address_to_bytes32(sender);
 
     let ntt_message = NttManagerMessage {
         id: message_id,
@@ -125,7 +125,7 @@ pub fn transfer_internal(
 
     let rate_result = consume_or_delay_outbound(env, trimmed.amount);
 
-    let source_token = address_to_bytes32(env, &token);
+    let source_token = address_to_bytes32(&token);
 
     match rate_result {
         RateLimitResult::Consumed => {
@@ -170,7 +170,7 @@ pub fn transfer_internal(
             OutboundQueueEntry::new(env, sequence).set(&queued);
 
             let message_id = sequence_to_message_id(env, sequence);
-            let sender_bytes = address_to_bytes32(env, sender);
+            let sender_bytes = address_to_bytes32(sender);
             let ntt_message = NttManagerMessage {
                 id: message_id,
                 sender: sender_bytes,

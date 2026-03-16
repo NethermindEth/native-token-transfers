@@ -238,7 +238,7 @@ pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
 ///
 /// # Panics
 /// Panics if the address has no payload (should never happen with valid addresses).
-pub fn address_to_bytes32(_env: &Env, address: &Address) -> BytesN<32> {
+pub fn address_to_bytes32(address: &Address) -> BytesN<32> {
     match address.to_payload().expect("address has no payload") {
         AddressPayload::AccountIdPublicKeyEd25519(bytes) => bytes,
         AddressPayload::ContractIdHash(bytes) => bytes,
