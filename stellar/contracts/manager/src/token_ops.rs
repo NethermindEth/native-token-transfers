@@ -10,23 +10,21 @@
 //!
 //! ## Burning Mode
 //!
-//! Burning mode requires a custom token contract that implements:
+//! Burning mode uses two token operations:
 //!
-//! - `burn(from: Address, amount: i128)` - Burns tokens from the sender
-//! - `mint(to: Address, amount: i128)` - Mints tokens to the recipient
-//!
-//! The NTT Manager contract address must be authorized as a minter/burner
-//! on the token contract. Standard Stellar Asset Contracts do NOT support
-//! burn/mint operations with external authorization.
+//! - `burn(from, amount)` — Part of the standard `TokenInterface` (SEP-41).
+//!   The sender authorizes the burn of their own tokens. Works with any
+//!   compliant token, including Stellar Asset Contracts.
+//! - `mint(to, amount)` — Part of the `StellarAssetInterface` (admin-only).
+//!   The NTT Manager must be set as the token admin (or the token contract
+//!   must have custom authorization allowing the NTT Manager to mint).
 //!
 //! ## Recommendation
 //!
 //! - Use **Locking mode** with existing SEP-41 tokens (simplest setup)
 //! - Use **Burning mode** only with a custom NTT-compatible token contract
 
-#![allow(dead_code)]
-
-use soroban_sdk::{token, vec, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{token, Address, Env};
 
 use crate::errors::NttManagerError;
 use crate::state::{DataKey, Mode};
@@ -108,31 +106,23 @@ pub fn unlock_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttMan
 
 /// Burns tokens from the sender (burning mode).
 ///
-/// Used for outbound transfers on non-canonical chains. Requires a custom
-/// token contract that implements `burn(from, amount)` and has authorized
-/// this NTT Manager as a burner.
+/// Uses the standard `TokenInterface::burn` — the sender authorizes the
+/// burn of their own tokens. Works with any SEP-41 compliant token.
 pub fn burn_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), NttManagerError> {
     let token_addr = get_token(env)?;
-    env.invoke_contract::<()>(
-        &token_addr,
-        &Symbol::new(env, "burn"),
-        vec![env, from.into_val(env), amount.into_val(env)],
-    );
+    let client = token::Client::new(env, &token_addr);
+    client.burn(from, &amount);
     Ok(())
 }
 
 /// Mints tokens to the recipient (burning mode).
 ///
-/// Used for inbound transfers on non-canonical chains. Requires a custom
-/// token contract that implements `mint(to, amount)` and has authorized
-/// this NTT Manager as a minter.
+/// Uses `StellarAssetInterface::mint` — an admin-only operation. The NTT
+/// Manager must be the token admin or otherwise authorized to mint.
 pub fn mint_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttManagerError> {
     let token_addr = get_token(env)?;
-    env.invoke_contract::<()>(
-        &token_addr,
-        &Symbol::new(env, "mint"),
-        vec![env, to.into_val(env), amount.into_val(env)],
-    );
+    let client = token::StellarAssetClient::new(env, &token_addr);
+    client.mint(to, &amount);
     Ok(())
 }
 
