@@ -1,7 +1,7 @@
 //! Type-safe storage wrappers with automatic TTL extension.
 
 use core::fmt::Debug;
-use soroban_sdk::{Address, BytesN, Env, TryFromVal, Val};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
@@ -48,6 +48,11 @@ impl<'a> InstanceStorage<'a> {
         T::Error: Debug,
     {
         self.env.storage().instance().get(key).unwrap_or(default)
+    }
+
+    #[inline]
+    fn write_key<T: IntoVal<Env, Val>>(&self, key: &DataKey, value: &T) {
+        self.env.storage().instance().set(key, value);
     }
 
     // --- Required getters (fail if uninitialized) ---
@@ -131,15 +136,12 @@ impl<'a> InstanceStorage<'a> {
 
     #[inline]
     pub fn set_admin(&self, admin: &Address) {
-        self.env.storage().instance().set(&DataKey::Admin, admin);
+        self.write_key(&DataKey::Admin, admin);
     }
 
     #[inline]
     pub fn set_pending_admin(&self, pending_admin: &Address) {
-        self.env
-            .storage()
-            .instance()
-            .set(&DataKey::PendingAdmin, pending_admin);
+        self.write_key(&DataKey::PendingAdmin, pending_admin);
     }
 
     #[inline]
@@ -151,46 +153,34 @@ impl<'a> InstanceStorage<'a> {
     #[inline]
     pub fn set_pauser(&self, pauser: Option<&Address>) {
         match pauser {
-            Some(p) => self.env.storage().instance().set(&DataKey::Pauser, p),
+            Some(p) => self.write_key(&DataKey::Pauser, p),
             None => self.env.storage().instance().remove(&DataKey::Pauser),
         }
     }
 
     #[inline]
     pub fn set_paused(&self, paused: bool) {
-        self.env.storage().instance().set(&DataKey::Paused, &paused);
+        self.write_key(&DataKey::Paused, &paused);
     }
 
     #[inline]
     pub fn set_threshold(&self, threshold: u32) {
-        self.env
-            .storage()
-            .instance()
-            .set(&DataKey::Threshold, &threshold);
+        self.write_key(&DataKey::Threshold, &threshold);
     }
 
     #[inline]
     pub fn set_next_sequence(&self, sequence: u64) {
-        self.env
-            .storage()
-            .instance()
-            .set(&DataKey::NextSequence, &sequence);
+        self.write_key(&DataKey::NextSequence, &sequence);
     }
 
     #[inline]
     pub fn set_transceiver_count(&self, count: u32) {
-        self.env
-            .storage()
-            .instance()
-            .set(&DataKey::TransceiverCount, &count);
+        self.write_key(&DataKey::TransceiverCount, &count);
     }
 
     #[inline]
     pub fn set_enabled_bitmap(&self, bitmap: u64) {
-        self.env
-            .storage()
-            .instance()
-            .set(&DataKey::EnabledBitmap, &bitmap);
+        self.write_key(&DataKey::EnabledBitmap, &bitmap);
     }
 
     // --- Compound operations ---
