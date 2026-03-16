@@ -42,6 +42,14 @@ impl<'a> InstanceStorage<'a> {
             .ok_or(NttManagerError::NotInitialized)
     }
 
+    #[inline]
+    fn read_key_or<T: TryFromVal<Env, Val>>(&self, key: &DataKey, default: T) -> T
+    where
+        T::Error: Debug,
+    {
+        self.env.storage().instance().get(key).unwrap_or(default)
+    }
+
     // --- Required getters (fail if uninitialized) ---
 
     #[inline]
@@ -85,66 +93,38 @@ impl<'a> InstanceStorage<'a> {
 
     #[inline]
     pub fn is_paused(&self) -> bool {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
+        self.read_key_or(&DataKey::Paused, false)
     }
 
     #[inline]
     pub fn threshold(&self) -> u32 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Threshold)
-            .unwrap_or(0)
+        self.read_key_or(&DataKey::Threshold, 0)
     }
 
     #[inline]
     pub fn next_sequence(&self) -> u64 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::NextSequence)
-            .unwrap_or(1)
+        self.read_key_or(&DataKey::NextSequence, 1)
     }
 
     #[inline]
     pub fn version(&self) -> u32 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Version)
-            .unwrap_or(1)
+        self.read_key_or(&DataKey::Version, 1)
     }
 
     #[inline]
     pub fn transceiver_count(&self) -> u32 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::TransceiverCount)
-            .unwrap_or(0)
+        self.read_key_or(&DataKey::TransceiverCount, 0)
     }
 
     #[inline]
     pub fn enabled_bitmap(&self) -> u64 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::EnabledBitmap)
-            .unwrap_or(0)
+        self.read_key_or(&DataKey::EnabledBitmap, 0)
     }
 
     /// Defaults to 24 hours (86400 seconds).
     #[inline]
     pub fn rate_limit_duration(&self) -> u64 {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::RateLimitDuration)
-            .unwrap_or(RATE_LIMIT_DURATION)
+        self.read_key_or(&DataKey::RateLimitDuration, RATE_LIMIT_DURATION)
     }
 
     // --- Setters ---
