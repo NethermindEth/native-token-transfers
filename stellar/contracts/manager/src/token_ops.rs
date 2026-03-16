@@ -28,7 +28,8 @@ use soroban_sdk::{token, Address, Env};
 
 use crate::{
     errors::NttManagerError,
-    state::{DataKey, Mode},
+    state::Mode,
+    storage::InstanceStorage,
 };
 
 /// Queries the token contract for its decimal precision.
@@ -40,26 +41,6 @@ pub fn query_token_decimals(env: &Env, token: &Address) -> u32 {
     client.decimals()
 }
 
-/// Retrieves the configured token address from storage.
-///
-/// Returns `NotInitialized` if the contract has not been initialized.
-pub fn get_token(env: &Env) -> Result<Address, NttManagerError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Token)
-        .ok_or(NttManagerError::NotInitialized)
-}
-
-/// Retrieves the operating mode (Locking or Burning) from storage.
-///
-/// Returns `NotInitialized` if the contract has not been initialized.
-pub fn get_mode(env: &Env) -> Result<Mode, NttManagerError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Mode)
-        .ok_or(NttManagerError::NotInitialized)
-}
-
 /// Retrieves the cached token decimals from storage.
 ///
 /// Decimals are queried once during initialization and cached. This avoids
@@ -67,17 +48,14 @@ pub fn get_mode(env: &Env) -> Result<Mode, NttManagerError> {
 ///
 /// Returns `NotInitialized` if the contract has not been initialized.
 pub fn get_token_decimals(env: &Env) -> Result<u32, NttManagerError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::TokenDecimals)
-        .ok_or(NttManagerError::NotInitialized)
+    InstanceStorage::new(env).token_decimals()
 }
 
 /// Queries the token balance for an account.
 ///
 /// Makes a cross-contract call to the configured token contract.
 pub fn get_token_balance(env: &Env, account: &Address) -> Result<i128, NttManagerError> {
-    let token_addr = get_token(env)?;
+    let token_addr = InstanceStorage::new(env).token()?;
     let client = token::Client::new(env, &token_addr);
     Ok(client.balance(account))
 }
@@ -86,46 +64,38 @@ pub fn get_token_balance(env: &Env, account: &Address) -> Result<i128, NttManage
 ///
 /// Used for outbound transfers on the canonical chain. The sender must have
 /// previously authorized the transfer via `require_auth`.
-pub fn lock_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let token_addr = get_token(env)?;
+fn lock_tokens(env: &Env, token_addr: &Address, from: &Address, amount: i128) {
     let contract = env.current_contract_address();
-    let client = token::Client::new(env, &token_addr);
+    let client = token::Client::new(env, token_addr);
     client.transfer(from, &contract, &amount);
-    Ok(())
 }
 
 /// Transfers tokens from this contract to the recipient (locking mode).
 ///
 /// Used for inbound transfers on the canonical chain to release previously
 /// locked tokens to the destination address.
-pub fn unlock_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let token_addr = get_token(env)?;
+fn unlock_tokens(env: &Env, token_addr: &Address, to: &Address, amount: i128) {
     let contract = env.current_contract_address();
-    let client = token::Client::new(env, &token_addr);
+    let client = token::Client::new(env, token_addr);
     client.transfer(&contract, to, &amount);
-    Ok(())
 }
 
 /// Burns tokens from the sender (burning mode).
 ///
 /// Uses the standard `TokenInterface::burn` — the sender authorizes the
 /// burn of their own tokens. Works with any SEP-41 compliant token.
-pub fn burn_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let token_addr = get_token(env)?;
-    let client = token::Client::new(env, &token_addr);
+fn burn_tokens(env: &Env, token_addr: &Address, from: &Address, amount: i128) {
+    let client = token::Client::new(env, token_addr);
     client.burn(from, &amount);
-    Ok(())
 }
 
 /// Mints tokens to the recipient (burning mode).
 ///
 /// Uses `StellarAssetInterface::mint` — an admin-only operation. The NTT
 /// Manager must be the token admin or otherwise authorized to mint.
-pub fn mint_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let token_addr = get_token(env)?;
-    let client = token::StellarAssetClient::new(env, &token_addr);
+fn mint_tokens(env: &Env, token_addr: &Address, to: &Address, amount: i128) {
+    let client = token::StellarAssetClient::new(env, token_addr);
     client.mint(to, &amount);
-    Ok(())
 }
 
 /// Takes custody of tokens for an outbound transfer.
@@ -133,11 +103,14 @@ pub fn mint_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttManag
 /// Dispatches to `lock_tokens` or `burn_tokens` based on the configured mode.
 /// This is the primary entry point for outbound token operations.
 pub fn custody_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let mode = get_mode(env)?;
+    let storage = InstanceStorage::new(env);
+    let token_addr = storage.token()?;
+    let mode = storage.mode()?;
     match mode {
-        Mode::Locking => lock_tokens(env, from, amount),
-        Mode::Burning => burn_tokens(env, from, amount),
+        Mode::Locking => lock_tokens(env, &token_addr, from, amount),
+        Mode::Burning => burn_tokens(env, &token_addr, from, amount),
     }
+    Ok(())
 }
 
 /// Releases tokens to the recipient for an inbound transfer.
@@ -145,9 +118,12 @@ pub fn custody_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), Ntt
 /// Dispatches to `unlock_tokens` or `mint_tokens` based on the configured mode.
 /// This is the primary entry point for inbound token operations.
 pub fn release_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), NttManagerError> {
-    let mode = get_mode(env)?;
+    let storage = InstanceStorage::new(env);
+    let token_addr = storage.token()?;
+    let mode = storage.mode()?;
     match mode {
-        Mode::Locking => unlock_tokens(env, to, amount),
-        Mode::Burning => mint_tokens(env, to, amount),
+        Mode::Locking => unlock_tokens(env, &token_addr, to, amount),
+        Mode::Burning => mint_tokens(env, &token_addr, to, amount),
     }
+    Ok(())
 }

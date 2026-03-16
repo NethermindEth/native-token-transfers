@@ -11,7 +11,7 @@ use crate::{
     errors::NttManagerError,
     messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount},
     peers::{get_peer, refill_inbound},
-    rate_limit::{consume_or_queue_outbound, RateLimitResult},
+    rate_limit::{consume_or_delay_outbound, RateLimitResult},
     state::{address_to_bytes32, sequence_to_message_id, OutboundQueuedTransfer, TransferResult},
     storage::{InstanceStorage, OutboundQueueEntry},
     token_ops::{custody_tokens, get_token_decimals, release_tokens},
@@ -123,7 +123,7 @@ pub fn transfer_internal(
 
     custody_tokens(env, sender, transfer_amount as i128)?;
 
-    let rate_result = consume_or_queue_outbound(env, trimmed.amount);
+    let rate_result = consume_or_delay_outbound(env, trimmed.amount);
 
     let source_token = address_to_bytes32(env, &token);
 

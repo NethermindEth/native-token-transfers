@@ -65,8 +65,12 @@ impl RateLimitParams {
         } else {
             let duration = InstanceStorage::new(env).rate_limit_duration();
             let deficit = amount - capacity;
+            // Guard against division by zero: limit == 0 means "queue all transfers"
+            // (valid configuration, matching EVM behavior). Fall back to the full
+            // rate limit duration since no capacity will ever refill.
             let time_needed = if self.limit > 0 {
-                ((deficit as u128) * (duration as u128) / (self.limit as u128)) as u64
+                ((deficit as u128) * (duration as u128) / (self.limit as u128))
+                    .min(u64::MAX as u128) as u64
             } else {
                 duration
             };
@@ -88,13 +92,16 @@ impl RateLimitParams {
 
     /// Updates the rate limit, adjusting capacity proportionally.
     ///
-    /// When reducing the limit, capacity is reduced by the difference.
-    /// When increasing, capacity grows but stays capped at the new limit.
+    /// Preserves the amount already consumed (`limit - capacity`) so that
+    /// changing the limit doesn't instantly create or destroy usable capacity.
+    /// For example, if 300 of 1000 was consumed and the limit increases to
+    /// 2000, the new capacity is 1700 (not 2000).
     pub fn set_limit(&mut self, new_limit: u64, env: &Env) {
         let now = env.ledger().timestamp();
         let current = self.capacity_at(env);
         let old_limit = self.limit;
 
+        // Adjust capacity by the delta to preserve consumed amount.
         self.current_capacity = if new_limit < old_limit {
             current.saturating_sub(old_limit - new_limit)
         } else {
@@ -118,9 +125,9 @@ impl RateLimitParams {
 
 /// Attempts to consume outbound rate limit capacity.
 ///
-/// If consumed, updates storage. If delayed, storage is unchanged and the
-/// caller should queue the transfer for later execution.
-pub fn consume_or_queue_outbound(env: &Env, amount: u64) -> RateLimitResult {
+/// If consumed, updates storage. If delayed, returns the release timestamp
+/// without modifying storage — the caller decides whether to queue.
+pub fn consume_or_delay_outbound(env: &Env, amount: u64) -> RateLimitResult {
     let storage = InstanceStorage::new(env);
     let mut rate_limit = storage.outbound_rate_limit();
     let result = rate_limit.consume_or_delay(amount, env);
