@@ -30,7 +30,7 @@ pub enum NttManagerError {
     /// Contract is paused; transfers and redemptions are blocked.
     ContractPaused = 12,
     /// Caller is neither the admin nor the pauser.
-    InvalidPauser = 13,
+    NotAdminOrPauser = 13,
 
     /// Rate limit not initialized.
     RateLimitNotInitialized = 20,
@@ -83,9 +83,14 @@ pub enum NttManagerError {
     /// Function is re-entering (reentrancy guard triggered).
     Reentering = 70,
 
+    /// Transceiver exists but is currently disabled; cannot attest.
     TransceiverNotEnabled = 80,
+    /// This transceiver has already attested to this message digest.
     TransceiverAlreadyAttested = 81,
+    /// Tokens have already been released for this message; replay blocked.
     TransferAlreadyRedeemed = 82,
+    /// Message destination chain does not match this contract's chain ID.
     InvalidTargetChain = 83,
+    /// Attestation threshold not met, or attestation record does not exist.
     TransferNotApproved = 84,
 }

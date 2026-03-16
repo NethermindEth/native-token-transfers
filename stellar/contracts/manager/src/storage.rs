@@ -232,7 +232,7 @@ impl<'a> InstanceStorage<'a> {
                 return Ok(());
             }
         }
-        Err(NttManagerError::InvalidPauser)
+        Err(NttManagerError::NotAdminOrPauser)
     }
 
     /// Returns `ContractPaused` error if paused.
