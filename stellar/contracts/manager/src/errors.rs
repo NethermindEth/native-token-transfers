@@ -19,6 +19,8 @@ pub enum NttManagerError {
     ChainIdTooLarge = 4,
     /// Payload length exceeds maximum (65535 bytes).
     PayloadTooLong = 5,
+    /// TrimmedAmount arithmetic on operands with different decimals.
+    DecimalMismatch = 6,
 
     /// Caller is not authorized to perform the requested action.
     Unauthorized = 10,

@@ -100,10 +100,10 @@ impl TrimmedAmount {
 
     /// Serializes to 9 bytes: 1 byte decimals + 8 bytes big-endian amount.
     pub fn to_bytes(&self, env: &Env) -> Bytes {
-        let mut buf = Bytes::new(env);
-        buf.push_back(self.decimals as u8);
-        buf.append(&Bytes::from_array(env, &self.amount.to_be_bytes()));
-        buf
+        let mut buf = [0u8; 9];
+        buf[0] = self.decimals as u8;
+        buf[1..9].copy_from_slice(&self.amount.to_be_bytes());
+        Bytes::from_array(env, &buf)
     }
 
     /// Deserializes from bytes at the given offset.
@@ -132,28 +132,32 @@ impl TrimmedAmount {
         self.amount == 0
     }
 
-    /// Saturating addition. Both operands must have matching decimals.
+    /// Saturating addition with decimal validation.
     ///
-    /// # Panics
-    /// Panics if `self.decimals != other.decimals`.
-    pub fn saturating_add(&self, other: &Self) -> Self {
-        assert_eq!(self.decimals, other.decimals, "decimal mismatch");
-        Self {
+    /// Returns `DecimalMismatch` if operands have different decimals.
+    /// The u64 addition itself saturates at `u64::MAX`.
+    pub fn checked_add(&self, other: &Self) -> Result<Self, NttManagerError> {
+        if self.decimals != other.decimals {
+            return Err(NttManagerError::DecimalMismatch);
+        }
+        Ok(Self {
             amount: self.amount.saturating_add(other.amount),
             decimals: self.decimals,
-        }
+        })
     }
 
-    /// Saturating subtraction. Both operands must have matching decimals.
+    /// Saturating subtraction with decimal validation.
     ///
-    /// # Panics
-    /// Panics if `self.decimals != other.decimals`.
-    pub fn saturating_sub(&self, other: &Self) -> Self {
-        assert_eq!(self.decimals, other.decimals, "decimal mismatch");
-        Self {
+    /// Returns `DecimalMismatch` if operands have different decimals.
+    /// The u64 subtraction itself saturates at `0`.
+    pub fn checked_sub(&self, other: &Self) -> Result<Self, NttManagerError> {
+        if self.decimals != other.decimals {
+            return Err(NttManagerError::DecimalMismatch);
+        }
+        Ok(Self {
             amount: self.amount.saturating_sub(other.amount),
             decimals: self.decimals,
-        }
+        })
     }
 }
 
@@ -202,9 +206,7 @@ impl NativeTokenTransfer {
             return Err(NttManagerError::ChainIdTooLarge);
         }
 
-        let mut buf = Bytes::new(env);
-
-        buf.append(&Bytes::from_array(env, &Self::PREFIX));
+        let mut buf = Bytes::from_array(env, &Self::PREFIX);
         buf.append(&self.amount.to_bytes(env));
         buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
         buf.append(&Bytes::from_array(env, &self.to.to_array()));
@@ -316,9 +318,7 @@ impl NttManagerMessage {
     ///
     /// Propagates errors from `NativeTokenTransfer::to_bytes`.
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
-        let mut buf = Bytes::new(env);
-
-        buf.append(&Bytes::from_array(env, &self.id.to_array()));
+        let mut buf = Bytes::from_array(env, &self.id.to_array());
         buf.append(&Bytes::from_array(env, &self.sender.to_array()));
 
         let payload_bytes = self.payload.to_bytes(env)?;
@@ -374,8 +374,7 @@ impl NttManagerMessage {
         env: &Env,
         source_chain: u16,
     ) -> Result<BytesN<32>, NttManagerError> {
-        let mut data = Bytes::new(env);
-        data.append(&Bytes::from_array(env, &source_chain.to_be_bytes()));
+        let mut data = Bytes::from_array(env, &source_chain.to_be_bytes());
         data.append(&self.to_bytes(env)?);
         Ok(env.crypto().keccak256(&data).into())
     }
