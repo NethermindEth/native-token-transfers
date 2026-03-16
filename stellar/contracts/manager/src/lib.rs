@@ -24,7 +24,7 @@ use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_pee
 use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use state::{
-    AttestationInfo, AttestationResult, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer,
+    AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerPeer,
     OutboundQueuedTransfer, TransferResult,
 };
 use storage::{
@@ -76,27 +76,21 @@ impl ManagerContract {
         rate_limit_duration: u64,
     ) {
         let token_decimals = query_token_decimals(&env, &token);
+        let storage = InstanceStorage::new(&env);
 
-        // Use direct storage access for initialization (InstanceStorage extends TTL)
-        let storage = env.storage().instance();
-        storage.set(&DataKey::Admin, &admin);
-        storage.set(&DataKey::Token, &token);
-        storage.set(&DataKey::TokenDecimals, &token_decimals);
-        storage.set(&DataKey::Mode, &mode);
-        storage.set(&DataKey::ChainId, &chain_id);
-        storage.set(&DataKey::Paused, &false);
-        storage.set(&DataKey::Threshold, &0u32);
-        storage.set(&DataKey::NextSequence, &1u64);
-        storage.set(&DataKey::Version, &1u32);
-        storage.set(&DataKey::TransceiverCount, &0u32);
-        storage.set(&DataKey::EnabledBitmap, &0u64);
-        storage.set(&DataKey::RateLimitDuration, &rate_limit_duration);
-
-        let rate_limit_params = rate_limit::RateLimitParams::new(outbound_limit, &env);
-        storage.set(&DataKey::OutboundRateLimit, &rate_limit_params);
-
-        // Extend TTL after initialization
-        let _ = InstanceStorage::new(&env);
+        storage.set_admin(&admin);
+        storage.set_token(&token);
+        storage.set_token_decimals(token_decimals);
+        storage.set_mode(&mode);
+        storage.set_chain_id(chain_id);
+        storage.set_paused(false);
+        storage.set_threshold(0);
+        storage.set_next_sequence(1);
+        storage.set_version(1);
+        storage.set_transceiver_count(0);
+        storage.set_enabled_bitmap(0);
+        storage.set_rate_limit_duration(rate_limit_duration);
+        storage.set_outbound_rate_limit(&RateLimitParams::new(outbound_limit, &env));
     }
 
     pub fn receive_wormhole_message(
@@ -299,7 +293,6 @@ impl ManagerContract {
         sender: Address,
         sequence: u64,
     ) -> Result<(), NttManagerError> {
-        let _ = InstanceStorage::new(&env);
         sender.require_auth();
 
         cancel_outbound_queued_transfer(&env, &sender, sequence)
@@ -397,20 +390,17 @@ impl ManagerContract {
     /// Returns the minimum number of transceiver attestations required
     /// to execute an inbound transfer. Returns 0 if no transceivers are registered.
     pub fn get_threshold(env: Env) -> u32 {
-        let storage = InstanceStorage::new(&env);
-        storage.threshold()
+        InstanceStorage::new(&env).threshold()
     }
 
     /// Returns the total number of registered transceivers (enabled or disabled).
     pub fn get_transceiver_count(env: Env) -> u32 {
-        let storage = InstanceStorage::new(&env);
-        storage.transceiver_count()
+        InstanceStorage::new(&env).transceiver_count()
     }
 
     /// Returns a bitmap where bit N is set if transceiver index N is enabled.
     pub fn get_enabled_bitmap(env: Env) -> u64 {
-        let storage = InstanceStorage::new(&env);
-        storage.enabled_bitmap()
+        InstanceStorage::new(&env).enabled_bitmap()
     }
 
     /// Returns transceiver metadata by its permanent index.
@@ -428,15 +418,13 @@ impl ManagerContract {
     /// Returns the outbound rate limit parameters.
     /// If not initialized, returns unlimited capacity.
     pub fn get_outbound_limit_params(env: Env) -> RateLimitParams {
-        let storage = InstanceStorage::new(&env);
-        storage.outbound_rate_limit()
+        InstanceStorage::new(&env).outbound_rate_limit()
     }
 
     /// Returns the current outbound capacity, accounting for time-based refill.
     /// This is the maximum amount that can be transferred immediately without queueing.
     pub fn get_outbound_capacity(env: Env) -> u64 {
-        let storage = InstanceStorage::new(&env);
-        storage.outbound_rate_limit().capacity_at(&env)
+        InstanceStorage::new(&env).outbound_rate_limit().capacity_at(&env)
     }
 
     /// Returns the inbound rate limit parameters for a specific source chain.
@@ -450,8 +438,7 @@ impl ManagerContract {
     /// Returns the next outbound message sequence number.
     /// Sequence numbers start at 1 and increment with each transfer.
     pub fn get_next_sequence(env: Env) -> u64 {
-        let storage = InstanceStorage::new(&env);
-        storage.next_sequence()
+        InstanceStorage::new(&env).next_sequence()
     }
 
     /// Checks whether tokens have been released for a given message digest.
@@ -514,16 +501,14 @@ impl ManagerContract {
     ///
     /// Defaults to 1 if no version has been explicitly set.
     pub fn get_version(env: Env) -> u32 {
-        let storage = InstanceStorage::new(&env);
-        storage.version()
+        InstanceStorage::new(&env).version()
     }
 
     /// Returns the rate limit duration in seconds.
     ///
     /// Defaults to 86400 (24 hours) if not explicitly set.
     pub fn get_rate_limit_duration(env: Env) -> u64 {
-        let storage = InstanceStorage::new(&env);
-        storage.rate_limit_duration()
+        InstanceStorage::new(&env).rate_limit_duration()
     }
 
     /// Upgrades the contract to a new WASM implementation.

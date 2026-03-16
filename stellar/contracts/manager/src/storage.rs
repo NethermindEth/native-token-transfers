@@ -144,6 +144,37 @@ impl<'a> InstanceStorage<'a> {
         self.write_key(&DataKey::Admin, admin);
     }
 
+
+    #[inline]
+    pub fn set_token(&self, token: &Address) {
+        self.write_key(&DataKey::Token, token);
+    }
+
+    #[inline]
+    pub fn set_token_decimals(&self, decimals: u32) {
+        self.write_key(&DataKey::TokenDecimals, &decimals);
+    }
+
+    #[inline]
+    pub fn set_mode(&self, mode: &Mode) {
+        self.write_key(&DataKey::Mode, mode);
+    }
+
+    #[inline]
+    pub fn set_chain_id(&self, chain_id: u32) {
+        self.write_key(&DataKey::ChainId, &chain_id);
+    }
+
+    #[inline]
+    pub fn set_version(&self, version: u32) {
+        self.write_key(&DataKey::Version, &version);
+    }
+
+    #[inline]
+    pub fn set_rate_limit_duration(&self, duration: u64) {
+        self.write_key(&DataKey::RateLimitDuration, &duration);
+    }
+
     #[inline]
     pub fn set_pending_admin(&self, pending_admin: &Address) {
         self.write_key(&DataKey::PendingAdmin, pending_admin);
