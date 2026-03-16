@@ -9,15 +9,15 @@
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
-use crate::errors::NttManagerError;
-use crate::messages::NttManagerMessage;
-use crate::peers::{consume_or_queue_inbound, verify_peer};
-use crate::rate_limit::{refill_outbound, RateLimitResult};
-use crate::state::{bytes32_to_address, AttestationResult, InboundQueuedTransfer};
-use crate::storage::{AttestationEntry, InboundQueueEntry, InstanceStorage};
-use crate::token_ops::{get_token_decimals, release_tokens};
-use crate::transceivers::{
-    get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index,
+use crate::{
+    errors::NttManagerError,
+    messages::NttManagerMessage,
+    peers::{consume_or_queue_inbound, verify_peer},
+    rate_limit::{refill_outbound, RateLimitResult},
+    state::{bytes32_to_address, AttestationResult, InboundQueuedTransfer},
+    storage::{AttestationEntry, InboundQueueEntry, InstanceStorage},
+    token_ops::{get_token_decimals, release_tokens},
+    transceivers::{get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index},
 };
 
 /// Processes an attestation from a transceiver for an inbound message.

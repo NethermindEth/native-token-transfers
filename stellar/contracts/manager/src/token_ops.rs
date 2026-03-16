@@ -26,8 +26,10 @@
 
 use soroban_sdk::{token, Address, Env};
 
-use crate::errors::NttManagerError;
-use crate::state::{DataKey, Mode};
+use crate::{
+    errors::NttManagerError,
+    state::{DataKey, Mode},
+};
 
 /// Queries the token contract for its decimal precision.
 ///

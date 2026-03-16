@@ -7,16 +7,16 @@
 
 use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
 
-use crate::errors::NttManagerError;
-use crate::messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount};
-use crate::peers::{get_peer, refill_inbound};
-use crate::rate_limit::{consume_or_queue_outbound, RateLimitResult};
-use crate::state::{
-    address_to_bytes32, sequence_to_message_id, OutboundQueuedTransfer, TransferResult,
+use crate::{
+    errors::NttManagerError,
+    messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount},
+    peers::{get_peer, refill_inbound},
+    rate_limit::{consume_or_queue_outbound, RateLimitResult},
+    state::{address_to_bytes32, sequence_to_message_id, OutboundQueuedTransfer, TransferResult},
+    storage::{InstanceStorage, OutboundQueueEntry},
+    token_ops::{custody_tokens, get_token_decimals, release_tokens},
+    transceivers::{get_enabled_bitmap, get_enabled_transceivers},
 };
-use crate::storage::{InstanceStorage, OutboundQueueEntry};
-use crate::token_ops::{custody_tokens, get_token_decimals, release_tokens};
-use crate::transceivers::{get_enabled_bitmap, get_enabled_transceivers};
 
 /// Sends a transfer message to all enabled transceivers.
 ///

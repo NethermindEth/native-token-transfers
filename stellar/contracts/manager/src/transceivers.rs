@@ -5,9 +5,11 @@
 //! along with threshold-based attestation requirements.
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::constants::MAX_TRANSCEIVERS;
-use crate::errors::NttManagerError;
-use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
+use crate::{
+    constants::MAX_TRANSCEIVERS,
+    errors::NttManagerError,
+    storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry},
+};
 
 /// 64-bit bitmap for tracking transceiver registration and attestations.
 ///

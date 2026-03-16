@@ -1,7 +1,10 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
-use crate::rate_limit::RateLimitParams;
-use crate::{errors::NttManagerError, messages::TrimmedAmount};
+use crate::{
+    errors::NttManagerError,
+    messages::TrimmedAmount,
+    rate_limit::RateLimitParams,
+};
 
 /// Token handling mode for the NTT Manager.
 ///

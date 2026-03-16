@@ -6,10 +6,12 @@
 
 use soroban_sdk::{BytesN, Env};
 
-use crate::errors::NttManagerError;
-use crate::rate_limit::{RateLimitParams, RateLimitResult};
-use crate::state::NttManagerPeer;
-use crate::storage::{InstanceStorage, PeerEntry};
+use crate::{
+    errors::NttManagerError,
+    rate_limit::{RateLimitParams, RateLimitResult},
+    state::NttManagerPeer,
+    storage::{InstanceStorage, PeerEntry},
+};
 
 /// Retrieves peer configuration for a given chain.
 ///
