@@ -318,7 +318,11 @@ impl<'a> AttestationEntry<'a> {
 
     #[inline]
     pub fn get(&self) -> Option<AttestationInfo> {
-        self.env.storage().persistent().get(&self.key)
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
@@ -354,7 +358,11 @@ impl<'a> OutboundQueueEntry<'a> {
 
     #[inline]
     pub fn get(&self) -> Option<OutboundQueuedTransfer> {
-        self.env.storage().persistent().get(&self.key)
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
@@ -392,7 +400,11 @@ impl<'a> InboundQueueEntry<'a> {
 
     #[inline]
     pub fn get(&self) -> Option<InboundQueuedTransfer> {
-        self.env.storage().persistent().get(&self.key)
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
@@ -430,7 +442,11 @@ impl<'a> TransceiverEntry<'a> {
 
     #[inline]
     pub fn get(&self) -> Option<TransceiverInfo> {
-        self.env.storage().persistent().get(&self.key)
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
@@ -457,7 +473,11 @@ impl<'a> TransceiverIndexEntry<'a> {
 
     #[inline]
     pub fn get(&self) -> Option<u32> {
-        self.env.storage().persistent().get(&self.key)
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
@@ -466,3 +486,4 @@ impl<'a> TransceiverIndexEntry<'a> {
         extend_ttl(self.env, &self.key);
     }
 }
+

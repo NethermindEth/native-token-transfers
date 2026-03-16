@@ -1,14 +1,7 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
 
-use crate::constants::{PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD};
 use crate::rate_limit::RateLimitParams;
 use crate::{errors::NttManagerError, messages::TrimmedAmount};
-
-pub fn extend_persistent_ttl(env: &Env, key: &DataKey) {
-    env.storage()
-        .persistent()
-        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
-}
 
 /// Token handling mode for the NTT Manager.
 ///
