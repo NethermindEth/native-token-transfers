@@ -1,6 +1,7 @@
 //! Type-safe storage wrappers with automatic TTL extension.
 
-use soroban_sdk::{Address, BytesN, Env};
+use core::fmt::Debug;
+use soroban_sdk::{Address, BytesN, Env, TryFromVal, Val};
 
 use crate::constants::{
     INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND, PERSISTENT_TTL_THRESHOLD,
@@ -27,51 +28,45 @@ impl<'a> InstanceStorage<'a> {
         Self { env }
     }
 
+    // --- Private helpers ---
+
+    #[inline]
+    fn read_key<T: TryFromVal<Env, Val>>(&self, key: &DataKey) -> Result<T, NttManagerError>
+    where
+        T::Error: Debug,
+    {
+        self.env
+            .storage()
+            .instance()
+            .get(key)
+            .ok_or(NttManagerError::NotInitialized)
+    }
+
     // --- Required getters (fail if uninitialized) ---
 
     #[inline]
     pub fn admin(&self) -> Result<Address, NttManagerError> {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(NttManagerError::NotInitialized)
+        self.read_key(&DataKey::Admin)
     }
 
     #[inline]
     pub fn token(&self) -> Result<Address, NttManagerError> {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(NttManagerError::NotInitialized)
+        self.read_key(&DataKey::Token)
     }
 
     #[inline]
     pub fn token_decimals(&self) -> Result<u32, NttManagerError> {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::TokenDecimals)
-            .ok_or(NttManagerError::NotInitialized)
+        self.read_key(&DataKey::TokenDecimals)
     }
 
     #[inline]
     pub fn mode(&self) -> Result<Mode, NttManagerError> {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::Mode)
-            .ok_or(NttManagerError::NotInitialized)
+        self.read_key(&DataKey::Mode)
     }
 
     #[inline]
     pub fn chain_id(&self) -> Result<u32, NttManagerError> {
-        self.env
-            .storage()
-            .instance()
-            .get(&DataKey::ChainId)
-            .ok_or(NttManagerError::NotInitialized)
+        self.read_key(&DataKey::ChainId)
     }
 
     // --- Optional getters ---
