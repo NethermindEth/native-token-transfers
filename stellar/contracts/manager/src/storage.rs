@@ -1,6 +1,7 @@
 //! Type-safe storage wrappers with automatic TTL extension.
 
 use core::fmt::Debug;
+use core::marker::PhantomData;
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::constants::{
@@ -233,30 +234,65 @@ fn extend_ttl(env: &Env, key: &DataKey) {
         .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
 }
 
-/// Accessor for peer NTT manager config, keyed by Wormhole chain ID.
-pub struct PeerEntry<'a> {
+/// Generic accessor for persistent storage with automatic TTL extension.
+pub struct PersistentEntry<'a, V> {
     env: &'a Env,
     key: DataKey,
+    _marker: PhantomData<V>,
 }
 
-impl<'a> PeerEntry<'a> {
+impl<'a, V> PersistentEntry<'a, V> {
     #[inline]
-    pub fn new(env: &'a Env, chain_id: u32) -> Self {
+    fn from_key(env: &'a Env, key: DataKey) -> Self {
         Self {
             env,
-            key: DataKey::Peer(chain_id),
+            key,
+            _marker: PhantomData,
         }
     }
+}
 
+impl<'a, V> PersistentEntry<'a, V>
+where
+    V: TryFromVal<Env, Val> + IntoVal<Env, Val>,
+    V::Error: Debug,
+{
     #[inline]
-    pub fn get(&self) -> Option<NttManagerPeer> {
-        self.env.storage().persistent().get(&self.key)
+    pub fn get(&self) -> Option<V> {
+        let value = self.env.storage().persistent().get(&self.key);
+        if value.is_some() {
+            extend_ttl(self.env, &self.key);
+        }
+        value
     }
 
     #[inline]
-    pub fn set(&self, value: &NttManagerPeer) {
+    pub fn set(&self, value: &V) {
         self.env.storage().persistent().set(&self.key, value);
         extend_ttl(self.env, &self.key);
+    }
+
+    #[inline]
+    pub fn remove(&self) {
+        self.env.storage().persistent().remove(&self.key);
+    }
+}
+
+// --- Concrete entry types ---
+
+pub type PeerEntry<'a> = PersistentEntry<'a, NttManagerPeer>;
+pub type AttestationEntry<'a> = PersistentEntry<'a, AttestationInfo>;
+pub type OutboundQueueEntry<'a> = PersistentEntry<'a, OutboundQueuedTransfer>;
+pub type InboundQueueEntry<'a> = PersistentEntry<'a, InboundQueuedTransfer>;
+pub type TransceiverEntry<'a> = PersistentEntry<'a, TransceiverInfo>;
+pub type TransceiverIndexEntry<'a> = PersistentEntry<'a, u32>;
+
+// --- Typed constructors and specialized methods ---
+
+impl<'a> PersistentEntry<'a, NttManagerPeer> {
+    #[inline]
+    pub fn new(env: &'a Env, chain_id: u32) -> Self {
+        Self::from_key(env, DataKey::Peer(chain_id))
     }
 
     /// Returns `PeerNotFound` if the peer doesn't exist.
@@ -266,34 +302,10 @@ impl<'a> PeerEntry<'a> {
     }
 }
 
-/// Accessor for attestation tracking, keyed by message digest.
-pub struct AttestationEntry<'a> {
-    env: &'a Env,
-    key: DataKey,
-}
-
-impl<'a> AttestationEntry<'a> {
+impl<'a> PersistentEntry<'a, AttestationInfo> {
     #[inline]
     pub fn new(env: &'a Env, digest: BytesN<32>) -> Self {
-        Self {
-            env,
-            key: DataKey::Attestation(digest),
-        }
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<AttestationInfo> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            extend_ttl(self.env, &self.key);
-        }
-        value
-    }
-
-    #[inline]
-    pub fn set(&self, value: &AttestationInfo) {
-        self.env.storage().persistent().set(&self.key, value);
-        extend_ttl(self.env, &self.key);
+        Self::from_key(env, DataKey::Attestation(digest))
     }
 
     /// Returns a default `AttestationInfo` (not executed, no attesters) if absent.
@@ -306,34 +318,10 @@ impl<'a> AttestationEntry<'a> {
     }
 }
 
-/// Accessor for outbound rate-limited transfers, keyed by sequence number.
-pub struct OutboundQueueEntry<'a> {
-    env: &'a Env,
-    key: DataKey,
-}
-
-impl<'a> OutboundQueueEntry<'a> {
+impl<'a> PersistentEntry<'a, OutboundQueuedTransfer> {
     #[inline]
     pub fn new(env: &'a Env, sequence: u64) -> Self {
-        Self {
-            env,
-            key: DataKey::OutboundQueue(sequence),
-        }
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<OutboundQueuedTransfer> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            extend_ttl(self.env, &self.key);
-        }
-        value
-    }
-
-    #[inline]
-    pub fn set(&self, value: &OutboundQueuedTransfer) {
-        self.env.storage().persistent().set(&self.key, value);
-        extend_ttl(self.env, &self.key);
+        Self::from_key(env, DataKey::OutboundQueue(sequence))
     }
 
     /// Returns `TransferNotQueued` if no transfer exists at this sequence.
@@ -341,41 +329,12 @@ impl<'a> OutboundQueueEntry<'a> {
     pub fn get_or_err(&self) -> Result<OutboundQueuedTransfer, NttManagerError> {
         self.get().ok_or(NttManagerError::TransferNotQueued)
     }
-
-    #[inline]
-    pub fn remove(&self) {
-        self.env.storage().persistent().remove(&self.key);
-    }
 }
 
-/// Accessor for inbound rate-limited transfers, keyed by message digest.
-pub struct InboundQueueEntry<'a> {
-    env: &'a Env,
-    key: DataKey,
-}
-
-impl<'a> InboundQueueEntry<'a> {
+impl<'a> PersistentEntry<'a, InboundQueuedTransfer> {
     #[inline]
     pub fn new(env: &'a Env, digest: BytesN<32>) -> Self {
-        Self {
-            env,
-            key: DataKey::InboundQueue(digest),
-        }
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<InboundQueuedTransfer> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            extend_ttl(self.env, &self.key);
-        }
-        value
-    }
-
-    #[inline]
-    pub fn set(&self, value: &InboundQueuedTransfer) {
-        self.env.storage().persistent().set(&self.key, value);
-        extend_ttl(self.env, &self.key);
+        Self::from_key(env, DataKey::InboundQueue(digest))
     }
 
     /// Returns `TransferNotQueued` if no transfer exists for this digest.
@@ -383,72 +342,19 @@ impl<'a> InboundQueueEntry<'a> {
     pub fn get_or_err(&self) -> Result<InboundQueuedTransfer, NttManagerError> {
         self.get().ok_or(NttManagerError::TransferNotQueued)
     }
-
-    #[inline]
-    pub fn remove(&self) {
-        self.env.storage().persistent().remove(&self.key);
-    }
 }
 
-/// Accessor for transceiver metadata, keyed by index (0-63).
-pub struct TransceiverEntry<'a> {
-    env: &'a Env,
-    key: DataKey,
-}
-
-impl<'a> TransceiverEntry<'a> {
+impl<'a> PersistentEntry<'a, TransceiverInfo> {
     #[inline]
     pub fn new(env: &'a Env, index: u32) -> Self {
-        Self {
-            env,
-            key: DataKey::Transceiver(index),
-        }
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<TransceiverInfo> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            extend_ttl(self.env, &self.key);
-        }
-        value
-    }
-
-    #[inline]
-    pub fn set(&self, value: &TransceiverInfo) {
-        self.env.storage().persistent().set(&self.key, value);
-        extend_ttl(self.env, &self.key);
+        Self::from_key(env, DataKey::Transceiver(index))
     }
 }
 
-/// Reverse lookup from transceiver address to its index.
-pub struct TransceiverIndexEntry<'a> {
-    env: &'a Env,
-    key: DataKey,
-}
-
-impl<'a> TransceiverIndexEntry<'a> {
+impl<'a> PersistentEntry<'a, u32> {
     #[inline]
     pub fn new(env: &'a Env, address: Address) -> Self {
-        Self {
-            env,
-            key: DataKey::TransceiverIndex(address),
-        }
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<u32> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            extend_ttl(self.env, &self.key);
-        }
-        value
-    }
-
-    #[inline]
-    pub fn set(&self, value: &u32) {
-        self.env.storage().persistent().set(&self.key, value);
-        extend_ttl(self.env, &self.key);
+        Self::from_key(env, DataKey::TransceiverIndex(address))
     }
 }
 
