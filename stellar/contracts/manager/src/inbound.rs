@@ -93,8 +93,12 @@ pub fn attestation_received_internal(
 ///
 /// Validates the destination chain matches this contract, converts the recipient
 /// address from bytes32, and untrims the amount to local token decimals. Checks
-/// the per-chain inbound rate limit: if capacity exists, releases tokens immediately
-/// and marks the attestation as executed; otherwise queues the transfer for later.
+/// the per-chain inbound rate limit: if capacity exists, releases tokens immediately;
+/// otherwise queues the transfer for later completion.
+///
+/// In both cases, the attestation is marked as executed to prevent replay attacks
+/// via `execute_msg_internal`. Without
+/// this, a queued transfer's release_timestamp could be pushed forward indefinitely.
 ///
 /// On successful release, refills the outbound rate limit by the transfer amount
 /// (backflow mechanism to maintain bidirectional capacity).
@@ -120,13 +124,15 @@ fn execute_inbound_transfer(
 
     let rate_result = consume_or_delay_inbound(env, source_chain, transfer.amount.amount)?;
 
+    // Mark as executed in both branches to prevent replay. For queued transfers,
+    // complete_inbound_queued_transfer uses queue entry removal as its guard.
+    let attestation_entry = AttestationEntry::new(env, digest.clone());
+    let mut attestation = attestation_entry.get_or_default();
+    attestation.executed = true;
+    attestation_entry.set(&attestation);
+
     match rate_result {
         RateLimitResult::Consumed => {
-            let attestation_entry = AttestationEntry::new(env, digest.clone());
-            let mut attestation = attestation_entry.get_or_default();
-            attestation.executed = true;
-            attestation_entry.set(&attestation);
-
             release_tokens(env, &recipient, release_amount)?;
 
             refill_outbound(env, transfer.amount.amount);
@@ -159,19 +165,18 @@ fn execute_inbound_transfer(
 /// Completes a queued inbound transfer after its release timestamp.
 ///
 /// Anyone can call this once `release_timestamp` is reached. Retrieves the queued
-/// transfer by digest, verifies the delay period has passed, marks the attestation
-/// as executed, removes the queue entry, and releases tokens to the recipient.
+/// transfer by digest, verifies the delay period has passed, removes the queue
+/// entry, and releases tokens to the recipient.
 ///
-/// Also refills the outbound rate limit by the transfer amount (backflow). The amount
-/// is converted back to trimmed form for the refill calculation.
+/// Replay protection is provided by queue entry removal — the attestation is
+/// already marked as executed when the transfer was first queued (in
+/// `execute_inbound_transfer`), so `execute_msg_internal` cannot re-queue it.
 ///
 /// Also refills the outbound rate limit using the stored trimmed amount (backflow).
 ///
 /// # Errors
 /// - `TransferNotQueued` if no queued transfer exists for the digest
 /// - `TransferNotReleasable` if current time is before `release_timestamp`
-/// - `TransferNotApproved` if attestation record is missing
-/// - `TransferAlreadyRedeemed` if tokens were already released
 pub fn complete_inbound_queued_transfer(
     env: &Env,
     digest: &BytesN<32>,
@@ -183,18 +188,6 @@ pub fn complete_inbound_queued_transfer(
     if now < queued.release_timestamp {
         return Err(NttManagerError::TransferNotReleasable);
     }
-
-    let attestation_entry = AttestationEntry::new(env, digest.clone());
-    let mut attestation = attestation_entry
-        .get()
-        .ok_or(NttManagerError::TransferNotApproved)?;
-
-    if attestation.executed {
-        return Err(NttManagerError::TransferAlreadyRedeemed);
-    }
-
-    attestation.executed = true;
-    attestation_entry.set(&attestation);
 
     queue_entry.remove();
 
