@@ -203,12 +203,9 @@ impl ManagerContract {
         let storage = InstanceStorage::new(&env);
         storage.require_admin(&admin)?;
 
-        let mut rate_limit_params = rate_limit::get_outbound_rate_limit(&env);
+        let mut rate_limit_params = storage.outbound_rate_limit();
         rate_limit_params.set_limit(limit, &env);
-
-        env.storage()
-            .instance()
-            .set(&DataKey::OutboundRateLimit, &rate_limit_params);
+        storage.set_outbound_rate_limit(&rate_limit_params);
 
         Ok(())
     }
@@ -429,33 +426,27 @@ impl ManagerContract {
     /// Returns transceiver metadata by its permanent index.
     /// Returns `None` if no transceiver exists at the given index.
     pub fn get_transceiver_info(env: Env, index: u32) -> Option<TransceiverInfo> {
-        env.storage().persistent().get(&DataKey::Transceiver(index))
+        TransceiverEntry::new(&env, index).get()
     }
 
     /// Returns the peer NTT Manager configuration for a given chain.
     /// Returns `None` if no peer is registered for the chain ID.
     pub fn get_peer(env: Env, chain_id: u32) -> Option<NttManagerPeer> {
-        env.storage().persistent().get(&DataKey::Peer(chain_id))
+        PeerEntry::new(&env, chain_id).get()
     }
 
     /// Returns the outbound rate limit parameters.
     /// If not initialized, returns unlimited capacity.
     pub fn get_outbound_limit_params(env: Env) -> RateLimitParams {
-        env.storage()
-            .instance()
-            .get(&DataKey::OutboundRateLimit)
-            .unwrap_or_else(|| RateLimitParams::new(u64::MAX, &env))
+        let storage = InstanceStorage::new(&env);
+        storage.outbound_rate_limit()
     }
 
     /// Returns the current outbound capacity, accounting for time-based refill.
     /// This is the maximum amount that can be transferred immediately without queueing.
     pub fn get_outbound_capacity(env: Env) -> u64 {
-        let params: RateLimitParams = env
-            .storage()
-            .instance()
-            .get(&DataKey::OutboundRateLimit)
-            .unwrap_or_else(|| RateLimitParams::new(u64::MAX, &env));
-        params.capacity_at(&env)
+        let storage = InstanceStorage::new(&env);
+        storage.outbound_rate_limit().capacity_at(&env)
     }
 
     /// Returns the inbound rate limit parameters for a specific source chain.

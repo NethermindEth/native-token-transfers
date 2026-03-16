@@ -1,7 +1,6 @@
 use soroban_sdk::{contracttype, Env};
 
-use crate::constants::RATE_LIMIT_DURATION;
-use crate::state::DataKey;
+use crate::storage::InstanceStorage;
 
 /// Token bucket rate limiter for controlling transfer throughput.
 ///
@@ -45,7 +44,7 @@ impl RateLimitParams {
     pub fn capacity_at(&self, env: &Env) -> u64 {
         let now = env.ledger().timestamp();
         let time_passed = now.saturating_sub(self.last_tx_timestamp);
-        let duration = get_rate_limit_duration(env);
+        let duration = InstanceStorage::new(env).rate_limit_duration();
         let refill = ((self.limit as u128) * (time_passed as u128) / (duration as u128)) as u64;
 
         core::cmp::min(self.current_capacity.saturating_add(refill), self.limit)
@@ -64,7 +63,7 @@ impl RateLimitParams {
             self.last_tx_timestamp = now;
             RateLimitResult::Consumed
         } else {
-            let duration = get_rate_limit_duration(env);
+            let duration = InstanceStorage::new(env).rate_limit_duration();
             let deficit = amount - capacity;
             let time_needed = if self.limit > 0 {
                 ((deficit as u128) * (duration as u128) / (self.limit as u128)) as u64
@@ -117,38 +116,17 @@ impl RateLimitParams {
     }
 }
 
-/// Retrieves the configured rate limit duration in seconds.
-///
-/// Falls back to the default constant (24 hours) if not set.
-fn get_rate_limit_duration(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::RateLimitDuration)
-        .unwrap_or(RATE_LIMIT_DURATION)
-}
-
-/// Retrieves the current outbound rate limit parameters.
-///
-/// Returns a new `RateLimitParams` with unlimited capacity if not initialized.
-pub fn get_outbound_rate_limit(env: &Env) -> RateLimitParams {
-    env.storage()
-        .instance()
-        .get(&DataKey::OutboundRateLimit)
-        .unwrap_or_else(|| RateLimitParams::new(u64::MAX, env))
-}
-
 /// Attempts to consume outbound rate limit capacity.
 ///
 /// If consumed, updates storage. If delayed, storage is unchanged and the
 /// caller should queue the transfer for later execution.
 pub fn consume_or_queue_outbound(env: &Env, amount: u64) -> RateLimitResult {
-    let mut rate_limit = get_outbound_rate_limit(env);
+    let storage = InstanceStorage::new(env);
+    let mut rate_limit = storage.outbound_rate_limit();
     let result = rate_limit.consume_or_delay(amount, env);
 
     if matches!(result, RateLimitResult::Consumed) {
-        env.storage()
-            .instance()
-            .set(&DataKey::OutboundRateLimit, &rate_limit);
+        storage.set_outbound_rate_limit(&rate_limit);
     }
 
     result
@@ -156,9 +134,8 @@ pub fn consume_or_queue_outbound(env: &Env, amount: u64) -> RateLimitResult {
 
 /// Refills outbound capacity when an inbound transfer completes.
 pub fn refill_outbound(env: &Env, amount: u64) {
-    let mut rate_limit = get_outbound_rate_limit(env);
+    let storage = InstanceStorage::new(env);
+    let mut rate_limit = storage.outbound_rate_limit();
     rate_limit.refill(amount, env);
-    env.storage()
-        .instance()
-        .set(&DataKey::OutboundRateLimit, &rate_limit);
+    storage.set_outbound_rate_limit(&rate_limit);
 }

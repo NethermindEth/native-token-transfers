@@ -9,6 +9,7 @@ use crate::constants::{
     RATE_LIMIT_DURATION,
 };
 use crate::errors::NttManagerError;
+use crate::rate_limit::RateLimitParams;
 use crate::state::{
     AttestationInfo, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer,
 };
@@ -182,6 +183,20 @@ impl<'a> InstanceStorage<'a> {
     #[inline]
     pub fn set_enabled_bitmap(&self, bitmap: u64) {
         self.write_key(&DataKey::EnabledBitmap, &bitmap);
+    }
+    /// Returns the outbound rate limit params, defaulting to unlimited if unset.
+    #[inline]
+    pub fn outbound_rate_limit(&self) -> RateLimitParams {
+        self.env
+            .storage()
+            .instance()
+            .get(&DataKey::OutboundRateLimit)
+            .unwrap_or_else(|| RateLimitParams::new(u64::MAX, self.env))
+    }
+
+    #[inline]
+    pub fn set_outbound_rate_limit(&self, value: &RateLimitParams) {
+        self.write_key(&DataKey::OutboundRateLimit, value);
     }
 
     // --- Compound operations ---
