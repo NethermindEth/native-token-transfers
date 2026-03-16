@@ -12,7 +12,7 @@ use soroban_sdk::{Address, Bytes, BytesN, Env};
 use crate::{
     errors::NttManagerError,
     messages::NttManagerMessage,
-    peers::{consume_or_queue_inbound, verify_peer},
+    peers::{consume_or_delay_inbound, verify_peer},
     rate_limit::{refill_outbound, RateLimitResult},
     state::{bytes32_to_address, AttestationResult, InboundQueuedTransfer},
     storage::{AttestationEntry, InboundQueueEntry, InstanceStorage},
@@ -118,7 +118,7 @@ fn execute_inbound_transfer(
     let our_decimals = get_token_decimals(env)?;
     let release_amount = transfer.amount.untrim(our_decimals as u8) as i128;
 
-    let rate_result = consume_or_queue_inbound(env, source_chain, transfer.amount.amount)?;
+    let rate_result = consume_or_delay_inbound(env, source_chain, transfer.amount.amount)?;
 
     match rate_result {
         RateLimitResult::Consumed => {
