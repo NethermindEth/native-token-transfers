@@ -21,6 +21,8 @@ pub enum NttManagerError {
     PayloadTooLong = 5,
     /// TrimmedAmount arithmetic on operands with different decimals.
     DecimalMismatch = 6,
+    /// Amount exceeds u64::MAX after trimming.
+    AmountOverflow = 7,
 
     /// Caller is not authorized to perform the requested action.
     Unauthorized = 10,

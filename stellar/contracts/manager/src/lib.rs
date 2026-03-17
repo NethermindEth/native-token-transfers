@@ -492,7 +492,7 @@ impl ManagerContract {
             amount as u128,
             our_decimals as u8,
             peer.token_decimals as u8,
-        );
+        )?;
 
         Ok((trimmed.amount, dust as u64))
     }

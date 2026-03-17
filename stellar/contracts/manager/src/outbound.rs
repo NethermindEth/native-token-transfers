@@ -119,7 +119,7 @@ pub fn transfer_internal(
         &mut transfer_amount,
         our_decimals as u8,
         peer.token_decimals as u8,
-    );
+    )?;
 
     custody_tokens(env, sender, transfer_amount as i128)?;
 

@@ -42,31 +42,38 @@ impl TrimmedAmount {
     /// If `from_decimals` is already at or below the target precision, returns the
     /// amount unchanged with zero dust.
     ///
+    /// Returns `AmountOverflow` if the amount exceeds `u64::MAX` after trimming.
+    ///
     /// # Example
     /// `trim(1_234_567_890, 9, 6)` returns `(TrimmedAmount{1_234_567, 6}, 890)`
-    pub fn trim(amount: u128, from_decimals: u8, to_decimals: u8) -> (Self, u128) {
+    pub fn trim(
+        amount: u128,
+        from_decimals: u8,
+        to_decimals: u8,
+    ) -> Result<(Self, u128), NttManagerError> {
         let target_decimals = core::cmp::min(
             Self::MAX_DECIMALS,
             core::cmp::min(from_decimals, to_decimals),
         );
 
         if from_decimals <= target_decimals {
-            // Safe: from_decimals <= target_decimals <= MAX_DECIMALS
-            return (
-                Self::new(amount as u64, from_decimals).expect("decimals <= MAX"),
+            let amount_u64 =
+                u64::try_from(amount).map_err(|_| NttManagerError::AmountOverflow)?;
+            return Ok((
+                Self::new(amount_u64, from_decimals).expect("decimals <= MAX"),
                 0,
-            );
+            ));
         }
 
         let scale = 10u128.pow((from_decimals - target_decimals) as u32);
         let trimmed = amount / scale;
         let dust = amount % scale;
 
-        // Safe: target_decimals <= MAX_DECIMALS by construction
-        (
-            Self::new(trimmed as u64, target_decimals).expect("decimals <= MAX"),
+        let trimmed_u64 = u64::try_from(trimmed).map_err(|_| NttManagerError::AmountOverflow)?;
+        Ok((
+            Self::new(trimmed_u64, target_decimals).expect("decimals <= MAX"),
             dust,
-        )
+        ))
     }
 
     /// Expands the trimmed amount back to the target decimal precision.
@@ -92,10 +99,14 @@ impl TrimmedAmount {
     /// Modifies `amount` to subtract the dust lost during trimming, then returns
     /// the trimmed representation. Useful when the caller needs the adjusted
     /// amount for token operations.
-    pub fn remove_dust(amount: &mut u128, from_decimals: u8, to_decimals: u8) -> Self {
-        let (trimmed, dust) = Self::trim(*amount, from_decimals, to_decimals);
+    pub fn remove_dust(
+        amount: &mut u128,
+        from_decimals: u8,
+        to_decimals: u8,
+    ) -> Result<Self, NttManagerError> {
+        let (trimmed, dust) = Self::trim(*amount, from_decimals, to_decimals)?;
         *amount -= dust;
-        trimmed
+        Ok(trimmed)
     }
 
     /// Serializes to 9 bytes: 1 byte decimals + 8 bytes big-endian amount.
@@ -104,27 +115,6 @@ impl TrimmedAmount {
         buf[0] = self.decimals as u8;
         buf[1..9].copy_from_slice(&self.amount.to_be_bytes());
         Bytes::from_array(env, &buf)
-    }
-
-    /// Deserializes from bytes at the given offset.
-    ///
-    /// Returns `InvalidDecimals` if decimals exceeds `MAX_DECIMALS`,
-    /// or `MessageTooShort` if insufficient bytes are available.
-    pub fn from_bytes(bytes: &Bytes, offset: u32) -> Result<Self, NttManagerError> {
-        let decimals = bytes.get(offset).ok_or(NttManagerError::MessageTooShort)?;
-        if decimals > Self::MAX_DECIMALS {
-            return Err(NttManagerError::InvalidDecimals);
-        }
-        let mut amount_bytes = [0u8; 8];
-        for i in 0..8 {
-            amount_bytes[i] = bytes
-                .get(offset + 1 + i as u32)
-                .ok_or(NttManagerError::MessageTooShort)?;
-        }
-        Ok(Self {
-            amount: u64::from_be_bytes(amount_bytes),
-            decimals: decimals as u32,
-        })
     }
 
     /// Returns `true` if the amount is zero.
@@ -208,19 +198,16 @@ impl NativeTokenTransfer {
 
         let mut buf = Bytes::from_array(env, &Self::PREFIX);
         buf.append(&self.amount.to_bytes(env));
-        buf.append(&Bytes::from_array(env, &self.source_token.to_array()));
-        buf.append(&Bytes::from_array(env, &self.to.to_array()));
-        buf.append(&Bytes::from_array(
-            env,
-            &(self.to_chain as u16).to_be_bytes(),
-        ));
+        buf.extend_from_array(&self.source_token.to_array());
+        buf.extend_from_array(&self.to.to_array());
+        buf.extend_from_array(&(self.to_chain as u16).to_be_bytes());
 
         if let Some(ref payload) = self.additional_payload {
             if payload.len() > u16::MAX as u32 {
                 return Err(NttManagerError::PayloadTooLong);
             }
             let len = payload.len() as u16;
-            buf.append(&Bytes::from_array(env, &len.to_be_bytes()));
+            buf.extend_from_array(&len.to_be_bytes());
             buf.append(payload);
         }
 
@@ -319,11 +306,11 @@ impl NttManagerMessage {
     /// Propagates errors from `NativeTokenTransfer::to_bytes`.
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
         let mut buf = Bytes::from_array(env, &self.id.to_array());
-        buf.append(&Bytes::from_array(env, &self.sender.to_array()));
+        buf.extend_from_array(&self.sender.to_array());
 
         let payload_bytes = self.payload.to_bytes(env)?;
         let payload_len = payload_bytes.len() as u16;
-        buf.append(&Bytes::from_array(env, &payload_len.to_be_bytes()));
+        buf.extend_from_array(&payload_len.to_be_bytes());
         buf.append(&payload_bytes);
 
         Ok(buf)
