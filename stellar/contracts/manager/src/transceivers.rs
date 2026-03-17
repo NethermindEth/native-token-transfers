@@ -29,29 +29,34 @@ impl Bitmap {
 
     /// Sets the bit at the given index.
     ///
-    /// # Panics
-    /// Panics if `index >= 64`.
-    pub fn set(&mut self, index: u8) {
-        assert!(index < 64, "bitmap index out of range");
+    /// Returns `BitmapIndexOutOfRange` if `index >= 64`.
+    pub fn set(&mut self, index: u32) -> Result<(), NttManagerError> {
+        if index >= 64 {
+            return Err(NttManagerError::BitmapIndexOutOfRange);
+        }
         self.0 |= 1u64 << index;
+        Ok(())
     }
 
     /// Clears the bit at the given index.
     ///
-    /// # Panics
-    /// Panics if `index >= 64`.
-    pub fn clear(&mut self, index: u8) {
-        assert!(index < 64, "bitmap index out of range");
+    /// Returns `BitmapIndexOutOfRange` if `index >= 64`.
+    pub fn clear(&mut self, index: u32) -> Result<(), NttManagerError> {
+        if index >= 64 {
+            return Err(NttManagerError::BitmapIndexOutOfRange);
+        }
         self.0 &= !(1u64 << index);
+        Ok(())
     }
 
     /// Returns `true` if the bit at the given index is set.
     ///
-    /// # Panics
-    /// Panics if `index >= 64`.
-    pub fn is_set(&self, index: u8) -> bool {
-        assert!(index < 64, "bitmap index out of range");
-        (self.0 & (1u64 << index)) != 0
+    /// Returns `BitmapIndexOutOfRange` if `index >= 64`.
+    pub fn is_set(&self, index: u32) -> Result<bool, NttManagerError> {
+        if index >= 64 {
+            return Err(NttManagerError::BitmapIndexOutOfRange);
+        }
+        Ok((self.0 & (1u64 << index)) != 0)
     }
 
     /// Returns the bitwise AND of two bitmaps.
@@ -138,20 +143,20 @@ pub fn is_transceiver_enabled(env: &Env, address: &Address) -> bool {
 /// Returns a list of all currently enabled transceiver addresses.
 ///
 /// Iterates through all registered transceivers and filters by the enabled bitmap.
-pub fn get_enabled_transceivers(env: &Env) -> Vec<Address> {
+pub fn get_enabled_transceivers(env: &Env) -> Result<Vec<Address>, NttManagerError> {
     let storage = InstanceStorage::new(env);
     let bitmap = Bitmap(storage.enabled_bitmap());
     let count = storage.transceiver_count();
 
     let mut result = Vec::new(env);
     for i in 0..count {
-        if bitmap.is_set(i as u8) {
+        if bitmap.is_set(i)? {
             if let Some(info) = get_transceiver(env, i) {
                 result.push_back(info.address);
             }
         }
     }
-    result
+    Ok(result)
 }
 
 /// Validates threshold invariants after registry modifications.
@@ -205,7 +210,7 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
         entry.set(&info);
 
         let mut bitmap = Bitmap(storage.enabled_bitmap());
-        bitmap.set(index as u8);
+        bitmap.set(index)?;
         storage.set_enabled_bitmap(bitmap.raw());
 
         check_threshold_invariants(env)?;
@@ -230,7 +235,7 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
     storage.set_transceiver_count(count + 1);
 
     let mut bitmap = Bitmap(storage.enabled_bitmap());
-    bitmap.set(index as u8);
+    bitmap.set(index)?;
     storage.set_enabled_bitmap(bitmap.raw());
 
     let threshold = storage.threshold();
@@ -270,7 +275,7 @@ pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttMan
     }
 
     let mut bitmap = Bitmap(storage.enabled_bitmap());
-    bitmap.clear(index as u8);
+    bitmap.clear(index)?;
 
     if bitmap.is_empty() {
         return Err(NttManagerError::CannotDisableLastTransceiver);

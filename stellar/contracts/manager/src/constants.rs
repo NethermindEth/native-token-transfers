@@ -1,13 +1,13 @@
 //! Constants used throughout the NTT Manager contract.
 
 /// TTL threshold in ledgers (~1 day at 5s/ledger) before extending.
-pub const INSTANCE_TTL_THRESHOLD: u32 = 17280;
+///
+/// Used for both instance and persistent storage.
+pub const TTL_THRESHOLD: u32 = 17280;
 /// TTL extension in ledgers (~30 days at 5s/ledger).
-pub const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
-/// TTL threshold for persistent storage (~1 day at 5s/ledger).
-pub const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
-/// TTL extension for persistent storage (~30 days at 5s/ledger).
-pub const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
+///
+/// Used for both instance and persistent storage.
+pub const TTL_EXTEND: u32 = 17280 * 30;
 
 /// Rate limit refill duration in seconds (24 hours).
 ///

@@ -56,7 +56,7 @@ pub fn send_transfer(
     let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
     let payload = ntt_message.to_bytes(env)?;
 
-    let transceivers = get_enabled_transceivers(env);
+    let transceivers = get_enabled_transceivers(env)?;
     for transceiver in transceivers.iter() {
         env.invoke_contract::<()>(
             &transceiver,

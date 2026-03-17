@@ -6,8 +6,7 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::{
     constants::{
-        INSTANCE_TTL_EXTEND, INSTANCE_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND,
-        PERSISTENT_TTL_THRESHOLD, RATE_LIMIT_DURATION,
+        RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD,
     },
     errors::NttManagerError,
     rate_limit::RateLimitParams,
@@ -29,7 +28,7 @@ impl<'a> InstanceStorage<'a> {
     pub fn new(env: &'a Env) -> Self {
         env.storage()
             .instance()
-            .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND);
         Self { env }
     }
 
@@ -143,7 +142,6 @@ impl<'a> InstanceStorage<'a> {
     pub fn set_admin(&self, admin: &Address) {
         self.write_key(&DataKey::Admin, admin);
     }
-
 
     #[inline]
     pub fn set_token(&self, token: &Address) {
@@ -280,7 +278,7 @@ impl<'a> InstanceStorage<'a> {
 fn extend_ttl(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()
-        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        .extend_ttl(key, TTL_THRESHOLD, TTL_EXTEND);
 }
 
 /// Generic accessor for persistent storage with automatic TTL extension.

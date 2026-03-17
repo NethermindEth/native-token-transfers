@@ -55,6 +55,8 @@ pub enum NttManagerError {
     CannotDisableLastTransceiver = 46,
     /// No transceivers are enabled; transfers cannot proceed.
     NoEnabledTransceivers = 47,
+    /// Bitmap index exceeds maximum (63).
+    BitmapIndexOutOfRange = 48,
 
     /// No peer registered for the specified chain ID.
     PeerNotFound = 50,
