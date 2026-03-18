@@ -45,7 +45,8 @@ impl RateLimitParams {
         let now = env.ledger().timestamp();
         let time_passed = now.saturating_sub(self.last_tx_timestamp);
         let duration = InstanceStorage::new(env).rate_limit_duration();
-        let refill = ((self.limit as u128) * (time_passed as u128) / (duration as u128)) as u64;
+        let refill_u128 = (self.limit as u128) * (time_passed as u128) / (duration as u128);
+        let refill = core::cmp::min(refill_u128, self.limit as u128) as u64;
 
         core::cmp::min(self.current_capacity.saturating_add(refill), self.limit)
     }

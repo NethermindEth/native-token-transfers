@@ -57,6 +57,12 @@ pub fn send_transfer(
     let payload = ntt_message.to_bytes(env)?;
 
     let transceivers = get_enabled_transceivers(env)?;
+    if transceivers.is_empty() {
+        return Err(NttManagerError::NoEnabledTransceivers);
+    }
+
+    // Each invoke_contract call is atomic — if any transceiver fails,
+    // the entire transaction reverts (Soroban has no try/catch).
     for transceiver in transceivers.iter() {
         env.invoke_contract::<()>(
             &transceiver,
