@@ -1,0 +1,15 @@
+[package]
+name = "stellar-ntt-transceiver"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+name = "stellar_ntt_transceiver"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+wormhole-interface = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
