@@ -1432,7 +1432,8 @@ name = "stellar-ntt-transceiver"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
- "wormhole-interface",
+ "stellar-ntt-manager",
+ "wormhole-soroban-client",
 ]
 
 [[package]]
@@ -1723,14 +1724,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
 dependencies = [
  "windows-link",
-]
-
-[[package]]
-name = "wormhole-interface"
-version = "0.1.0"
-source = "git+https://github.com/NethermindEth/wormhole?branch=feature%2Fmessage-posting#8d638d16f90c40b4d3648b8d0db22dc44a15a0d8"
-dependencies = [
- "soroban-sdk",
 ]
 
 [[package]]

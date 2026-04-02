@@ -42,6 +42,11 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerChainIdZero);
     }
 
+    // TODO: Implement as validation function in core contract interface
+    if chain_id > u16::MAX as u32 {
+        return Err(NttManagerError::ChainIdTooLarge);
+    }
+
     let storage = InstanceStorage::new(env);
     let our_chain_id = storage.chain_id()?;
 
@@ -114,6 +119,7 @@ pub fn verify_peer(
 /// Retrieves the inbound rate limit parameters for a chain.
 ///
 /// Returns `None` if no peer is registered for the chain ID.
+#[allow(dead_code)]
 pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParams> {
     PeerEntry::new(env, chain_id)
         .get()

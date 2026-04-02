@@ -24,6 +24,7 @@ use crate::{
 /// enabled transceiver for cross-chain delivery. Uses `use_message_sequence`
 /// to assign a unique sequence number. Returns the sequence and digest for
 /// tracking and verification.
+#[allow(clippy::too_many_arguments)]
 pub fn send_transfer(
     env: &Env,
     sender: &Address,
