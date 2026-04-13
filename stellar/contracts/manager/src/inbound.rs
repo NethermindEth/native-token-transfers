@@ -8,9 +8,9 @@
 //! - Manual execution of approved but unexecuted messages
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
+use soroban_ntt_client::NttManagerError;
 
 use crate::{
-    errors::NttManagerError,
     messages::NttManagerMessage,
     peers::{consume_or_delay_inbound, verify_peer},
     rate_limit::{refill_outbound, RateLimitResult},

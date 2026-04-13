@@ -4,10 +4,10 @@
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
 use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_ntt_client::NttManagerError;
 
 use crate::{
     constants::MAX_TRANSCEIVERS,
-    errors::NttManagerError,
     storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry},
 };
 

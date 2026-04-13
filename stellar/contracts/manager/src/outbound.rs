@@ -6,9 +6,9 @@
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
 use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
+use soroban_ntt_client::NttManagerError;
 
 use crate::{
-    errors::NttManagerError,
     messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount},
     peers::{get_peer, refill_inbound},
     rate_limit::{consume_or_delay_outbound, RateLimitResult},

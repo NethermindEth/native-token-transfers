@@ -25,9 +25,9 @@
 //! - Use **Burning mode** only with a custom NTT-compatible token contract
 
 use soroban_sdk::{token, Address, Env};
+use soroban_ntt_client::NttManagerError;
 
 use crate::{
-    errors::NttManagerError,
     state::Mode,
     storage::InstanceStorage,
 };

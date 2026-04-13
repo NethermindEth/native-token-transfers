@@ -1,35 +1,10 @@
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
+pub use soroban_ntt_client::{AttestationResult, Mode, TransferResult};
 
 use crate::{
-    errors::NttManagerError,
     messages::TrimmedAmount,
     rate_limit::RateLimitParams,
 };
-
-/// Token handling mode for the NTT Manager.
-///
-/// Determines how the manager handles tokens during cross-chain transfers:
-/// - `Locking`: Tokens are locked in the contract (used on the canonical chain)
-/// - `Burning`: Tokens are burned/minted (used on non-canonical chains)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[contracttype]
-#[repr(u32)]
-pub enum Mode {
-    /// Lock tokens in the contract. Used when this chain holds the canonical token.
-    Locking = 0,
-    /// Burn tokens on send, mint on receive. Used for wrapped/synthetic tokens.
-    Burning = 1,
-}
-
-impl Mode {
-    pub fn is_locking(&self) -> bool {
-        matches!(self, Mode::Locking)
-    }
-
-    pub fn is_burning(&self) -> bool {
-        matches!(self, Mode::Burning)
-    }
-}
 
 /// Storage keys for contract state.
 ///
@@ -117,21 +92,6 @@ pub struct OutboundQueuedTransfer {
     pub additional_payload: Option<Bytes>,
 }
 
-/// Result of a transfer operation, returned to the caller.
-///
-/// Contains the sequence number for tracking, whether the transfer was queued
-/// due to rate limiting, and the message digest for verification.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct TransferResult {
-    /// Unique sequence number assigned to this transfer.
-    pub sequence: u64,
-    /// Whether this transfer was queued (`true`) or sent immediately (`false`).
-    pub queued: bool,
-    /// Keccak-256 digest of the NTT message payload.
-    pub digest: BytesN<32>,
-}
-
 /// Tracks attestation state for an inbound cross-chain message.
 ///
 /// Stored in persistent storage keyed by message digest. Used for replay
@@ -175,21 +135,6 @@ pub struct NttManagerPeer {
     pub token_decimals: u32,
     /// Rate limiter for inbound transfers from this chain.
     pub inbound_rate_limit: RateLimitParams,
-}
-
-/// Result of processing an attestation from a transceiver.
-///
-/// Indicates whether the attestation threshold was met, whether tokens
-/// were released, and whether the transfer was queued due to rate limiting.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct AttestationResult {
-    /// Whether the attestation threshold is now met.
-    pub approved: bool,
-    /// Whether tokens were released to the recipient.
-    pub executed: bool,
-    /// Whether the transfer was queued due to rate limiting.
-    pub queued: bool,
 }
 
 /// Converts a sequence number to a 32-byte message ID.

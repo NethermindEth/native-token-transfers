@@ -1,7 +1,6 @@
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
+use soroban_ntt_client::NttManagerError;
 use wormhole_soroban_client::BytesReader;
-
-use crate::errors::NttManagerError;
 
 /// Normalized token amount for cross-chain compatibility.
 ///

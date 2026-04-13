@@ -1,7 +1,6 @@
 #![no_std]
 
 mod constants;
-mod errors;
 mod inbound;
 mod messages;
 mod outbound;
@@ -12,7 +11,7 @@ mod storage;
 mod token_ops;
 mod transceivers;
 
-pub use errors::NttManagerError;
+use soroban_ntt_client::NttManagerError;
 use inbound::{
     attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
 };
@@ -25,8 +24,7 @@ use rate_limit::RateLimitParams;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
 use state::{
-    require_admin, require_admin_or_pauser, require_not_paused, require_not_reentering,
-    set_reentering, AttestationInfo, DataKey, InboundQueuedTransfer, Mode, OutboundQueuedTransfer,
+    AttestationInfo, InboundQueuedTransfer, Mode, NttManagerPeer, OutboundQueuedTransfer,
     TransferResult,
 };
 use storage::{

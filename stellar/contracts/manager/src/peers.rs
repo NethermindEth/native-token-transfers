@@ -5,9 +5,9 @@
 //! decimals, and an independent inbound rate limit.
 
 use soroban_sdk::{BytesN, Env};
+use soroban_ntt_client::NttManagerError;
 
 use crate::{
-    errors::NttManagerError,
     rate_limit::{RateLimitParams, RateLimitResult},
     state::NttManagerPeer,
     storage::{InstanceStorage, PeerEntry},
