@@ -18,3 +18,5 @@ stellar-xdr = "25"
 wormhole-soroban-client = { git = "https://github.com/NethermindEth/wormhole", branch = "stellar" }
 soroban-ntt-client = { path = "contracts/soroban-ntt-client" }
 
+[profile.release]
+overflow-checks = true
