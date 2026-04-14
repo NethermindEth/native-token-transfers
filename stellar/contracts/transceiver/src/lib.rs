@@ -1,11 +1,11 @@
 #![no_std]
 extern crate alloc;
 
+use soroban_ntt_client::{AttestationResult, NttManagerError};
 use soroban_sdk::{
     address_payload::AddressPayload, contract, contracterror, contractimpl, contracttype,
     panic_with_error, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
 };
-use stellar_ntt_manager::{AttestationResult, NttManagerError};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
 
 const WH_TRANSCEIVER_PREFIX: [u8; 4] = [0x99, 0x45, 0xff, 0x10];
