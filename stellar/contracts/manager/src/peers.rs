@@ -4,11 +4,11 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
+use soroban_ntt_client::{NttManagerError, RateLimitParams};
 use soroban_sdk::{BytesN, Env};
-use soroban_ntt_client::NttManagerError;
 
 use crate::{
-    rate_limit::{RateLimitParams, RateLimitResult},
+    rate_limit::RateLimitResult,
     state::NttManagerPeer,
     storage::{InstanceStorage, PeerEntry},
 };
@@ -64,6 +64,7 @@ pub fn set_peer(
     }
 
     let entry = PeerEntry::new(env, chain_id);
+    let duration = storage.rate_limit_duration();
     let peer = entry.get().map_or_else(
         || NttManagerPeer {
             address: address.clone(),
@@ -73,7 +74,9 @@ pub fn set_peer(
         |mut existing| {
             existing.address = address.clone();
             existing.token_decimals = token_decimals;
-            existing.inbound_rate_limit.set_limit(inbound_limit, env);
+            existing
+                .inbound_rate_limit
+                .set_limit(inbound_limit, env, duration);
             existing
         },
     );
@@ -91,7 +94,8 @@ pub fn set_peer(
 pub fn set_inbound_limit(env: &Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError> {
     let entry = PeerEntry::new(env, chain_id);
     let mut peer = entry.get_or_err()?;
-    peer.inbound_rate_limit.set_limit(limit, env);
+    let duration = InstanceStorage::new(env).rate_limit_duration();
+    peer.inbound_rate_limit.set_limit(limit, env, duration);
     entry.set(&peer);
     Ok(())
 }
@@ -135,7 +139,8 @@ pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParam
 pub fn refill_inbound(env: &Env, chain_id: u32, amount: u64) {
     let entry = PeerEntry::new(env, chain_id);
     if let Some(mut peer) = entry.get() {
-        peer.inbound_rate_limit.refill(amount, env);
+        let duration = InstanceStorage::new(env).rate_limit_duration();
+        peer.inbound_rate_limit.refill(amount, env, duration);
         entry.set(&peer);
     }
 }
@@ -156,7 +161,14 @@ pub fn consume_or_delay_inbound(
 ) -> Result<RateLimitResult, NttManagerError> {
     let entry = PeerEntry::new(env, chain_id);
     let mut peer = entry.get_or_err()?;
-    let result = peer.inbound_rate_limit.consume_or_delay(amount, env);
+    let duration = InstanceStorage::new(env).rate_limit_duration();
+    let result = match peer
+        .inbound_rate_limit
+        .consume_or_delay(amount, env, duration)
+    {
+        Some(release_timestamp) => RateLimitResult::Delayed(release_timestamp),
+        None => RateLimitResult::Consumed,
+    };
 
     if matches!(result, RateLimitResult::Consumed) {
         entry.set(&peer);

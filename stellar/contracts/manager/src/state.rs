@@ -1,10 +1,7 @@
+pub use soroban_ntt_client::{AttestationResult, Mode, NttManagerPeer, TransferResult};
 use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
-pub use soroban_ntt_client::{AttestationResult, Mode, TransferResult};
 
-use crate::{
-    messages::TrimmedAmount,
-    rate_limit::RateLimitParams,
-};
+use crate::messages::TrimmedAmount;
 
 /// Storage keys for contract state.
 ///
@@ -120,21 +117,6 @@ pub struct InboundQueuedTransfer {
     pub trimmed_amount: u64,
     /// Ledger timestamp when the transfer becomes eligible for completion.
     pub release_timestamp: u64,
-}
-
-/// Peer NTT Manager on another chain.
-///
-/// Each peer maintains its own inbound rate limit, allowing independent
-/// throttling of transfers from different source chains.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[contracttype]
-pub struct NttManagerPeer {
-    /// 32-byte address of the NTT Manager on the peer chain.
-    pub address: BytesN<32>,
-    /// Token decimals on the peer chain (1-18). Used for amount normalization.
-    pub token_decimals: u32,
-    /// Rate limiter for inbound transfers from this chain.
-    pub inbound_rate_limit: RateLimitParams,
 }
 
 /// Converts a sequence number to a 32-byte message ID.
