@@ -1,5 +1,4 @@
 #![no_std]
-extern crate alloc;
 
 use soroban_ntt_client::{
     AttestationResult, NttManagerError, PeerInfo, TransceiverError, TransceiverInterface,
