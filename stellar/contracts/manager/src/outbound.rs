@@ -5,8 +5,8 @@
 //! - Queued transfers that exceed rate limits
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
-use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
 use soroban_ntt_client::NttManagerError;
+use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
 
 use crate::{
     messages::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount},

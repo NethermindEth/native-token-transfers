@@ -7,8 +7,8 @@
 //! - Queue completion after rate limit delay expires
 //! - Manual execution of approved but unexecuted messages
 
-use soroban_sdk::{Address, Bytes, BytesN, Env};
 use soroban_ntt_client::NttManagerError;
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
     messages::NttManagerMessage,
