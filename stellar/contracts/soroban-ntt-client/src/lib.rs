@@ -5,7 +5,9 @@ pub mod transceiver;
 pub mod wormhole_transceiver;
 
 pub use manager::{
-    AttestationResult, Mode, NttManagerError, NttManagerInterface, NttManagerPeer, TransferResult,
+    AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerError,
+    NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimiterClient,
+    RateLimiterInterface, TransferResult, TrimmedAmount,
 };
 pub use rate_limit::RateLimitParams;
 pub use transceiver::{TransceiverClient, TransceiverInterface};

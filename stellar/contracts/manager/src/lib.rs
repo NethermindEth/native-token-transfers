@@ -19,10 +19,14 @@ use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
-use soroban_ntt_client::{NttManagerError, NttManagerInterface, NttManagerPeer, RateLimitParams};
+use soroban_ntt_client::{
+    InboundQueuedTransfer as ClientInboundQueuedTransfer, NttManagerError, NttManagerInterface,
+    NttManagerPeer, OutboundQueuedTransfer as ClientOutboundQueuedTransfer, RateLimitParams,
+    RateLimiterInterface, TrimmedAmount as ClientTrimmedAmount,
+};
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
-use state::{AttestationInfo, InboundQueuedTransfer, Mode, OutboundQueuedTransfer, TransferResult};
+use state::{AttestationInfo, Mode, TransferResult};
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
     TransceiverEntry,
