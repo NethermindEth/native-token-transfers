@@ -14,19 +14,17 @@ mod transceivers;
 use inbound::{
     attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
 };
-use messages::TrimmedAmount;
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
 };
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use soroban_ntt_client::{
-    InboundQueuedTransfer as ClientInboundQueuedTransfer, NttManagerError, NttManagerInterface,
-    NttManagerPeer, OutboundQueuedTransfer as ClientOutboundQueuedTransfer, RateLimitParams,
-    RateLimiterInterface, TrimmedAmount as ClientTrimmedAmount,
+    AttestationInfo, InboundQueuedTransfer, NttManagerError, NttManagerInterface, NttManagerPeer,
+    OutboundQueuedTransfer, RateLimitParams, RateLimiterInterface, TrimmedAmount,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
-use state::{AttestationInfo, Mode, TransferResult};
+use state::{Mode, TransferResult};
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
     TransceiverEntry,
@@ -214,44 +212,10 @@ impl ManagerContract {
         TransceiverEntry::new(&env, index).get()
     }
 
-    /// Returns the outbound rate limit parameters.
-    /// If not initialized, returns unlimited capacity.
-    pub fn get_outbound_limit_params(env: Env) -> RateLimitParams {
-        InstanceStorage::new(&env).outbound_rate_limit()
-    }
-
-    /// Returns the current outbound capacity, accounting for time-based refill.
-    /// This is the maximum amount that can be transferred immediately without queueing.
-    pub fn get_outbound_capacity(env: Env) -> u64 {
-        let storage = InstanceStorage::new(&env);
-        let rate_limit = storage.outbound_rate_limit();
-        rate_limit.capacity_at(&env, storage.rate_limit_duration())
-    }
-
-    /// Returns the inbound rate limit parameters for a specific source chain.
-    /// Returns `None` if no peer is registered for the chain ID.
-    pub fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams> {
-        PeerEntry::new(&env, chain_id)
-            .get()
-            .map(|p| p.inbound_rate_limit)
-    }
-
     /// Returns attestation tracking info for a message digest, including
     /// which transceivers have attested and whether execution occurred.
     pub fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
         AttestationEntry::new(&env, digest).get()
-    }
-
-    /// Returns a queued outbound transfer by its sequence number.
-    /// Returns `None` if no transfer is queued for this sequence.
-    pub fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer> {
-        OutboundQueueEntry::new(&env, sequence).get()
-    }
-
-    /// Returns a queued inbound transfer by its message digest.
-    /// Returns `None` if no transfer is queued for this digest.
-    pub fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
-        InboundQueueEntry::new(&env, digest).get()
     }
 
     /// Computes the effective transfer amount after decimal normalization.
@@ -523,5 +487,41 @@ impl NttManagerInterface for ManagerContract {
 
     fn get_chain_id(env: Env) -> Result<u32, NttManagerError> {
         InstanceStorage::new(&env).chain_id()
+    }
+}
+
+#[contractimpl]
+impl RateLimiterInterface for ManagerContract {
+    fn get_outbound_limit_params(env: Env) -> RateLimitParams {
+        InstanceStorage::new(&env).outbound_rate_limit()
+    }
+
+    fn get_outbound_capacity(env: Env) -> u64 {
+        let storage = InstanceStorage::new(&env);
+        let rate_limit = storage.outbound_rate_limit();
+        rate_limit.capacity_at(&env, storage.rate_limit_duration())
+    }
+
+    fn get_inbound_capacity(env: Env, chain_id: u32) -> Option<u64> {
+        let storage = InstanceStorage::new(&env);
+        let duration = storage.rate_limit_duration();
+
+        PeerEntry::new(&env, chain_id)
+            .get()
+            .map(|peer| peer.inbound_rate_limit.capacity_at(&env, duration))
+    }
+
+    fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams> {
+        PeerEntry::new(&env, chain_id)
+            .get()
+            .map(|peer| peer.inbound_rate_limit)
+    }
+
+    fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer> {
+        OutboundQueueEntry::new(&env, sequence).get()
+    }
+
+    fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer> {
+        InboundQueueEntry::new(&env, digest).get()
     }
 }
