@@ -143,31 +143,6 @@ impl ManagerContract {
         Ok(())
     }
 
-    /// Pauses the contract, blocking transfers and redemptions.
-    ///
-    /// Only callable by the admin. Use `unpause` to resume operations.
-    pub fn pause(env: Env, caller: Address) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin_or_pauser(&caller)?;
-        storage.set_paused(true);
-        Ok(())
-    }
-
-    /// Unpauses the contract, resuming normal operations.
-    ///
-    /// Callable by either the admin or the designated pauser (if set).
-    pub fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin_or_pauser(&caller)?;
-        storage.set_paused(false);
-        Ok(())
-    }
-
-    /// Returns whether the contract is currently paused.
-    pub fn is_paused(env: Env) -> bool {
-        InstanceStorage::new(&env).is_paused()
-    }
-
     /// Transfers the pauser capability to a new address.
     ///
     /// Callable by either the admin or the current pauser (if set). Pass `None`
@@ -212,12 +187,6 @@ impl ManagerContract {
         TransceiverEntry::new(&env, index).get()
     }
 
-    /// Returns attestation tracking info for a message digest, including
-    /// which transceivers have attested and whether execution occurred.
-    pub fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
-        AttestationEntry::new(&env, digest).get()
-    }
-
     /// Computes the effective transfer amount after decimal normalization.
     ///
     /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
@@ -245,13 +214,6 @@ impl ManagerContract {
         )?;
 
         Ok((trimmed.amount, dust as u64))
-    }
-
-    /// Returns the current contract version number.
-    ///
-    /// Defaults to 1 if no version has been explicitly set.
-    pub fn get_version(env: Env) -> u32 {
-        InstanceStorage::new(&env).version()
     }
 
     /// Returns the rate limit duration in seconds.
@@ -361,6 +323,24 @@ impl NttManagerInterface for ManagerContract {
 
     fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
         with_transfer_guard(&env, || complete_inbound_queued_transfer(&env, &digest))
+    }
+
+    fn pause(env: Env, caller: Address) -> Result<(), NttManagerError> {
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin_or_pauser(&caller)?;
+        storage.set_paused(true);
+        Ok(())
+    }
+
+    fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError> {
+        let storage = InstanceStorage::new(&env);
+        storage.require_admin_or_pauser(&caller)?;
+        storage.set_paused(false);
+        Ok(())
+    }
+
+    fn is_paused(env: Env) -> bool {
+        InstanceStorage::new(&env).is_paused()
     }
 
     fn attestation_received(
@@ -487,6 +467,14 @@ impl NttManagerInterface for ManagerContract {
 
     fn get_chain_id(env: Env) -> Result<u32, NttManagerError> {
         InstanceStorage::new(&env).chain_id()
+    }
+
+    fn get_attestation_info(env: Env, digest: BytesN<32>) -> Option<AttestationInfo> {
+        AttestationEntry::new(&env, digest).get()
+    }
+
+    fn get_version(env: Env) -> u32 {
+        InstanceStorage::new(&env).version()
     }
 }
 

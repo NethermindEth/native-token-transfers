@@ -5,8 +5,8 @@
 //! - Queued transfers that exceed rate limits
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
-use soroban_ntt_client::{NttManagerError, TrimmedAmount};
-use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
+use soroban_ntt_client::{NttManagerError, TransceiverClient, TrimmedAmount};
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
     messages::{NativeTokenTransfer, NttManagerMessage},
@@ -62,18 +62,11 @@ pub fn send_transfer(
         return Err(NttManagerError::NoEnabledTransceivers);
     }
 
-    // Each invoke_contract call is atomic — if any transceiver fails,
-    // the entire transaction reverts (Soroban has no try/catch).
     for transceiver in transceivers.iter() {
-        env.invoke_contract::<()>(
-            &transceiver,
-            &Symbol::new(env, "send_message"),
-            vec![
-                env,
-                recipient_chain.into_val(env),
-                recipient_ntt_manager.into_val(env),
-                payload.clone().into_val(env),
-            ],
+        TransceiverClient::new(env, &transceiver).send_message(
+            &recipient_chain,
+            recipient_ntt_manager,
+            &payload,
         );
     }
 

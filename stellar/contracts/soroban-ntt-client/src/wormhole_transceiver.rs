@@ -75,7 +75,6 @@ pub enum TransceiverError {
 ///
 /// Complements [`TransceiverInterface`](crate::transceiver::TransceiverInterface)
 /// (which covers the manager-facing outbound path) with:
-/// - admin lifecycle and WASM upgrades
 /// - per-chain peer registration for Wormhole emitters
 /// - inbound VAA verification, replay protection, and forwarding to the manager
 ///
@@ -83,17 +82,6 @@ pub enum TransceiverError {
 /// binding for callers that need to drive these operations.
 #[contractclient(name = "WormholeTransceiverClient")]
 pub trait WormholeTransceiverInterface {
-    /// Returns the current admin address.
-    fn get_admin(env: Env) -> Address;
-    /// Transfers the admin role to `new_admin`.
-    ///
-    /// Requires authorization from both the current admin and `new_admin`
-    /// to avoid accidentally handing the role to an unreachable address.
-    fn set_admin(env: Env, new_admin: Address);
-    /// Replaces the contract WASM with the one identified by `new_wasm_hash`.
-    ///
-    /// The WASM must be installed on the network beforehand. Restricted to admin.
-    fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
     /// Returns the address of the Wormhole core contract this transceiver uses.
     fn get_wormhole_core(env: Env) -> Address;
     /// Registers a new peer transceiver for `chain_id`.
@@ -125,6 +113,13 @@ pub trait WormholeTransceiverInterface {
     /// decoded manager payload is forwarded to the owning manager via
     /// `attestation_received`.
     fn receive_message(env: Env, vaa_bytes: Bytes);
+    /// Returns whether this VAA has already been consumed.
+    fn is_vaa_consumed(
+        env: Env,
+        emitter_chain: u32,
+        emitter_address: BytesN<32>,
+        sequence: u64,
+    ) -> bool;
     /// Deprecated alias for [`receive_message`](Self::receive_message),
     /// kept for compatibility with callers that used the older name.
     fn receive_vaa(env: Env, vaa_bytes: Bytes);

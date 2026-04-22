@@ -21,6 +21,7 @@ const INSTANCE_TTL_THRESHOLD: u32 = 17280;
 const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
 const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
+const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
 
 #[derive(Clone)]
 #[contracttype]
@@ -324,6 +325,13 @@ impl TransceiverContract {
     pub fn is_initialized(env: Env) -> bool {
         is_initialized_internal(&env)
     }
+
+    pub fn get_admin(env: Env) -> Address {
+        require_initialized(&env);
+        get_admin_internal(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
+    }
+
 }
 
 #[contractimpl]
@@ -338,6 +346,11 @@ impl TransceiverInterface for TransceiverContract {
         require_initialized(&env);
         get_manager_id_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
+    }
+
+    fn get_transceiver_type(env: Env) -> Bytes {
+        require_initialized(&env);
+        Bytes::from_array(&env, &TRANSCEIVER_TYPE)
     }
 
     fn send_message(
@@ -388,25 +401,6 @@ impl TransceiverInterface for TransceiverContract {
 
 #[contractimpl]
 impl WormholeTransceiverInterface for TransceiverContract {
-    fn get_admin(env: Env) -> Address {
-        require_initialized(&env);
-        get_admin_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
-    }
-
-    fn set_admin(env: Env, new_admin: Address) {
-        let _admin = require_admin_auth(&env);
-        new_admin.require_auth();
-        set_admin_internal(&env, &new_admin);
-        extend_instance_ttl(&env);
-    }
-
-    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        let _admin = require_admin_auth(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        extend_instance_ttl(&env);
-    }
-
     fn get_wormhole_core(env: Env) -> Address {
         require_initialized(&env);
         get_wormhole_core_internal(&env)
@@ -551,6 +545,16 @@ impl WormholeTransceiverInterface for TransceiverContract {
         if res.is_err() {
             panic_with_error!(&env, TransceiverError::ManagerRejectedMessage);
         }
+    }
+
+    fn is_vaa_consumed(
+        env: Env,
+        emitter_chain: u32,
+        emitter_address: BytesN<32>,
+        sequence: u64,
+    ) -> bool {
+        require_initialized(&env);
+        is_consumed_internal(&env, emitter_chain, &emitter_address, sequence)
     }
 
     fn receive_vaa(env: Env, vaa_bytes: Bytes) {
@@ -911,6 +915,53 @@ mod tests {
                 TransceiverError::ReplayDetected as u32
             )))
         );
+    }
+
+    #[test]
+    fn is_vaa_consumed_tracks_replay_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let manager_contract_id = env.register(DummyManager, ());
+        let manager_addr = manager_contract_id.clone();
+        let manager_id = manager_id_for(&env, &manager_addr);
+
+        let core_id = env.register(DummyWormholeCore, ());
+        let core_client = DummyWormholeCoreClient::new(&env, &core_id);
+
+        let admin = Address::generate(&env);
+        let transceiver_id = env.register(
+            TransceiverContract,
+            TransceiverContractArgs::__constructor(&admin, &manager_addr, &manager_id, &core_id),
+        );
+        let transceiver = TransceiverContractClient::new(&env, &transceiver_id);
+
+        let emitter_chain: u32 = 2;
+        let emitter_address = BytesN::<32>::from_array(&env, &[7u8; 32]);
+        transceiver.set_peer(&emitter_chain, &emitter_address);
+
+        let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
+        let manager_payload = Bytes::from_array(&env, &[9u8]);
+        let tm_payload =
+            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
+                .expect("encode should succeed");
+
+        let seq: u64 = 42;
+        let timestamp = env.ledger().timestamp() as u32;
+        core_client.set_parsed_vaa(
+            &emitter_chain,
+            &emitter_address,
+            &seq,
+            &timestamp,
+            &tm_payload,
+        );
+
+        assert!(!transceiver.is_vaa_consumed(&emitter_chain, &emitter_address, &seq));
+
+        let vaa_bytes = Bytes::from_array(&env, &[0xaa]);
+        transceiver.receive_message(&vaa_bytes);
+
+        assert!(transceiver.is_vaa_consumed(&emitter_chain, &emitter_address, &seq));
     }
 
     #[test]

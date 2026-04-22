@@ -5,8 +5,8 @@ use soroban_sdk::{contractclient, Address, Bytes, BytesN, Env};
 /// A transceiver ferries NTT messages between the local manager and a
 /// remote chain. This trait defines the minimal surface the manager
 /// relies on: identifying its owning manager and dispatching outbound
-/// messages. Specific transports (e.g. Wormhole) extend this with their
-/// own interface for admin and inbound handling.
+/// messages. Specific transports (e.g. Wormhole) extend this with
+/// their own verification and peer-management interface.
 ///
 /// The `#[contractclient]` attribute generates a `TransceiverClient`
 /// binding the manager uses to invoke transceivers it has registered.
@@ -19,6 +19,8 @@ pub trait TransceiverInterface {
     /// This is the canonical on-chain representation of the manager used
     /// inside NTT messages, and must match the manager's address payload.
     fn get_manager_id(env: Env) -> BytesN<32>;
+    /// Returns the transport identifier for this transceiver implementation.
+    fn get_transceiver_type(env: Env) -> Bytes;
     /// Dispatches an outbound NTT message to the peer on `recipient_chain`.
     ///
     /// Invoked by the manager after it has locked or burned tokens. The
