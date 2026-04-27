@@ -24,13 +24,10 @@
 //! - Use **Locking mode** with existing SEP-41 tokens (simplest setup)
 //! - Use **Burning mode** only with a custom NTT-compatible token contract
 
+use soroban_ntt_client::NttManagerError;
 use soroban_sdk::{token, Address, Env};
 
-use crate::{
-    errors::NttManagerError,
-    state::Mode,
-    storage::InstanceStorage,
-};
+use crate::{state::Mode, storage::InstanceStorage};
 
 /// Queries the token contract for its decimal precision.
 ///

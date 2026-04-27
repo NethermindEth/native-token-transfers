@@ -2,14 +2,11 @@
 
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use soroban_ntt_client::{NttManagerError, RateLimitParams};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::{
-    constants::{
-        RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD,
-    },
-    errors::NttManagerError,
-    rate_limit::RateLimitParams,
+    constants::{RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD},
     state::{
         AttestationInfo, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer,
         OutboundQueuedTransfer,
@@ -404,4 +401,3 @@ impl<'a> PersistentEntry<'a, u32> {
         Self::from_key(env, DataKey::TransceiverIndex(address))
     }
 }
-

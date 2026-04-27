@@ -1,11 +1,13 @@
 #![no_std]
-extern crate alloc;
 
-use soroban_sdk::{
-    address_payload::AddressPayload, contract, contracterror, contractimpl, contracttype,
-    panic_with_error, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+use soroban_ntt_client::{
+    AttestationResult, NttManagerError, PeerInfo, TransceiverError, TransceiverInterface,
+    WormholeTransceiverInterface,
 };
-use stellar_ntt_manager::{AttestationResult, NttManagerError};
+use soroban_sdk::{
+    address_payload::AddressPayload, contract, contractimpl, contracttype, panic_with_error,
+    Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
 
 const WH_TRANSCEIVER_PREFIX: [u8; 4] = [0x99, 0x45, 0xff, 0x10];
@@ -19,37 +21,7 @@ const INSTANCE_TTL_THRESHOLD: u32 = 17280;
 const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
 const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
 const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[contracterror]
-#[repr(u32)]
-pub enum TransceiverError {
-    NotInitialized = 1,
-    AlreadyInitialized = 2,
-    Unauthorized = 3,
-    InvalidManagerId = 4,
-    ManagerNotSet = 5,
-    WormholeCoreNotSet = 6,
-
-    InvalidPeerChainIdZero = 10,
-    InvalidPeerZeroAddress = 11,
-    PeerAlreadySet = 12,
-    PeerNotFound = 13,
-    PeerDisabled = 14,
-    ChainIdTooLarge = 15,
-
-    WormholeVerificationFailed = 20,
-    WormholeParseFailed = 21,
-    WormholePostFailed = 22,
-
-    InvalidTransceiverPrefix = 30,
-    MessageTooShort = 31,
-    PayloadTooLong = 32,
-    UnexpectedRecipientManager = 33,
-    ReplayDetected = 34,
-    UnexpectedEmitter = 35,
-    ManagerRejectedMessage = 36,
-}
+const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
 
 #[derive(Clone)]
 #[contracttype]
@@ -61,13 +33,6 @@ enum DataKey {
     WormholeCore,
     Peer(u32),
     Consumed(ConsumedKey),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[contracttype]
-pub struct PeerInfo {
-    pub emitter: BytesN<32>,
-    pub enabled: bool,
 }
 
 #[derive(Clone)]
@@ -360,113 +325,28 @@ impl TransceiverContract {
     pub fn is_initialized(env: Env) -> bool {
         is_initialized_internal(&env)
     }
+}
 
-    pub fn get_admin(env: Env) -> Address {
-        require_initialized(&env);
-        get_admin_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
-    }
-
-    pub fn set_admin(env: Env, new_admin: Address) {
-        let _admin = require_admin_auth(&env);
-        new_admin.require_auth();
-        set_admin_internal(&env, &new_admin);
-        extend_instance_ttl(&env);
-    }
-
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        let _admin = require_admin_auth(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        extend_instance_ttl(&env);
-    }
-
-    pub fn get_manager(env: Env) -> Address {
+#[contractimpl]
+impl TransceiverInterface for TransceiverContract {
+    fn get_manager(env: Env) -> Address {
         require_initialized(&env);
         get_manager_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::ManagerNotSet))
     }
 
-    pub fn get_manager_id(env: Env) -> BytesN<32> {
+    fn get_manager_id(env: Env) -> BytesN<32> {
         require_initialized(&env);
         get_manager_id_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
     }
 
-    pub fn get_wormhole_core(env: Env) -> Address {
+    fn get_transceiver_type(env: Env) -> Bytes {
         require_initialized(&env);
-        get_wormhole_core_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::WormholeCoreNotSet))
+        Bytes::from_array(&env, &TRANSCEIVER_TYPE)
     }
 
-    pub fn set_peer(env: Env, chain_id: u32, emitter: BytesN<32>) {
-        let _admin = require_admin_auth(&env);
-        if chain_id == 0 {
-            panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
-        }
-        // TODO: Implement as validation function in core contract interface
-        if chain_id > u16::MAX as u32 {
-            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
-        }
-        if emitter.to_array() == [0u8; 32] {
-            panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);
-        }
-        if get_peer_info_internal(&env, chain_id).is_some() {
-            panic_with_error!(&env, TransceiverError::PeerAlreadySet);
-        }
-        let info = PeerInfo {
-            emitter,
-            enabled: true,
-        };
-        set_peer_info_internal(&env, chain_id, &info);
-        extend_instance_ttl(&env);
-    }
-
-    pub fn update_peer(env: Env, chain_id: u32, emitter: BytesN<32>) {
-        let _admin = require_admin_auth(&env);
-        if chain_id == 0 {
-            panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
-        }
-        // TODO: Implement as validation function in core contract interface
-        if chain_id > u16::MAX as u32 {
-            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
-        }
-        if emitter.to_array() == [0u8; 32] {
-            panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);
-        }
-        let mut info = get_peer_info_internal(&env, chain_id)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
-        info.emitter = emitter;
-        set_peer_info_internal(&env, chain_id, &info);
-        extend_instance_ttl(&env);
-    }
-
-    pub fn set_peer_enabled(env: Env, chain_id: u32, enabled: bool) {
-        let _admin = require_admin_auth(&env);
-        let mut info = get_peer_info_internal(&env, chain_id)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
-        info.enabled = enabled;
-        set_peer_info_internal(&env, chain_id, &info);
-        extend_instance_ttl(&env);
-    }
-
-    pub fn get_peer(env: Env, chain_id: u32) -> Option<BytesN<32>> {
-        require_initialized(&env);
-        get_peer_info_internal(&env, chain_id).map(|info| info.emitter)
-    }
-
-    pub fn get_peer_info(env: Env, chain_id: u32) -> Option<PeerInfo> {
-        require_initialized(&env);
-        get_peer_info_internal(&env, chain_id)
-    }
-
-    pub fn is_peer_enabled(env: Env, chain_id: u32) -> bool {
-        require_initialized(&env);
-        get_peer_info_internal(&env, chain_id)
-            .map(|info| info.enabled)
-            .unwrap_or(false)
-    }
-
-    pub fn send_message(
+    fn send_message(
         env: Env,
         recipient_chain: u32,
         recipient_manager: BytesN<32>,
@@ -511,7 +391,103 @@ impl TransceiverContract {
         }
     }
 
-    pub fn receive_message(env: Env, vaa_bytes: Bytes) {
+    fn get_admin(env: Env) -> Address {
+        require_initialized(&env);
+        get_admin_internal(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
+    }
+
+    fn set_admin(env: Env, new_admin: Address) {
+        let _admin = require_admin_auth(&env);
+        new_admin.require_auth();
+        set_admin_internal(&env, &new_admin);
+        extend_instance_ttl(&env);
+    }
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let _admin = require_admin_auth(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        extend_instance_ttl(&env);
+    }
+}
+
+#[contractimpl]
+impl WormholeTransceiverInterface for TransceiverContract {
+    fn get_wormhole_core(env: Env) -> Address {
+        require_initialized(&env);
+        get_wormhole_core_internal(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::WormholeCoreNotSet))
+    }
+
+    fn set_peer(env: Env, chain_id: u32, emitter: BytesN<32>) {
+        let _admin = require_admin_auth(&env);
+        if chain_id == 0 {
+            panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
+        }
+        // TODO: Implement as validation function in core contract interface
+        if chain_id > u16::MAX as u32 {
+            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
+        }
+        if emitter.to_array() == [0u8; 32] {
+            panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);
+        }
+        if get_peer_info_internal(&env, chain_id).is_some() {
+            panic_with_error!(&env, TransceiverError::PeerAlreadySet);
+        }
+        let info = PeerInfo {
+            emitter,
+            enabled: true,
+        };
+        set_peer_info_internal(&env, chain_id, &info);
+        extend_instance_ttl(&env);
+    }
+
+    fn update_peer(env: Env, chain_id: u32, emitter: BytesN<32>) {
+        let _admin = require_admin_auth(&env);
+        if chain_id == 0 {
+            panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
+        }
+        // TODO: Implement as validation function in core contract interface
+        if chain_id > u16::MAX as u32 {
+            panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
+        }
+        if emitter.to_array() == [0u8; 32] {
+            panic_with_error!(&env, TransceiverError::InvalidPeerZeroAddress);
+        }
+        let mut info = get_peer_info_internal(&env, chain_id)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
+        info.emitter = emitter;
+        set_peer_info_internal(&env, chain_id, &info);
+        extend_instance_ttl(&env);
+    }
+
+    fn set_peer_enabled(env: Env, chain_id: u32, enabled: bool) {
+        let _admin = require_admin_auth(&env);
+        let mut info = get_peer_info_internal(&env, chain_id)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::PeerNotFound));
+        info.enabled = enabled;
+        set_peer_info_internal(&env, chain_id, &info);
+        extend_instance_ttl(&env);
+    }
+
+    fn get_peer(env: Env, chain_id: u32) -> Option<BytesN<32>> {
+        require_initialized(&env);
+        get_peer_info_internal(&env, chain_id).map(|info| info.emitter)
+    }
+
+    fn get_peer_info(env: Env, chain_id: u32) -> Option<PeerInfo> {
+        require_initialized(&env);
+        get_peer_info_internal(&env, chain_id)
+    }
+
+    fn is_peer_enabled(env: Env, chain_id: u32) -> bool {
+        require_initialized(&env);
+        get_peer_info_internal(&env, chain_id)
+            .map(|info| info.enabled)
+            .unwrap_or(false)
+    }
+
+    fn receive_message(env: Env, vaa_bytes: Bytes) {
         require_initialized(&env);
         extend_instance_ttl(&env);
 
@@ -583,7 +559,17 @@ impl TransceiverContract {
         }
     }
 
-    pub fn receive_vaa(env: Env, vaa_bytes: Bytes) {
+    fn is_vaa_consumed(
+        env: Env,
+        emitter_chain: u32,
+        emitter_address: BytesN<32>,
+        sequence: u64,
+    ) -> bool {
+        require_initialized(&env);
+        is_consumed_internal(&env, emitter_chain, &emitter_address, sequence)
+    }
+
+    fn receive_vaa(env: Env, vaa_bytes: Bytes) {
         Self::receive_message(env, vaa_bytes)
     }
 }
@@ -941,6 +927,53 @@ mod tests {
                 TransceiverError::ReplayDetected as u32
             )))
         );
+    }
+
+    #[test]
+    fn is_vaa_consumed_tracks_replay_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let manager_contract_id = env.register(DummyManager, ());
+        let manager_addr = manager_contract_id.clone();
+        let manager_id = manager_id_for(&env, &manager_addr);
+
+        let core_id = env.register(DummyWormholeCore, ());
+        let core_client = DummyWormholeCoreClient::new(&env, &core_id);
+
+        let admin = Address::generate(&env);
+        let transceiver_id = env.register(
+            TransceiverContract,
+            TransceiverContractArgs::__constructor(&admin, &manager_addr, &manager_id, &core_id),
+        );
+        let transceiver = TransceiverContractClient::new(&env, &transceiver_id);
+
+        let emitter_chain: u32 = 2;
+        let emitter_address = BytesN::<32>::from_array(&env, &[7u8; 32]);
+        transceiver.set_peer(&emitter_chain, &emitter_address);
+
+        let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
+        let manager_payload = Bytes::from_array(&env, &[9u8]);
+        let tm_payload =
+            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
+                .expect("encode should succeed");
+
+        let seq: u64 = 42;
+        let timestamp = env.ledger().timestamp() as u32;
+        core_client.set_parsed_vaa(
+            &emitter_chain,
+            &emitter_address,
+            &seq,
+            &timestamp,
+            &tm_payload,
+        );
+
+        assert!(!transceiver.is_vaa_consumed(&emitter_chain, &emitter_address, &seq));
+
+        let vaa_bytes = Bytes::from_array(&env, &[0xaa]);
+        transceiver.receive_message(&vaa_bytes);
+
+        assert!(transceiver.is_vaa_consumed(&emitter_chain, &emitter_address, &seq));
     }
 
     #[test]

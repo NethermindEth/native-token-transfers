@@ -1,35 +1,8 @@
-use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, Bytes, BytesN, Env};
-
-use crate::{
-    errors::NttManagerError,
-    messages::TrimmedAmount,
-    rate_limit::RateLimitParams,
+pub use soroban_ntt_client::{
+    AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerPeer,
+    OutboundQueuedTransfer, TransferResult,
 };
-
-/// Token handling mode for the NTT Manager.
-///
-/// Determines how the manager handles tokens during cross-chain transfers:
-/// - `Locking`: Tokens are locked in the contract (used on the canonical chain)
-/// - `Burning`: Tokens are burned/minted (used on non-canonical chains)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[contracttype]
-#[repr(u32)]
-pub enum Mode {
-    /// Lock tokens in the contract. Used when this chain holds the canonical token.
-    Locking = 0,
-    /// Burn tokens on send, mint on receive. Used for wrapped/synthetic tokens.
-    Burning = 1,
-}
-
-impl Mode {
-    pub fn is_locking(&self) -> bool {
-        matches!(self, Mode::Locking)
-    }
-
-    pub fn is_burning(&self) -> bool {
-        matches!(self, Mode::Burning)
-    }
-}
+use soroban_sdk::{address_payload::AddressPayload, contracttype, Address, BytesN, Env};
 
 /// Storage keys for contract state.
 ///
@@ -89,107 +62,6 @@ pub struct NttConfig {
     pub admin: Address,
     pub paused: bool,
     pub threshold: u32,
-}
-
-/// A transfer that exceeded the rate limit and was queued for later completion.
-///
-/// Stored in persistent storage keyed by sequence number. Anyone can complete
-/// the transfer once `release_timestamp` is reached. Only the original sender
-/// can cancel it to reclaim their tokens.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct OutboundQueuedTransfer {
-    /// Original sender who initiated the transfer.
-    pub sender: Address,
-    /// Normalized amount with dust removed.
-    pub amount: TrimmedAmount,
-    /// Destination Wormhole chain ID.
-    pub recipient_chain: u32,
-    /// NTT Manager address on the destination chain.
-    pub recipient_ntt_manager: BytesN<32>,
-    /// Final recipient address on the destination chain.
-    pub recipient: BytesN<32>,
-    /// Token contract address (converted to bytes32).
-    pub source_token: BytesN<32>,
-    /// Ledger timestamp when the transfer becomes eligible for completion.
-    pub release_timestamp: u64,
-    /// Optional custom payload attached to the transfer.
-    pub additional_payload: Option<Bytes>,
-}
-
-/// Result of a transfer operation, returned to the caller.
-///
-/// Contains the sequence number for tracking, whether the transfer was queued
-/// due to rate limiting, and the message digest for verification.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct TransferResult {
-    /// Unique sequence number assigned to this transfer.
-    pub sequence: u64,
-    /// Whether this transfer was queued (`true`) or sent immediately (`false`).
-    pub queued: bool,
-    /// Keccak-256 digest of the NTT message payload.
-    pub digest: BytesN<32>,
-}
-
-/// Tracks attestation state for an inbound cross-chain message.
-///
-/// Stored in persistent storage keyed by message digest. Used for replay
-/// protection and to track which transceivers have attested to the message.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct AttestationInfo {
-    /// Whether tokens have been released for this message.
-    pub executed: bool,
-    /// Bitmap of transceiver indices that have attested (bit N = transceiver N attested).
-    pub attested_transceivers: u64,
-}
-
-/// An inbound transfer that exceeded the rate limit and was queued.
-///
-/// Stored in persistent storage keyed by message digest. Anyone can complete
-/// the transfer after `release_timestamp` is reached.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct InboundQueuedTransfer {
-    /// Recipient address on this chain.
-    pub recipient: Address,
-    /// Amount in local token decimals (already untrimmed).
-    pub amount: i128,
-    /// Original trimmed amount from the wire format, used for rate limit backflow.
-    pub trimmed_amount: u64,
-    /// Ledger timestamp when the transfer becomes eligible for completion.
-    pub release_timestamp: u64,
-}
-
-/// Peer NTT Manager on another chain.
-///
-/// Each peer maintains its own inbound rate limit, allowing independent
-/// throttling of transfers from different source chains.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[contracttype]
-pub struct NttManagerPeer {
-    /// 32-byte address of the NTT Manager on the peer chain.
-    pub address: BytesN<32>,
-    /// Token decimals on the peer chain (1-18). Used for amount normalization.
-    pub token_decimals: u32,
-    /// Rate limiter for inbound transfers from this chain.
-    pub inbound_rate_limit: RateLimitParams,
-}
-
-/// Result of processing an attestation from a transceiver.
-///
-/// Indicates whether the attestation threshold was met, whether tokens
-/// were released, and whether the transfer was queued due to rate limiting.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct AttestationResult {
-    /// Whether the attestation threshold is now met.
-    pub approved: bool,
-    /// Whether tokens were released to the recipient.
-    pub executed: bool,
-    /// Whether the transfer was queued due to rate limiting.
-    pub queued: bool,
 }
 
 /// Converts a sequence number to a 32-byte message ID.
