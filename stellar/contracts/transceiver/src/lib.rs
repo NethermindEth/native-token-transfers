@@ -325,13 +325,6 @@ impl TransceiverContract {
     pub fn is_initialized(env: Env) -> bool {
         is_initialized_internal(&env)
     }
-
-    pub fn get_admin(env: Env) -> Address {
-        require_initialized(&env);
-        get_admin_internal(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
-    }
-
 }
 
 #[contractimpl]
@@ -396,6 +389,25 @@ impl TransceiverInterface for TransceiverContract {
         if res.is_err() {
             panic_with_error!(&env, TransceiverError::WormholePostFailed);
         }
+    }
+
+    fn get_admin(env: Env) -> Address {
+        require_initialized(&env);
+        get_admin_internal(&env)
+            .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized))
+    }
+
+    fn set_admin(env: Env, new_admin: Address) {
+        let _admin = require_admin_auth(&env);
+        new_admin.require_auth();
+        set_admin_internal(&env, &new_admin);
+        extend_instance_ttl(&env);
+    }
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let _admin = require_admin_auth(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        extend_instance_ttl(&env);
     }
 }
 

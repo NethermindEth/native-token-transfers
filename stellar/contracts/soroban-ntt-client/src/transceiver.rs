@@ -35,4 +35,15 @@ pub trait TransceiverInterface {
         recipient_manager: BytesN<32>,
         manager_payload: Bytes,
     );
+    /// Returns the current admin address.
+    fn get_admin(env: Env) -> Address;
+    /// Transfers the admin role to `new_admin`.
+    ///
+    /// Requires authorization from both the current admin and `new_admin`
+    /// to avoid accidentally handing the role to an unreachable address.
+    fn set_admin(env: Env, new_admin: Address);
+    /// Replaces the contract WASM with the one identified by `new_wasm_hash`.
+    ///
+    /// The WASM must be installed on the network beforehand. Restricted to admin.
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
 }
