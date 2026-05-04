@@ -2,20 +2,14 @@
 
 use soroban_ntt_client::{
     address_to_bytes32, validate_chain_id, AttestationResult, NttManagerError, PeerInfo,
-    TransceiverError, TransceiverInterface, WormholeTransceiverInterface, TTL_EXTEND, TTL_THRESHOLD,
-    WH_TRANSCEIVER_PREFIX,
+    TransceiverError, TransceiverInterface, TransceiverMessage, WormholeTransceiverInterface,
+    TTL_EXTEND, TTL_THRESHOLD,
 };
 use soroban_sdk::{
     contract, contractimpl, contracttype, panic_with_error, Address, Bytes, BytesN, Env, IntoVal,
     Symbol, Vec,
 };
 use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
-
-const PREFIX_LEN: u32 = 4;
-const ADDRESS_LEN: u32 = 32;
-const LENGTH_PREFIX_LEN: u32 = 2;
-const MIN_MESSAGE_LEN: u32 =
-    PREFIX_LEN + ADDRESS_LEN + ADDRESS_LEN + LENGTH_PREFIX_LEN + LENGTH_PREFIX_LEN;
 
 const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
 
@@ -37,14 +31,6 @@ struct ConsumedKey {
     emitter_chain: u32,
     emitter_address: BytesN<32>,
     sequence: u64,
-}
-
-#[derive(Clone, Debug)]
-struct DecodedMessage {
-    source_manager: BytesN<32>,
-    recipient_manager: BytesN<32>,
-    manager_payload: Bytes,
-    _transceiver_payload: Bytes,
 }
 
 fn extend_instance_ttl(env: &Env) {
@@ -174,93 +160,6 @@ fn require_manager_auth(env: &Env) -> Address {
     manager
 }
 
-fn read_u16_be(msg: &Bytes, offset: u32) -> Result<u16, TransceiverError> {
-    let b0 = msg.get(offset).ok_or(TransceiverError::MessageTooShort)?;
-    let b1 = msg
-        .get(offset + 1)
-        .ok_or(TransceiverError::MessageTooShort)?;
-    Ok(u16::from_be_bytes([b0, b1]))
-}
-
-fn read_32_bytes(msg: &Bytes, offset: u32) -> Result<[u8; 32], TransceiverError> {
-    let mut out = [0u8; 32];
-    let mut i = 0u32;
-    while i < 32 {
-        out[i as usize] = msg
-            .get(offset + i)
-            .ok_or(TransceiverError::MessageTooShort)?;
-        i += 1;
-    }
-    Ok(out)
-}
-
-fn decode_transceiver_message(env: &Env, msg: &Bytes) -> Result<DecodedMessage, TransceiverError> {
-    let len = msg.len();
-    if len < MIN_MESSAGE_LEN {
-        return Err(TransceiverError::MessageTooShort);
-    }
-
-    let prefix: [u8; 4] = msg.slice(0..4).try_into().unwrap();
-
-    if prefix != WH_TRANSCEIVER_PREFIX {
-        return Err(TransceiverError::InvalidTransceiverPrefix);
-    }
-
-    let src_arr = read_32_bytes(msg, PREFIX_LEN)?;
-    let dst_arr = read_32_bytes(msg, PREFIX_LEN + ADDRESS_LEN)?;
-
-    let mut offset = PREFIX_LEN + ADDRESS_LEN + ADDRESS_LEN;
-    let manager_payload_len = read_u16_be(msg, offset)? as u32;
-    offset += LENGTH_PREFIX_LEN;
-
-    if offset + manager_payload_len + LENGTH_PREFIX_LEN > len {
-        return Err(TransceiverError::MessageTooShort);
-    }
-
-    let manager_payload = msg.slice(offset..offset + manager_payload_len);
-    offset += manager_payload_len;
-
-    let transceiver_payload_len = read_u16_be(msg, offset)? as u32;
-    offset += LENGTH_PREFIX_LEN;
-
-    if offset + transceiver_payload_len > len {
-        return Err(TransceiverError::MessageTooShort);
-    }
-
-    let transceiver_payload = msg.slice(offset..offset + transceiver_payload_len);
-
-    Ok(DecodedMessage {
-        source_manager: BytesN::<32>::from_array(env, &src_arr),
-        recipient_manager: BytesN::<32>::from_array(env, &dst_arr),
-        manager_payload,
-        _transceiver_payload: transceiver_payload,
-    })
-}
-
-fn encode_transceiver_message(
-    env: &Env,
-    source_manager: &BytesN<32>,
-    recipient_manager: &BytesN<32>,
-    manager_payload: &Bytes,
-) -> Result<Bytes, TransceiverError> {
-    if manager_payload.len() > u16::MAX as u32 {
-        return Err(TransceiverError::PayloadTooLong);
-    }
-
-    let mut out = Bytes::new(env);
-    out.append(&Bytes::from_array(env, &WH_TRANSCEIVER_PREFIX));
-    out.append(&Bytes::from_array(env, &source_manager.to_array()));
-    out.append(&Bytes::from_array(env, &recipient_manager.to_array()));
-
-    let payload_len = manager_payload.len() as u16;
-    out.append(&Bytes::from_array(env, &payload_len.to_be_bytes()));
-    out.append(manager_payload);
-
-    out.append(&Bytes::from_array(env, &0u16.to_be_bytes()));
-
-    Ok(out)
-}
-
 #[contract]
 pub struct TransceiverContract;
 
@@ -355,9 +254,14 @@ impl TransceiverInterface for TransceiverContract {
         let source_manager = get_manager_id_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::NotInitialized));
 
-        let payload =
-            encode_transceiver_message(&env, &source_manager, &recipient_manager, &manager_payload)
-                .unwrap_or_else(|err| panic_with_error!(&env, err));
+        let payload = TransceiverMessage {
+            source_manager,
+            recipient_manager,
+            manager_payload,
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .unwrap_or_else(|err| panic_with_error!(&env, err));
 
         let core_addr = get_wormhole_core_internal(&env)
             .unwrap_or_else(|| panic_with_error!(&env, TransceiverError::WormholeCoreNotSet));
@@ -511,7 +415,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
             panic_with_error!(&env, TransceiverError::UnexpectedEmitter);
         }
 
-        let decoded = decode_transceiver_message(&env, &vaa.payload)
+        let decoded = TransceiverMessage::from_bytes(&env, &vaa.payload)
             .unwrap_or_else(|err| panic_with_error!(&env, err));
 
         let our_manager_id = get_manager_id_internal(&env)
@@ -807,9 +711,14 @@ mod tests {
 
         transceiver.send_message(&dst_chain, &recipient_manager, &manager_payload);
 
-        let expected =
-            encode_transceiver_message(&env, &manager_id, &recipient_manager, &manager_payload)
-                .expect("encode should succeed");
+        let expected = TransceiverMessage {
+            source_manager: manager_id,
+            recipient_manager,
+            manager_payload,
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .expect("encode should succeed");
         let posted = core_client
             .last_posted_payload()
             .expect("payload should be posted");
@@ -841,9 +750,14 @@ mod tests {
 
         let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
         let manager_payload = Bytes::from_array(&env, &[1u8, 2, 3, 4]);
-        let tm_payload =
-            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
-                .expect("encode should succeed");
+        let tm_payload = TransceiverMessage {
+            source_manager: source_manager.clone(),
+            recipient_manager: manager_id,
+            manager_payload: manager_payload.clone(),
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .expect("encode should succeed");
 
         let seq: u64 = 1;
         let timestamp = env.ledger().timestamp() as u32;
@@ -890,9 +804,14 @@ mod tests {
 
         let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
         let manager_payload = Bytes::from_array(&env, &[9u8]);
-        let tm_payload =
-            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
-                .expect("encode should succeed");
+        let tm_payload = TransceiverMessage {
+            source_manager,
+            recipient_manager: manager_id,
+            manager_payload,
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .expect("encode should succeed");
 
         let seq: u64 = 1;
         let timestamp = env.ledger().timestamp() as u32;
@@ -941,9 +860,14 @@ mod tests {
 
         let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
         let manager_payload = Bytes::from_array(&env, &[9u8]);
-        let tm_payload =
-            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
-                .expect("encode should succeed");
+        let tm_payload = TransceiverMessage {
+            source_manager,
+            recipient_manager: manager_id,
+            manager_payload,
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .expect("encode should succeed");
 
         let seq: u64 = 42;
         let timestamp = env.ledger().timestamp() as u32;
@@ -1049,9 +973,14 @@ mod tests {
 
         let source_manager = BytesN::<32>::from_array(&env, &[1u8; 32]);
         let manager_payload = Bytes::from_array(&env, &[1u8]);
-        let tm_payload =
-            encode_transceiver_message(&env, &source_manager, &manager_id, &manager_payload)
-                .expect("encode should succeed");
+        let tm_payload = TransceiverMessage {
+            source_manager,
+            recipient_manager: manager_id,
+            manager_payload,
+            transceiver_payload: Bytes::new(&env),
+        }
+        .to_bytes(&env)
+        .expect("encode should succeed");
 
         let seq: u64 = 1;
         let timestamp = env.ledger().timestamp() as u32;

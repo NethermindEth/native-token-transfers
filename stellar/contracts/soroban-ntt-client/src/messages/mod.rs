@@ -5,8 +5,10 @@
 
 pub mod native_token_transfer;
 pub mod ntt_manager_message;
+pub mod transceiver_message;
 pub mod trimmed_amount;
 
 pub use native_token_transfer::NativeTokenTransfer;
 pub use ntt_manager_message::NttManagerMessage;
+pub use transceiver_message::TransceiverMessage;
 pub use trimmed_amount::TrimmedAmount;
