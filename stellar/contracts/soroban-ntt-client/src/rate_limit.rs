@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, Env};
+use soroban_sdk::{contractclient, contracttype, BytesN, Env};
+
+use crate::types::{InboundQueuedTransfer, OutboundQueuedTransfer};
 
 /// Token bucket rate limiter for controlling transfer throughput.
 ///
@@ -96,4 +98,28 @@ impl RateLimitParams {
         self.limit = new_limit;
         self.last_tx_timestamp = now;
     }
+}
+
+/// Read-only view of the rate limiter state exposed by the NTT Manager.
+///
+/// Surfaces outbound/inbound capacity and queued-transfer entries so
+/// off-chain systems can observe rate-limit behavior without driving the
+/// transfer flow itself.
+///
+/// The `#[contractclient]` attribute generates a `RateLimiterClient`
+/// binding for callers that need to drive these queries.
+#[contractclient(name = "RateLimiterClient")]
+pub trait RateLimiterInterface {
+    /// Returns the outbound rate limit parameters.
+    fn get_outbound_limit_params(env: Env) -> RateLimitParams;
+    /// Returns the current outbound capacity after time-based refill.
+    fn get_outbound_capacity(env: Env) -> u64;
+    /// Returns the current inbound capacity for `chain_id`, if that peer exists.
+    fn get_inbound_capacity(env: Env, chain_id: u32) -> Option<u64>;
+    /// Returns the inbound rate limit parameters for `chain_id`, if that peer exists.
+    fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams>;
+    /// Returns the queued outbound transfer for `sequence`, if present.
+    fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer>;
+    /// Returns the queued inbound transfer for `digest`, if present.
+    fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer>;
 }
