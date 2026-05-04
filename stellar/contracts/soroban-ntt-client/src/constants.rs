@@ -1,0 +1,40 @@
+//! Protocol-wide constants shared across NTT contracts.
+//!
+//! Single source of truth for storage TTLs, registry caps, and on-the-wire
+//! message prefixes. Wire prefixes are part of the cross-chain ABI: they
+//! must agree across implementations and across this crate's versions.
+
+/// TTL threshold in ledgers (~1 day at 5s/ledger) before extending.
+///
+/// Used for both instance and persistent storage by every contract in the
+/// workspace.
+pub const TTL_THRESHOLD: u32 = 17280;
+
+/// TTL extension in ledgers (~30 days at 5s/ledger).
+///
+/// Used for both instance and persistent storage by every contract in the
+/// workspace.
+pub const TTL_EXTEND: u32 = 17280 * 30;
+
+/// Maximum number of transceivers a single manager can register.
+///
+/// Bounded by the `u64` bitmap used to track enabled transceivers.
+pub const MAX_TRANSCEIVERS: u32 = 64;
+
+/// Wormhole transceiver envelope prefix (`0x9945FF10`).
+///
+/// Distinguishes a wrapped NTT manager payload from any other Wormhole VAA
+/// payload. Receivers reject mismatched prefixes.
+pub const WH_TRANSCEIVER_PREFIX: [u8; 4] = [0x99, 0x45, 0xff, 0x10];
+
+/// `WormholeTransceiverInfo` broadcast prefix (`0x9C23BD3B`).
+///
+/// Identifies the periodic transceiver-info messages consumed by the NTT
+/// Accountant. See `evm/src/libraries/TransceiverStructs.sol`.
+pub const BROADCAST_ID_PREFIX: [u8; 4] = [0x9C, 0x23, 0xBD, 0x3B];
+
+/// `WormholeTransceiverRegistration` broadcast prefix (`0x18FC67C2`).
+///
+/// Identifies the per-peer registration broadcasts consumed by the NTT
+/// Accountant. See `evm/src/libraries/TransceiverStructs.sol`.
+pub const BROADCAST_PEER_PREFIX: [u8; 4] = [0x18, 0xFC, 0x67, 0xC2];

@@ -1,6 +1,5 @@
 #![no_std]
 
-mod constants;
 mod inbound;
 mod messages;
 mod outbound;
@@ -19,10 +18,11 @@ use outbound::{
 };
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use soroban_ntt_client::{
-    AttestationInfo, InboundQueuedTransfer, NttManagerError, NttManagerInterface, NttManagerPeer,
-    OutboundQueuedTransfer, RateLimitParams, RateLimiterInterface, TrimmedAmount,
+    validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
+    NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
+    RateLimiterInterface, TrimmedAmount,
 };
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
 use state::{Mode, TransferResult};
 use storage::{
@@ -76,10 +76,8 @@ impl ManagerContract {
         let token_decimals = query_token_decimals(&env, &token);
         let storage = InstanceStorage::new(&env);
 
-        // TODO: Implement as validation function in core contract interface
-        // Can we panic here?
-        if chain_id > u16::MAX as u32 {
-            panic!("chain_id exceeds u16::MAX");
+        if validate_chain_id(chain_id).is_none() {
+            panic_with_error!(&env, NttManagerError::ChainIdTooLarge);
         }
 
         storage.set_admin(&admin);

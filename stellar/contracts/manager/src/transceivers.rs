@@ -3,13 +3,10 @@
 //! Transceivers are responsible for sending and receiving messages across chains.
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
-use soroban_ntt_client::NttManagerError;
+use soroban_ntt_client::{NttManagerError, MAX_TRANSCEIVERS};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::{
-    constants::MAX_TRANSCEIVERS,
-    storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry},
-};
+use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
 
 /// 64-bit bitmap for tracking transceiver registration and attestations.
 ///

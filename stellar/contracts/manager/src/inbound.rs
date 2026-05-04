@@ -7,14 +7,14 @@
 //! - Queue completion after rate limit delay expires
 //! - Manual execution of approved but unexecuted messages
 
-use soroban_ntt_client::NttManagerError;
+use soroban_ntt_client::{bytes32_to_address, NttManagerError};
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
     messages::NttManagerMessage,
     peers::{consume_or_delay_inbound, verify_peer},
     rate_limit::{refill_outbound, RateLimitResult},
-    state::{bytes32_to_address, AttestationResult, InboundQueuedTransfer},
+    state::{AttestationResult, InboundQueuedTransfer},
     storage::{AttestationEntry, InboundQueueEntry, InstanceStorage},
     token_ops::{get_token_decimals, release_tokens},
     transceivers::{get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index},

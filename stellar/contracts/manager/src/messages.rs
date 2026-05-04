@@ -1,4 +1,4 @@
-use soroban_ntt_client::{NttManagerError, TrimmedAmount};
+use soroban_ntt_client::{validate_chain_id, NttManagerError, TrimmedAmount};
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
 use wormhole_soroban_client::BytesReader;
 
@@ -43,15 +43,13 @@ impl NativeTokenTransfer {
     /// Returns `ChainIdTooLarge` if `to_chain` exceeds u16::MAX,
     /// or `PayloadTooLong` if additional payload exceeds 65535 bytes.
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
-        if self.to_chain > u16::MAX as u32 {
-            return Err(NttManagerError::ChainIdTooLarge);
-        }
+        let to_chain = validate_chain_id(self.to_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
 
         let mut buf = Bytes::from_array(env, &Self::PREFIX);
         buf.append(&self.amount.to_bytes(env));
         buf.extend_from_array(&self.source_token.to_array());
         buf.extend_from_array(&self.to.to_array());
-        buf.extend_from_array(&(self.to_chain as u16).to_be_bytes());
+        buf.extend_from_array(&to_chain.to_be_bytes());
 
         if let Some(ref payload) = self.additional_payload {
             if payload.len() > u16::MAX as u32 {

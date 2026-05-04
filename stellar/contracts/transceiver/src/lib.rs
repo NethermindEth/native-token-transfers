@@ -1,26 +1,22 @@
 #![no_std]
 
 use soroban_ntt_client::{
-    AttestationResult, NttManagerError, PeerInfo, TransceiverError, TransceiverInterface,
-    WormholeTransceiverInterface,
+    address_to_bytes32, validate_chain_id, AttestationResult, NttManagerError, PeerInfo,
+    TransceiverError, TransceiverInterface, WormholeTransceiverInterface, TTL_EXTEND, TTL_THRESHOLD,
+    WH_TRANSCEIVER_PREFIX,
 };
 use soroban_sdk::{
-    address_payload::AddressPayload, contract, contractimpl, contracttype, panic_with_error,
-    Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+    contract, contractimpl, contracttype, panic_with_error, Address, Bytes, BytesN, Env, IntoVal,
+    Symbol, Vec,
 };
 use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
 
-const WH_TRANSCEIVER_PREFIX: [u8; 4] = [0x99, 0x45, 0xff, 0x10];
 const PREFIX_LEN: u32 = 4;
 const ADDRESS_LEN: u32 = 32;
 const LENGTH_PREFIX_LEN: u32 = 2;
 const MIN_MESSAGE_LEN: u32 =
     PREFIX_LEN + ADDRESS_LEN + ADDRESS_LEN + LENGTH_PREFIX_LEN + LENGTH_PREFIX_LEN;
 
-const INSTANCE_TTL_THRESHOLD: u32 = 17280;
-const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;
-const PERSISTENT_TTL_THRESHOLD: u32 = 17280;
-const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;
 const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
 
 #[derive(Clone)]
@@ -54,13 +50,13 @@ struct DecodedMessage {
 fn extend_instance_ttl(env: &Env) {
     env.storage()
         .instance()
-        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND);
 }
 
 fn extend_persistent_ttl(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()
-        .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND);
+        .extend_ttl(key, TTL_THRESHOLD, TTL_EXTEND);
 }
 
 fn is_initialized_internal(env: &Env) -> bool {
@@ -178,13 +174,6 @@ fn require_manager_auth(env: &Env) -> Address {
     manager
 }
 
-fn address_to_bytes32(_env: &Env, address: &Address) -> BytesN<32> {
-    match address.to_payload().expect("address has no payload") {
-        AddressPayload::AccountIdPublicKeyEd25519(bytes) => bytes,
-        AddressPayload::ContractIdHash(bytes) => bytes,
-    }
-}
-
 fn read_u16_be(msg: &Bytes, offset: u32) -> Result<u16, TransceiverError> {
     let b0 = msg.get(offset).ok_or(TransceiverError::MessageTooShort)?;
     let b1 = msg
@@ -286,7 +275,7 @@ fn init_internal(
         panic_with_error!(env, TransceiverError::AlreadyInitialized);
     }
 
-    let derived_manager_id = address_to_bytes32(env, manager);
+    let derived_manager_id = address_to_bytes32(manager);
     if derived_manager_id != *manager_id {
         panic_with_error!(env, TransceiverError::InvalidManagerId);
     }
@@ -424,8 +413,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         if chain_id == 0 {
             panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
         }
-        // TODO: Implement as validation function in core contract interface
-        if chain_id > u16::MAX as u32 {
+        if validate_chain_id(chain_id).is_none() {
             panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
         }
         if emitter.to_array() == [0u8; 32] {
@@ -447,8 +435,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         if chain_id == 0 {
             panic_with_error!(&env, TransceiverError::InvalidPeerChainIdZero);
         }
-        // TODO: Implement as validation function in core contract interface
-        if chain_id > u16::MAX as u32 {
+        if validate_chain_id(chain_id).is_none() {
             panic_with_error!(&env, TransceiverError::ChainIdTooLarge);
         }
         if emitter.to_array() == [0u8; 32] {
@@ -581,8 +568,8 @@ mod tests {
         contract, contractimpl, testutils::Address as _, Address, Bytes, BytesN, Env, Symbol, Vec,
     };
 
-    fn manager_id_for(env: &Env, manager: &Address) -> BytesN<32> {
-        address_to_bytes32(env, manager)
+    fn manager_id_for(_env: &Env, manager: &Address) -> BytesN<32> {
+        address_to_bytes32(manager)
     }
 
     #[contract]
