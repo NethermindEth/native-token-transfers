@@ -21,6 +21,12 @@ pub const TTL_EXTEND: u32 = 17280 * 30;
 /// Bounded by the `u64` bitmap used to track enabled transceivers.
 pub const MAX_TRANSCEIVERS: u32 = 64;
 
+/// NTT manager message prefix (`0x994E5454`, ASCII `"™NTT"`).
+///
+/// Identifies a [`NativeTokenTransfer`](crate::messages::NativeTokenTransfer)
+/// payload on the wire so receivers can reject foreign payloads early.
+pub const NTT_PREFIX: [u8; 4] = [0x99, 0x4E, 0x54, 0x54];
+
 /// Wormhole transceiver envelope prefix (`0x9945FF10`).
 ///
 /// Distinguishes a wrapped NTT manager payload from any other Wormhole VAA

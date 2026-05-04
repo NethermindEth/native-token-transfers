@@ -1,7 +1,6 @@
 #![no_std]
 
 mod inbound;
-mod messages;
 mod outbound;
 mod peers;
 mod rate_limit;
