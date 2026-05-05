@@ -79,33 +79,18 @@ impl TransceiverMessage {
 
         let mut reader = BytesReader::new(bytes);
 
-        let prefix = reader
-            .read_u32_be()
-            .map_err(|_| TransceiverError::MessageTooShort)?;
-        if prefix != u32::from_be_bytes(WH_TRANSCEIVER_PREFIX) {
+        if reader.read_u32_be()? != u32::from_be_bytes(WH_TRANSCEIVER_PREFIX) {
             return Err(TransceiverError::InvalidTransceiverPrefix);
         }
 
-        let source_manager: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| TransceiverError::MessageTooShort)?;
-        let recipient_manager: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| TransceiverError::MessageTooShort)?;
+        let source_manager: BytesN<32> = reader.read_bytes_n()?;
+        let recipient_manager: BytesN<32> = reader.read_bytes_n()?;
 
-        let manager_payload_len = reader
-            .read_u16_be()
-            .map_err(|_| TransceiverError::MessageTooShort)? as u32;
-        let manager_payload = reader
-            .read_bytes(manager_payload_len)
-            .map_err(|_| TransceiverError::MessageTooShort)?;
+        let manager_payload_len = reader.read_u16_be()? as u32;
+        let manager_payload = reader.read_bytes(manager_payload_len)?;
 
-        let transceiver_payload_len = reader
-            .read_u16_be()
-            .map_err(|_| TransceiverError::MessageTooShort)? as u32;
-        let transceiver_payload = reader
-            .read_bytes(transceiver_payload_len)
-            .map_err(|_| TransceiverError::MessageTooShort)?;
+        let transceiver_payload_len = reader.read_u16_be()? as u32;
+        let transceiver_payload = reader.read_bytes(transceiver_payload_len)?;
 
         Ok(Self {
             source_manager,

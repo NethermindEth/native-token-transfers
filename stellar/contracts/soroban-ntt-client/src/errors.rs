@@ -4,6 +4,7 @@
 //! reordering or reusing retired numbers is not.
 
 use soroban_sdk::contracterror;
+use wormhole_soroban_client::WormholeError;
 
 /// Errors returned by the NTT Manager contract.
 ///
@@ -145,4 +146,17 @@ pub enum TransceiverError {
     UnexpectedEmitter = 35,
     /// The downstream manager rejected the forwarded attestation.
     ManagerRejectedMessage = 36,
+}
+
+// Maps `BytesReader` truncation errors so message decoders can `?`-propagate.
+impl From<WormholeError> for NttManagerError {
+    fn from(_: WormholeError) -> Self {
+        NttManagerError::MessageTooShort
+    }
+}
+
+impl From<WormholeError> for TransceiverError {
+    fn from(_: WormholeError) -> Self {
+        TransceiverError::MessageTooShort
+    }
 }
