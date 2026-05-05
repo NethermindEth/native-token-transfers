@@ -112,8 +112,4 @@ impl WormholeTransceiverInterface for TransceiverContract {
     ) -> bool {
         inbound::is_vaa_consumed(&env, emitter_chain, &emitter_address, sequence)
     }
-
-    fn receive_vaa(env: Env, vaa_bytes: Bytes) -> Result<(), TransceiverError> {
-        Self::receive_message(env, vaa_bytes)
-    }
 }

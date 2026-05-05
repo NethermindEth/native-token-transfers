@@ -64,7 +64,4 @@ pub trait WormholeTransceiverInterface {
         emitter_address: BytesN<32>,
         sequence: u64,
     ) -> bool;
-    /// Deprecated alias for [`receive_message`](Self::receive_message),
-    /// kept for compatibility with callers that used the older name.
-    fn receive_vaa(env: Env, vaa_bytes: Bytes) -> Result<(), TransceiverError>;
 }
