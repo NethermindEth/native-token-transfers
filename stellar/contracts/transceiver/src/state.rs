@@ -5,10 +5,8 @@ pub(crate) const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
-    Initialized,
     Admin,
     Manager,
-    ManagerId,
     WormholeCore,
     Peer(u32),
     Consumed(ConsumedKey),

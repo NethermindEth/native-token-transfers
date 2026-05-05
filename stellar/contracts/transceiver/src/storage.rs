@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use soroban_ntt_client::{PeerInfo, TransceiverError, TTL_EXTEND, TTL_THRESHOLD};
+use soroban_ntt_client::{address_to_bytes32, PeerInfo, TransceiverError, TTL_EXTEND, TTL_THRESHOLD};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::state::{ConsumedKey, DataKey};
@@ -34,20 +34,7 @@ impl<'a> InstanceStorage<'a> {
         T: TryFromVal<Env, Val>,
         T::Error: Debug,
     {
-        if !self.is_initialized() {
-            return Err(TransceiverError::NotInitialized);
-        }
         self.read(key).ok_or(TransceiverError::NotInitialized)
-    }
-
-    pub fn is_initialized(&self) -> bool {
-        self.read(&DataKey::Initialized).unwrap_or(false)
-    }
-
-    pub fn require_initialized(&self) -> Result<(), TransceiverError> {
-        self.is_initialized()
-            .then_some(())
-            .ok_or(TransceiverError::NotInitialized)
     }
 
     pub fn admin(&self) -> Result<Address, TransceiverError> {
@@ -59,7 +46,7 @@ impl<'a> InstanceStorage<'a> {
     }
 
     pub fn manager_id(&self) -> Result<BytesN<32>, TransceiverError> {
-        self.require(&DataKey::ManagerId)
+        Ok(address_to_bytes32(&self.manager()?))
     }
 
     pub fn wormhole_core(&self) -> Result<Address, TransceiverError> {
@@ -82,18 +69,11 @@ impl<'a> InstanceStorage<'a> {
         &self,
         admin: &Address,
         manager: &Address,
-        manager_id: &BytesN<32>,
         wormhole_core: &Address,
-    ) -> Result<(), TransceiverError> {
-        if self.is_initialized() {
-            return Err(TransceiverError::AlreadyInitialized);
-        }
+    ) {
         self.write(&DataKey::Admin, admin);
         self.write(&DataKey::Manager, manager);
-        self.write(&DataKey::ManagerId, manager_id);
         self.write(&DataKey::WormholeCore, wormhole_core);
-        self.write(&DataKey::Initialized, &true);
-        Ok(())
     }
 
     pub fn set_admin(&self, admin: &Address) {

@@ -103,7 +103,7 @@ pub enum NttManagerError {
 /// Errors returned by the Wormhole Transceiver contract.
 ///
 /// Variants are grouped by numeric range:
-/// - `1..=6`: initialization and core wiring
+/// - `1..=3`: initialization and authorization
 /// - `10..=15`: peer registration and chain ID validation
 /// - `20..=22`: Wormhole core interactions (verify, post)
 /// - `30..=36`: NTT message decoding and attestation dispatch
@@ -111,18 +111,10 @@ pub enum NttManagerError {
 #[contracterror]
 #[repr(u32)]
 pub enum TransceiverError {
-    /// Transceiver has not been initialized.
+    /// Required contract state has not been initialized.
     NotInitialized = 1,
-    /// Transceiver has already been initialized and cannot be re-initialized.
-    AlreadyInitialized = 2,
     /// Caller is not authorized for the requested operation.
     Unauthorized = 3,
-    /// Provided manager ID does not match the hash derived from the manager address.
-    InvalidManagerId = 4,
-    /// Manager address has not been set in instance storage.
-    ManagerNotSet = 5,
-    /// Wormhole core contract address has not been set.
-    WormholeCoreNotSet = 6,
     /// Peer chain ID cannot be zero.
     InvalidPeerChainIdZero = 10,
     /// Peer emitter address is the zero address.

@@ -7,8 +7,7 @@ mod state;
 mod storage;
 
 use soroban_ntt_client::{
-    address_to_bytes32, PeerInfo, TransceiverError, TransceiverInterface,
-    WormholeTransceiverInterface,
+    PeerInfo, TransceiverError, TransceiverInterface, WormholeTransceiverInterface,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 
@@ -20,43 +19,9 @@ pub struct TransceiverContract;
 
 #[contractimpl]
 impl TransceiverContract {
-    pub fn __constructor(
-        env: Env,
-        admin: Address,
-        manager: Address,
-        manager_id: BytesN<32>,
-        wormhole_core: Address,
-    ) -> Result<(), TransceiverError> {
-        initialize(&env, &admin, &manager, &manager_id, &wormhole_core)
+    pub fn __constructor(env: Env, admin: Address, manager: Address, wormhole_core: Address) {
+        InstanceStorage::new(&env).initialize(&admin, &manager, &wormhole_core);
     }
-
-    pub fn init(
-        env: Env,
-        admin: Address,
-        manager: Address,
-        manager_id: BytesN<32>,
-        wormhole_core: Address,
-    ) -> Result<(), TransceiverError> {
-        admin.require_auth();
-        initialize(&env, &admin, &manager, &manager_id, &wormhole_core)
-    }
-
-    pub fn is_initialized(env: Env) -> bool {
-        InstanceStorage::new(&env).is_initialized()
-    }
-}
-
-fn initialize(
-    env: &Env,
-    admin: &Address,
-    manager: &Address,
-    manager_id: &BytesN<32>,
-    wormhole_core: &Address,
-) -> Result<(), TransceiverError> {
-    if address_to_bytes32(manager) != *manager_id {
-        return Err(TransceiverError::InvalidManagerId);
-    }
-    InstanceStorage::new(env).initialize(admin, manager, manager_id, wormhole_core)
 }
 
 #[contractimpl]

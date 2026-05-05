@@ -7,7 +7,6 @@ use crate::storage::{ConsumedEntry, InstanceStorage};
 
 pub fn receive_message(env: &Env, vaa_bytes: Bytes) -> Result<(), TransceiverError> {
     let storage = InstanceStorage::new(env);
-    storage.require_initialized()?;
 
     let vaa = WormholeClient::new(env, &storage.wormhole_core()?)
         .try_parse_and_verify_vaa(&vaa_bytes)
