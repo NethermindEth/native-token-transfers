@@ -3,12 +3,10 @@
 //! Byte layouts in this module are observed by other chains, off-chain
 //! relayers, and indexers. Changing a layout is a protocol-level change.
 
-pub mod native_token_transfer;
-pub mod ntt_manager_message;
+pub mod ntt_message;
 pub mod transceiver_message;
 pub mod trimmed_amount;
 
-pub use native_token_transfer::NativeTokenTransfer;
-pub use ntt_manager_message::NttManagerMessage;
+pub use ntt_message::{NativeTokenTransfer, NttManagerMessage};
 pub use transceiver_message::TransceiverMessage;
 pub use trimmed_amount::TrimmedAmount;
