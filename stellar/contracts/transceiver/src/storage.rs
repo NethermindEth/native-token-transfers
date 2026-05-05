@@ -101,11 +101,11 @@ where
     }
 
     pub fn get(&self) -> Option<V> {
-        let value = self.env.storage().persistent().get(&self.key);
-        if value.is_some() {
-            self.extend_ttl();
-        }
-        value
+        self.env
+            .storage()
+            .persistent()
+            .get(&self.key)
+            .inspect(|_| self.extend_ttl())
     }
 
     pub fn set(&self, value: &V) {
