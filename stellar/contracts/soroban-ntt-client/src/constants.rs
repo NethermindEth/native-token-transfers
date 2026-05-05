@@ -21,6 +21,12 @@ pub const TTL_EXTEND: u32 = 17280 * 30;
 /// Bounded by the `u64` bitmap used to track enabled transceivers.
 pub const MAX_TRANSCEIVERS: u32 = 64;
 
+/// Default rate-limit refill window in seconds (24 hours).
+///
+/// Used by the manager as the fallback when no duration is configured in
+/// storage. The bucket fully refills over this period.
+pub const RATE_LIMIT_DURATION: u64 = 86400;
+
 /// NTT manager message prefix (`0x994E5454`, ASCII `"™NTT"`).
 ///
 /// Identifies a [`NativeTokenTransfer`](crate::messages::NativeTokenTransfer)

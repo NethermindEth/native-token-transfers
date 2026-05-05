@@ -2,11 +2,6 @@ use soroban_sdk::{contracttype, Env};
 
 use crate::storage::InstanceStorage;
 
-/// Default rate-limit refill window (24 hours).
-///
-/// The bucket fully refills over this period.
-pub const RATE_LIMIT_DURATION: u64 = 86400;
-
 /// Result of attempting to consume rate limit capacity.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[contracttype]
