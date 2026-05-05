@@ -48,15 +48,6 @@ pub fn get_token_decimals(env: &Env) -> Result<u32, NttManagerError> {
     InstanceStorage::new(env).token_decimals()
 }
 
-/// Queries the token balance for an account.
-///
-/// Makes a cross-contract call to the configured token contract.
-pub fn get_token_balance(env: &Env, account: &Address) -> Result<i128, NttManagerError> {
-    let token_addr = InstanceStorage::new(env).token()?;
-    let client = token::Client::new(env, &token_addr);
-    Ok(client.balance(account))
-}
-
 /// Transfers tokens from the sender to this contract (locking mode).
 ///
 /// Used for outbound transfers on the canonical chain. The sender must have

@@ -125,18 +125,6 @@ pub fn get_transceiver_index(env: &Env, address: &Address) -> Option<u32> {
     TransceiverIndexEntry::new(env, address.clone()).get()
 }
 
-/// Checks whether a transceiver is currently enabled.
-///
-/// Returns `false` if the address is not registered or is disabled.
-pub fn is_transceiver_enabled(env: &Env, address: &Address) -> bool {
-    if let Some(index) = get_transceiver_index(env, address) {
-        if let Some(info) = get_transceiver(env, index) {
-            return info.enabled;
-        }
-    }
-    false
-}
-
 /// Returns a list of all currently enabled transceiver addresses.
 ///
 /// Iterates through all registered transceivers and filters by the enabled bitmap.
