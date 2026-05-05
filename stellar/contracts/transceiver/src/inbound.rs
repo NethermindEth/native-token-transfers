@@ -1,5 +1,5 @@
-use soroban_ntt_client::{AttestationResult, NttManagerError, TransceiverError, TransceiverMessage};
-use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
+use soroban_ntt_client::{NttManagerClient, TransceiverError, TransceiverMessage};
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 use wormhole_soroban_client::WormholeClient;
 
 use crate::peers::load_enabled_peer;
@@ -55,15 +55,15 @@ fn forward_to_manager(
     source_manager: BytesN<32>,
     payload: Bytes,
 ) -> Result<(), TransceiverError> {
-    let args = vec![
-        env,
-        env.current_contract_address().into_val(env),
-        source_chain.into_val(env),
-        source_manager.into_val(env),
-        payload.into_val(env),
-    ];
-    let res: Result<AttestationResult, NttManagerError> =
-        env.invoke_contract(manager, &Symbol::new(env, "attestation_received"), args);
-    res.map(|_| ())
-        .map_err(|_| TransceiverError::ManagerRejectedMessage)
+    NttManagerClient::new(env, manager)
+        .try_attestation_received(
+            &env.current_contract_address(),
+            &source_chain,
+            &source_manager,
+            &payload,
+        )
+        .map_err(|_| TransceiverError::ManagerRejectedMessage)?
+        .map_err(|_| TransceiverError::ManagerRejectedMessage)?;
+
+    Ok(())
 }
