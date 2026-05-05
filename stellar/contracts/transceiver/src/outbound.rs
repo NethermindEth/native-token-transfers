@@ -1,6 +1,6 @@
 use soroban_ntt_client::{TransceiverError, TransceiverMessage};
-use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
-use wormhole_soroban_client::{ConsistencyLevel, WormholeError};
+use soroban_sdk::{Bytes, BytesN, Env};
+use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
 use crate::peers::load_enabled_peer;
 use crate::storage::InstanceStorage;
@@ -23,19 +23,15 @@ pub fn send_message(
     }
     .to_bytes(env)?;
 
-    post_to_wormhole(env, &storage.wormhole_core()?, payload)
-}
+    WormholeClient::new(env, &storage.wormhole_core()?)
+        .try_post_message(
+            &env.current_contract_address(),
+            &0u32,
+            &payload,
+            &ConsistencyLevel::Confirmed,
+        )
+        .map_err(|_| TransceiverError::WormholePostFailed)?
+        .map_err(|_| TransceiverError::WormholePostFailed)?;
 
-fn post_to_wormhole(env: &Env, core: &Address, payload: Bytes) -> Result<(), TransceiverError> {
-    let args = vec![
-        env,
-        env.current_contract_address().into_val(env),
-        0u32.into_val(env),
-        payload.into_val(env),
-        ConsistencyLevel::Confirmed.into_val(env),
-    ];
-    let res: Result<u64, WormholeError> =
-        env.invoke_contract(core, &Symbol::new(env, "post_message"), args);
-    res.map(|_| ())
-        .map_err(|_| TransceiverError::WormholePostFailed)
+    Ok(())
 }

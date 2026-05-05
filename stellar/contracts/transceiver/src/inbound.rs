@@ -1,6 +1,6 @@
 use soroban_ntt_client::{AttestationResult, NttManagerError, TransceiverError, TransceiverMessage};
 use soroban_sdk::{vec, Address, Bytes, BytesN, Env, IntoVal, Symbol};
-use wormhole_soroban_client::{WormholeError, VAA};
+use wormhole_soroban_client::WormholeClient;
 
 use crate::peers::load_enabled_peer;
 use crate::storage::{ConsumedEntry, InstanceStorage};
@@ -9,7 +9,10 @@ pub fn receive_message(env: &Env, vaa_bytes: Bytes) -> Result<(), TransceiverErr
     let storage = InstanceStorage::new(env);
     storage.require_initialized()?;
 
-    let vaa = verify_and_parse_vaa(env, &storage.wormhole_core()?, vaa_bytes)?;
+    let vaa = WormholeClient::new(env, &storage.wormhole_core()?)
+        .try_parse_and_verify_vaa(&vaa_bytes)
+        .map_err(|_| TransceiverError::WormholeVerificationFailed)?
+        .map_err(|_| TransceiverError::WormholeVerificationFailed)?;
 
     let peer = load_enabled_peer(env, vaa.emitter_chain)?;
     if peer.emitter != vaa.emitter_address {
@@ -43,22 +46,6 @@ pub fn is_vaa_consumed(
     sequence: u64,
 ) -> bool {
     ConsumedEntry::new(env, emitter_chain, emitter_address, sequence).is_consumed()
-}
-
-fn verify_and_parse_vaa(
-    env: &Env,
-    core: &Address,
-    vaa_bytes: Bytes,
-) -> Result<VAA, TransceiverError> {
-    let verify_args = vec![env, vaa_bytes.clone().into_val(env)];
-    let verified: Result<(), WormholeError> =
-        env.invoke_contract(core, &Symbol::new(env, "verify_vaa"), verify_args);
-    verified.map_err(|_| TransceiverError::WormholeVerificationFailed)?;
-
-    let parse_args = vec![env, vaa_bytes.into_val(env)];
-    let parsed: Result<VAA, WormholeError> =
-        env.invoke_contract(core, &Symbol::new(env, "parse_vaa"), parse_args);
-    parsed.map_err(|_| TransceiverError::WormholeParseFailed)
 }
 
 fn forward_to_manager(
