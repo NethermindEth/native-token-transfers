@@ -38,10 +38,7 @@ impl TrimmedAmount {
         from_decimals: u8,
         to_decimals: u8,
     ) -> Result<(Self, u128), NttManagerError> {
-        let target_decimals = core::cmp::min(
-            Self::MAX_DECIMALS,
-            core::cmp::min(from_decimals, to_decimals),
-        );
+        let target_decimals = Self::MAX_DECIMALS.min(from_decimals.min(to_decimals));
 
         if from_decimals <= target_decimals {
             let amount_u64 = u64::try_from(amount).map_err(|_| NttManagerError::AmountOverflow)?;

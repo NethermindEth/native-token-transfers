@@ -35,9 +35,9 @@ impl RateLimitParams {
         let now = env.ledger().timestamp();
         let time_passed = now.saturating_sub(self.last_tx_timestamp);
         let refill_u128 = (self.limit as u128) * (time_passed as u128) / (duration as u128);
-        let refill = core::cmp::min(refill_u128, self.limit as u128) as u64;
+        let refill = refill_u128.min(self.limit as u128) as u64;
 
-        core::cmp::min(self.current_capacity.saturating_add(refill), self.limit)
+        self.current_capacity.saturating_add(refill).min(self.limit)
     }
 
     /// Attempts to consume capacity for a transfer.
@@ -74,7 +74,7 @@ impl RateLimitParams {
     pub fn refill(&mut self, amount: u64, env: &Env, duration: u64) {
         let now = env.ledger().timestamp();
         let current = self.capacity_at(env, duration);
-        self.current_capacity = core::cmp::min(current.saturating_add(amount), self.limit);
+        self.current_capacity = current.saturating_add(amount).min(self.limit);
         self.last_tx_timestamp = now;
     }
 
@@ -92,7 +92,7 @@ impl RateLimitParams {
         self.current_capacity = if new_limit < old_limit {
             current.saturating_sub(old_limit - new_limit)
         } else {
-            core::cmp::min(current.saturating_add(new_limit - old_limit), new_limit)
+            current.saturating_add(new_limit - old_limit).min(new_limit)
         };
 
         self.limit = new_limit;
