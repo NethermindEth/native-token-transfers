@@ -62,6 +62,10 @@ impl TransceiverInterface for TransceiverContract {
         outbound::send_message(&env, recipient_chain, recipient_manager, manager_payload)
     }
 
+    fn quote_delivery_price(env: Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
+        outbound::quote_delivery_price(&env, recipient_chain)
+    }
+
     fn get_admin(env: Env) -> Result<Address, TransceiverError> {
         InstanceStorage::new(&env).admin()
     }

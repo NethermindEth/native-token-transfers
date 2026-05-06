@@ -37,6 +37,15 @@ pub trait TransceiverInterface {
         recipient_manager: BytesN<32>,
         manager_payload: Bytes,
     ) -> Result<(), TransceiverError>;
+    /// Returns the cost in stroops of delivering a message to `recipient_chain`.
+    ///
+    /// Equals the Wormhole core message fee — the Stellar transceiver posts
+    /// directly to Wormhole core with no relayer leg, so callers only cover
+    /// the `post_message` fee.
+    fn quote_delivery_price(
+        env: Env,
+        recipient_chain: u32,
+    ) -> Result<i128, TransceiverError>;
     /// Returns the current admin address.
     fn get_admin(env: Env) -> Result<Address, TransceiverError>;
     /// Transfers the admin role to `new_admin`.

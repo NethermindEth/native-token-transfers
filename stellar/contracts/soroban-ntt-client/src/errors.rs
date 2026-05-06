@@ -130,6 +130,8 @@ pub enum TransceiverError {
     ChainIdTooLarge = 15,
     /// Wormhole core rejected the VAA — invalid format, signatures, or guardian set.
     WormholeVerificationFailed = 20,
+    /// Wormhole core read query (e.g. `get_message_fee`) failed at the host level.
+    WormholeQueryFailed = 21,
     /// Wormhole core rejected the outbound `post_message` call.
     WormholePostFailed = 22,
     /// Decoded NTT message prefix did not match the Wormhole transceiver magic bytes.

@@ -1,4 +1,4 @@
-use soroban_ntt_client::{TransceiverError, TransceiverMessage};
+use soroban_ntt_client::{validate_chain_id, TransceiverError, TransceiverMessage};
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
@@ -34,4 +34,16 @@ pub fn send_message(
         TransceiverError::WormholePostFailed,
     )?;
     Ok(())
+}
+
+pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
+    if validate_chain_id(recipient_chain).is_none() {
+        return Err(TransceiverError::ChainIdTooLarge);
+    }
+    let core = InstanceStorage::new(env).wormhole_core()?;
+    let fee = WormholeClient::new(env, &core)
+        .try_get_message_fee()
+        .map_err(|_| TransceiverError::WormholeQueryFailed)?
+        .map_err(|_| TransceiverError::WormholeQueryFailed)?;
+    Ok(fee as i128)
 }
