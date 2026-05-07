@@ -1,12 +1,12 @@
 use soroban_ntt_client::{
     address_to_bytes32, validate_chain_id, NttManagerClient, TransceiverError, TransceiverMessage,
-    WormholeTransceiverInfo,
+    WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
 use crate::flatten_call;
-use crate::peers::load_enabled_peer;
+use crate::peers::{get_peer_info, load_enabled_peer};
 use crate::storage::InstanceStorage;
 
 pub fn send_message(
@@ -55,6 +55,19 @@ pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
         manager_mode,
         token_address: address_to_bytes32(&token),
         token_decimals: token_decimals as u8,
+    }
+    .to_bytes(env);
+
+    post_message(env, payload)
+}
+
+pub fn broadcast_peer(env: &Env, chain_id: u32) -> Result<(), TransceiverError> {
+    let chain_id_u16 = validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
+    let peer = get_peer_info(env, chain_id).ok_or(TransceiverError::PeerNotFound)?;
+
+    let payload = WormholeTransceiverRegistration {
+        chain_id: chain_id_u16,
+        transceiver_address: peer.emitter,
     }
     .to_bytes(env);
 

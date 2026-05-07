@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
 use wormhole_soroban_client::BytesReader;
 
-use crate::constants::{BROADCAST_ID_PREFIX, WH_TRANSCEIVER_PREFIX};
+use crate::constants::{BROADCAST_ID_PREFIX, BROADCAST_PEER_PREFIX, WH_TRANSCEIVER_PREFIX};
 use crate::errors::TransceiverError;
 use crate::types::Mode;
 
@@ -129,6 +129,32 @@ impl WormholeTransceiverInfo {
         buf.extend_from_array(&[self.manager_mode as u8]);
         buf.extend_from_array(&self.token_address.to_array());
         buf.extend_from_array(&[self.token_decimals]);
+        buf
+    }
+}
+
+/// Broadcast payload announcing a peer transceiver registration to the
+/// NTT Accountant.
+///
+/// # Wire Format (38 bytes)
+/// - `[4]`  prefix: [`BROADCAST_PEER_PREFIX`]
+/// - `[2]`  chain_id (big-endian)
+/// - `[32]` transceiver_address
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WormholeTransceiverRegistration {
+    pub chain_id: u16,
+    pub transceiver_address: BytesN<32>,
+}
+
+impl WormholeTransceiverRegistration {
+    /// Encoded payload size in bytes.
+    pub const SIZE: u32 = 4 + 2 + 32;
+
+    /// Serializes to the cross-chain wire format.
+    pub fn to_bytes(&self, env: &Env) -> Bytes {
+        let mut buf = Bytes::from_array(env, &BROADCAST_PEER_PREFIX);
+        buf.extend_from_array(&self.chain_id.to_be_bytes());
+        buf.extend_from_array(&self.transceiver_address.to_array());
         buf
     }
 }

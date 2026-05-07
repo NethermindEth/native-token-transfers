@@ -135,4 +135,8 @@ impl WormholeTransceiverInterface for TransceiverContract {
     fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
         outbound::broadcast_id(&env)
     }
+
+    fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
+        outbound::broadcast_peer(&env, chain_id)
+    }
 }

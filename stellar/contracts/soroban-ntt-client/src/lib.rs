@@ -18,7 +18,7 @@ pub use errors::{NttManagerError, TransceiverError};
 pub use manager::{NttManagerClient, NttManagerInterface};
 pub use messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
-    WormholeTransceiverInfo,
+    WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 pub use rate_limit::{RateLimitParams, RateLimiterClient, RateLimiterInterface};
 pub use transceiver::{TransceiverClient, TransceiverInterface};
