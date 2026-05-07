@@ -2,6 +2,7 @@ use soroban_ntt_client::{TransceiverError, TransceiverMessage};
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
+use crate::flatten_call;
 use crate::peers::load_enabled_peer;
 use crate::storage::InstanceStorage;
 
@@ -23,15 +24,14 @@ pub fn send_message(
     }
     .to_bytes(env)?;
 
-    WormholeClient::new(env, &storage.wormhole_core()?)
-        .try_post_message(
+    flatten_call(
+        WormholeClient::new(env, &storage.wormhole_core()?).try_post_message(
             &env.current_contract_address(),
             &0u32,
             &payload,
             &ConsistencyLevel::Confirmed,
-        )
-        .map_err(|_| TransceiverError::WormholePostFailed)?
-        .map_err(|_| TransceiverError::WormholePostFailed)?;
-
+        ),
+        TransceiverError::WormholePostFailed,
+    )?;
     Ok(())
 }
