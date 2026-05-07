@@ -1,8 +1,10 @@
-use soroban_ntt_client::{validate_chain_id, TransceiverError, TransceiverMessage};
+use soroban_ntt_client::{
+    address_to_bytes32, validate_chain_id, NttManagerClient, TransceiverError, TransceiverMessage,
+    WormholeTransceiverInfo,
+};
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
-use crate::flatten_call;
 use crate::peers::load_enabled_peer;
 use crate::storage::InstanceStorage;
 
@@ -24,16 +26,7 @@ pub fn send_message(
     }
     .to_bytes(env)?;
 
-    flatten_call(
-        WormholeClient::new(env, &storage.wormhole_core()?).try_post_message(
-            &env.current_contract_address(),
-            &0u32,
-            &payload,
-            &ConsistencyLevel::Confirmed,
-        ),
-        TransceiverError::WormholePostFailed,
-    )?;
-    Ok(())
+    post_message(env, payload)
 }
 
 pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
@@ -46,4 +39,43 @@ pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, Tra
         .map_err(|_| TransceiverError::WormholeQueryFailed)?
         .map_err(|_| TransceiverError::WormholeQueryFailed)?;
     Ok(fee as i128)
+}
+
+pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
+    let manager = InstanceStorage::new(env).manager()?;
+    let manager_client = NttManagerClient::new(env, &manager);
+    let manager_mode = manager_query(manager_client.try_get_mode())?;
+    let token = manager_query(manager_client.try_get_token())?;
+    let token_decimals = manager_query(manager_client.try_token_decimals())?;
+
+    let payload = WormholeTransceiverInfo {
+        manager_address: address_to_bytes32(&manager),
+        manager_mode,
+        token_address: address_to_bytes32(&token),
+        token_decimals: token_decimals as u8,
+    }
+    .to_bytes(env);
+
+    post_message(env, payload)
+}
+
+fn post_message(env: &Env, payload: Bytes) -> Result<(), TransceiverError> {
+    let core = InstanceStorage::new(env).wormhole_core()?;
+    WormholeClient::new(env, &core)
+        .try_post_message(
+            &env.current_contract_address(),
+            &0u32,
+            &payload,
+            &ConsistencyLevel::Confirmed,
+        )
+        .map_err(|_| TransceiverError::WormholePostFailed)?
+        .map_err(|_| TransceiverError::WormholePostFailed)?;
+    Ok(())
+}
+
+fn manager_query<T, E1, E2>(r: Result<Result<T, E1>, E2>) -> Result<T, TransceiverError> {
+    match r {
+        Ok(Ok(v)) => Ok(v),
+        _ => Err(TransceiverError::ManagerQueryFailed),
+    }
 }

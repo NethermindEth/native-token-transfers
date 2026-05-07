@@ -131,4 +131,8 @@ impl WormholeTransceiverInterface for TransceiverContract {
     ) -> bool {
         inbound::is_vaa_consumed(&env, emitter_chain, &emitter_address, sequence)
     }
+
+    fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
+        outbound::broadcast_id(&env)
+    }
 }
