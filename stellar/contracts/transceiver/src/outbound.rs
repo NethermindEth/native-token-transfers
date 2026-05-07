@@ -5,6 +5,7 @@ use soroban_ntt_client::{
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
+use crate::flatten_call;
 use crate::peers::load_enabled_peer;
 use crate::storage::InstanceStorage;
 
@@ -34,19 +35,20 @@ pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, Tra
         return Err(TransceiverError::ChainIdTooLarge);
     }
     let core = InstanceStorage::new(env).wormhole_core()?;
-    let fee = WormholeClient::new(env, &core)
-        .try_get_message_fee()
-        .map_err(|_| TransceiverError::WormholeQueryFailed)?
-        .map_err(|_| TransceiverError::WormholeQueryFailed)?;
+    let fee = flatten_call(
+        WormholeClient::new(env, &core).try_get_message_fee(),
+        TransceiverError::WormholeQueryFailed,
+    )?;
     Ok(fee as i128)
 }
 
 pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
     let manager = InstanceStorage::new(env).manager()?;
     let manager_client = NttManagerClient::new(env, &manager);
-    let manager_mode = manager_query(manager_client.try_get_mode())?;
-    let token = manager_query(manager_client.try_get_token())?;
-    let token_decimals = manager_query(manager_client.try_token_decimals())?;
+    let err = TransceiverError::ManagerQueryFailed;
+    let manager_mode = flatten_call(manager_client.try_get_mode(), err)?;
+    let token = flatten_call(manager_client.try_get_token(), err)?;
+    let token_decimals = flatten_call(manager_client.try_token_decimals(), err)?;
 
     let payload = WormholeTransceiverInfo {
         manager_address: address_to_bytes32(&manager),
@@ -61,21 +63,14 @@ pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
 
 fn post_message(env: &Env, payload: Bytes) -> Result<(), TransceiverError> {
     let core = InstanceStorage::new(env).wormhole_core()?;
-    WormholeClient::new(env, &core)
-        .try_post_message(
+    flatten_call(
+        WormholeClient::new(env, &core).try_post_message(
             &env.current_contract_address(),
             &0u32,
             &payload,
             &ConsistencyLevel::Confirmed,
-        )
-        .map_err(|_| TransceiverError::WormholePostFailed)?
-        .map_err(|_| TransceiverError::WormholePostFailed)?;
+        ),
+        TransceiverError::WormholePostFailed,
+    )?;
     Ok(())
-}
-
-fn manager_query<T, E1, E2>(r: Result<Result<T, E1>, E2>) -> Result<T, TransceiverError> {
-    match r {
-        Ok(Ok(v)) => Ok(v),
-        _ => Err(TransceiverError::ManagerQueryFailed),
-    }
 }
