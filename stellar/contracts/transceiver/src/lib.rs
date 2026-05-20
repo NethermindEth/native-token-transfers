@@ -11,7 +11,8 @@ use soroban_ntt_client::{
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use stellar_access::ownable::{self, Ownable};
-use stellar_macros::only_owner;
+use stellar_contract_utils::pausable::{self, Pausable};
+use stellar_macros::{only_owner, when_not_paused};
 
 use state::TRANSCEIVER_TYPE;
 use storage::InstanceStorage;
@@ -45,6 +46,19 @@ impl TransceiverContract {
 #[contractimpl(contracttrait)]
 impl Ownable for TransceiverContract {}
 
+#[contractimpl(contracttrait)]
+impl Pausable for TransceiverContract {
+    #[only_owner]
+    fn pause(env: &Env, _caller: Address) {
+        pausable::pause(env);
+    }
+
+    #[only_owner]
+    fn unpause(env: &Env, _caller: Address) {
+        pausable::unpause(env);
+    }
+}
+
 #[contractimpl]
 impl TransceiverInterface for TransceiverContract {
     fn get_manager(env: Env) -> Result<Address, TransceiverError> {
@@ -59,6 +73,7 @@ impl TransceiverInterface for TransceiverContract {
         Bytes::from_array(&env, &TRANSCEIVER_TYPE)
     }
 
+    #[when_not_paused]
     fn send_message(
         env: Env,
         recipient_chain: u32,
@@ -116,6 +131,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         peers::is_peer_enabled(&env, chain_id)
     }
 
+    #[when_not_paused]
     fn receive_message(env: Env, vaa_bytes: Bytes) -> Result<(), TransceiverError> {
         inbound::receive_message(&env, vaa_bytes)
     }
@@ -129,10 +145,12 @@ impl WormholeTransceiverInterface for TransceiverContract {
         inbound::is_vaa_consumed(&env, emitter_chain, &emitter_address, sequence)
     }
 
+    #[when_not_paused]
     fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
         outbound::broadcast_id(&env)
     }
 
+    #[when_not_paused]
     fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
         outbound::broadcast_peer(&env, chain_id)
     }
