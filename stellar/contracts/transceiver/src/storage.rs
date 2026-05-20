@@ -37,10 +37,6 @@ impl<'a> InstanceStorage<'a> {
         self.read(key).ok_or(TransceiverError::NotInitialized)
     }
 
-    pub fn admin(&self) -> Result<Address, TransceiverError> {
-        self.require(&DataKey::Admin)
-    }
-
     pub fn manager(&self) -> Result<Address, TransceiverError> {
         self.require(&DataKey::Manager)
     }
@@ -53,31 +49,15 @@ impl<'a> InstanceStorage<'a> {
         self.require(&DataKey::WormholeCore)
     }
 
-    pub fn require_admin_auth(&self) -> Result<Address, TransceiverError> {
-        let admin = self.admin()?;
-        admin.require_auth();
-        Ok(admin)
-    }
-
     pub fn require_manager_auth(&self) -> Result<Address, TransceiverError> {
         let manager = self.manager()?;
         manager.require_auth();
         Ok(manager)
     }
 
-    pub fn initialize(
-        &self,
-        admin: &Address,
-        manager: &Address,
-        wormhole_core: &Address,
-    ) {
-        self.write(&DataKey::Admin, admin);
+    pub fn initialize(&self, manager: &Address, wormhole_core: &Address) {
         self.write(&DataKey::Manager, manager);
         self.write(&DataKey::WormholeCore, wormhole_core);
-    }
-
-    pub fn set_admin(&self, admin: &Address) {
-        self.write(&DataKey::Admin, admin);
     }
 }
 

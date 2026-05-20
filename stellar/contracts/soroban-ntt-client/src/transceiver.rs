@@ -46,15 +46,9 @@ pub trait TransceiverInterface {
         env: Env,
         recipient_chain: u32,
     ) -> Result<i128, TransceiverError>;
-    /// Returns the current admin address.
-    fn get_admin(env: Env) -> Result<Address, TransceiverError>;
-    /// Transfers the admin role to `new_admin`.
-    ///
-    /// Requires authorization from both the current admin and `new_admin`
-    /// to avoid accidentally handing the role to an unreachable address.
-    fn set_admin(env: Env, new_admin: Address) -> Result<(), TransceiverError>;
     /// Replaces the contract WASM with the one identified by `new_wasm_hash`.
     ///
-    /// The WASM must be installed on the network beforehand. Restricted to admin.
+    /// The WASM must be installed on the network beforehand. Restricted to the
+    /// contract owner (see OZ `Ownable`).
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), TransceiverError>;
 }

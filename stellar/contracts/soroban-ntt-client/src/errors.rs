@@ -104,18 +104,19 @@ pub enum NttManagerError {
 /// Errors returned by the Wormhole Transceiver contract.
 ///
 /// Variants are grouped by numeric range:
-/// - `1..=3`: initialization and authorization
+/// - `1`: required state not initialized
 /// - `10..=15`: peer registration and chain ID validation
 /// - `20..=23`: Wormhole core interactions and manager queries
 /// - `30..=36`: NTT message decoding and attestation dispatch
+///
+/// Owner auth failures surface as OZ `OwnableError` (2100..=2102) and
+/// `RoleTransferError` (2200..=2203).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracterror]
 #[repr(u32)]
 pub enum TransceiverError {
     /// Required contract state has not been initialized.
     NotInitialized = 1,
-    /// Caller is not authorized for the requested operation.
-    Unauthorized = 3,
     /// Peer chain ID cannot be zero.
     InvalidPeerChainIdZero = 10,
     /// Peer emitter address is the zero address.

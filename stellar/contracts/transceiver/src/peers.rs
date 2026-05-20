@@ -1,7 +1,7 @@
 use soroban_ntt_client::{validate_chain_id, PeerInfo, TransceiverError};
 use soroban_sdk::{BytesN, Env};
 
-use crate::storage::{InstanceStorage, PeerEntry};
+use crate::storage::PeerEntry;
 
 /// Loads a registered, enabled peer for the given chain.
 pub fn load_enabled_peer(env: &Env, chain_id: u32) -> Result<PeerInfo, TransceiverError> {
@@ -32,7 +32,6 @@ pub fn set_peer(
     chain_id: u32,
     emitter: BytesN<32>,
 ) -> Result<(), TransceiverError> {
-    InstanceStorage::new(env).require_admin_auth()?;
     validate_input(chain_id, &emitter)?;
 
     let entry = PeerEntry::new(env, chain_id);
@@ -48,7 +47,6 @@ pub fn update_peer(
     chain_id: u32,
     emitter: BytesN<32>,
 ) -> Result<(), TransceiverError> {
-    InstanceStorage::new(env).require_admin_auth()?;
     validate_input(chain_id, &emitter)?;
 
     let entry = PeerEntry::new(env, chain_id);
@@ -63,8 +61,6 @@ pub fn set_peer_enabled(
     chain_id: u32,
     enabled: bool,
 ) -> Result<(), TransceiverError> {
-    InstanceStorage::new(env).require_admin_auth()?;
-
     let entry = PeerEntry::new(env, chain_id);
     let mut info = entry.get().ok_or(TransceiverError::PeerNotFound)?;
     info.enabled = enabled;
