@@ -24,6 +24,8 @@ use soroban_ntt_client::{
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
 use state::{Mode, TransferResult};
+use stellar_contract_utils::pausable::{self, Pausable};
+use stellar_macros::when_not_paused;
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
     TransceiverEntry,
@@ -33,17 +35,6 @@ use transceivers::{
     check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
     set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
 };
-
-/// Executes a state-modifying operation with a pause guard.
-///
-/// Checks that the contract is not paused before executing the closure.
-fn with_transfer_guard<F, T>(env: &Env, f: F) -> Result<T, NttManagerError>
-where
-    F: FnOnce() -> Result<T, NttManagerError>,
-{
-    InstanceStorage::new(env).require_not_paused()?;
-    f()
-}
 
 /// NTT Manager contract for cross-chain native token transfers.
 ///
@@ -84,7 +75,6 @@ impl ManagerContract {
         storage.set_token_decimals(token_decimals);
         storage.set_mode(&mode);
         storage.set_chain_id(chain_id);
-        storage.set_paused(false);
         storage.set_threshold(0);
         storage.set_next_sequence(1);
         storage.set_version(1);
@@ -255,8 +245,26 @@ impl ManagerContract {
     }
 }
 
+#[contractimpl(contracttrait)]
+impl Pausable for ManagerContract {
+    fn pause(env: &Env, caller: Address) {
+        if let Err(e) = InstanceStorage::new(env).require_admin_or_pauser(&caller) {
+            panic_with_error!(env, e);
+        }
+        pausable::pause(env);
+    }
+
+    fn unpause(env: &Env, caller: Address) {
+        if let Err(e) = InstanceStorage::new(env).require_admin_or_pauser(&caller) {
+            panic_with_error!(env, e);
+        }
+        pausable::unpause(env);
+    }
+}
+
 #[contractimpl]
 impl NttManagerInterface for ManagerContract {
+    #[when_not_paused]
     fn transfer(
         env: Env,
         sender: Address,
@@ -266,19 +274,18 @@ impl NttManagerInterface for ManagerContract {
         should_queue: bool,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
-        with_transfer_guard(&env, || {
-            transfer_internal(
-                &env,
-                &sender,
-                amount,
-                recipient_chain,
-                &recipient,
-                should_queue,
-                None,
-            )
-        })
+        transfer_internal(
+            &env,
+            &sender,
+            amount,
+            recipient_chain,
+            &recipient,
+            should_queue,
+            None,
+        )
     }
 
+    #[when_not_paused]
     fn transfer_with_payload(
         env: Env,
         sender: Address,
@@ -289,24 +296,23 @@ impl NttManagerInterface for ManagerContract {
         additional_payload: Bytes,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
-        with_transfer_guard(&env, || {
-            transfer_internal(
-                &env,
-                &sender,
-                amount,
-                recipient_chain,
-                &recipient,
-                should_queue,
-                Some(additional_payload.clone()),
-            )
-        })
+        transfer_internal(
+            &env,
+            &sender,
+            amount,
+            recipient_chain,
+            &recipient,
+            should_queue,
+            Some(additional_payload),
+        )
     }
 
+    #[when_not_paused]
     fn complete_queued_transfer(
         env: Env,
         sequence: u64,
     ) -> Result<TransferResult, NttManagerError> {
-        with_transfer_guard(&env, || complete_outbound_queued_transfer(&env, sequence))
+        complete_outbound_queued_transfer(&env, sequence)
     }
 
     fn cancel_queued_transfer(
@@ -318,28 +324,12 @@ impl NttManagerInterface for ManagerContract {
         cancel_outbound_queued_transfer(&env, &sender, sequence)
     }
 
+    #[when_not_paused]
     fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError> {
-        with_transfer_guard(&env, || complete_inbound_queued_transfer(&env, &digest))
+        complete_inbound_queued_transfer(&env, &digest)
     }
 
-    fn pause(env: Env, caller: Address) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin_or_pauser(&caller)?;
-        storage.set_paused(true);
-        Ok(())
-    }
-
-    fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin_or_pauser(&caller)?;
-        storage.set_paused(false);
-        Ok(())
-    }
-
-    fn is_paused(env: Env) -> bool {
-        InstanceStorage::new(&env).is_paused()
-    }
-
+    #[when_not_paused]
     fn attestation_received(
         env: Env,
         transceiver: Address,
@@ -348,26 +338,23 @@ impl NttManagerInterface for ManagerContract {
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
         transceiver.require_auth();
-        with_transfer_guard(&env, || {
-            attestation_received_internal(
-                &env,
-                &transceiver,
-                source_chain,
-                &source_ntt_manager,
-                &payload,
-            )
-        })
+        attestation_received_internal(
+            &env,
+            &transceiver,
+            source_chain,
+            &source_ntt_manager,
+            &payload,
+        )
     }
 
+    #[when_not_paused]
     fn execute_msg(
         env: Env,
         source_chain: u32,
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
-        with_transfer_guard(&env, || {
-            execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
-        })
+        execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
 
     fn token_decimals(env: Env) -> Result<u32, NttManagerError> {

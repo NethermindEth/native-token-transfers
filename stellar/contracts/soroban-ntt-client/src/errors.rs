@@ -11,8 +11,10 @@ use wormhole_soroban_client::WormholeError;
 /// Variants are grouped by numeric range so clients can classify failures
 /// without string matching:
 /// - `1..=7`: message encoding, decoding, or amount normalization
-/// - `10..=13`: authorization and pause state
+/// - `10..=11, 13`: admin authorization and pauser dispatch
 /// - `20`, `30`: uninitialized storage or components
+///
+/// Pause failures surface as OZ `PausableError::EnforcedPause = 1000`.
 /// - `40..=48`: transceiver registry and threshold management
 /// - `50..=55`: peer registration and validation
 /// - `60..=65`: outbound/inbound transfer flow
@@ -39,8 +41,6 @@ pub enum NttManagerError {
     Unauthorized = 10,
     /// The provided pending admin does not match the stored pending admin.
     InvalidPendingAdmin = 11,
-    /// Operation rejected because the contract is currently paused.
-    ContractPaused = 12,
     /// Caller is neither the admin nor the designated pauser.
     NotAdminOrPauser = 13,
     /// Rate limit parameters have not been initialized for this context.

@@ -62,16 +62,6 @@ pub trait NttManagerInterface {
     ///
     /// The transfer is identified by its NTT message digest.
     fn complete_inbound_transfer(env: Env, digest: BytesN<32>) -> Result<(), NttManagerError>;
-    /// Pauses the contract, blocking transfers and redemptions.
-    ///
-    /// Callable by the admin or designated pauser.
-    fn pause(env: Env, caller: Address) -> Result<(), NttManagerError>;
-    /// Unpauses the contract, resuming normal operations.
-    ///
-    /// Callable by the admin or designated pauser.
-    fn unpause(env: Env, caller: Address) -> Result<(), NttManagerError>;
-    /// Returns whether the contract is currently paused.
-    fn is_paused(env: Env) -> bool;
     /// Records an attestation from a transceiver for an inbound message.
     ///
     /// Called by an enabled transceiver when it observes a message. When the

@@ -99,11 +99,6 @@ impl<'a> InstanceStorage<'a> {
     // --- Default-value getters ---
 
     #[inline]
-    pub fn is_paused(&self) -> bool {
-        self.read_key_or(&DataKey::Paused, false)
-    }
-
-    #[inline]
     pub fn threshold(&self) -> u32 {
         self.read_key_or(&DataKey::Threshold, 0)
     }
@@ -191,11 +186,6 @@ impl<'a> InstanceStorage<'a> {
     }
 
     #[inline]
-    pub fn set_paused(&self, paused: bool) {
-        self.write_key(&DataKey::Paused, &paused);
-    }
-
-    #[inline]
     pub fn set_threshold(&self, threshold: u32) {
         self.write_key(&DataKey::Threshold, &threshold);
     }
@@ -260,15 +250,6 @@ impl<'a> InstanceStorage<'a> {
             }
         }
         Err(NttManagerError::NotAdminOrPauser)
-    }
-
-    /// Returns `ContractPaused` error if paused.
-    #[inline]
-    pub fn require_not_paused(&self) -> Result<(), NttManagerError> {
-        if self.is_paused() {
-            return Err(NttManagerError::ContractPaused);
-        }
-        Ok(())
     }
 }
 

@@ -21,7 +21,6 @@ pub enum DataKey {
     TokenDecimals,
     Mode,
     ChainId,
-    Paused,
     /// Minimum number of transceiver attestations required to execute a transfer.
     Threshold,
     /// Monotonically increasing sequence number for outbound messages.
