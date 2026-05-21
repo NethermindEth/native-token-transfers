@@ -1543,6 +1543,9 @@ version = "0.1.0"
 dependencies = [
  "soroban-ntt-client",
  "soroban-sdk",
+ "stellar-access",
+ "stellar-contract-utils",
+ "stellar-macros",
  "wormhole-soroban-client",
 ]
 
