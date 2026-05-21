@@ -96,7 +96,6 @@ pub trait NttManagerInterface {
     /// normalization), and initializes its per-chain inbound rate limit.
     fn set_peer(
         env: Env,
-        admin: Address,
         chain_id: u32,
         peer_address: BytesN<32>,
         token_decimals: u32,
@@ -106,36 +105,23 @@ pub trait NttManagerInterface {
     ///
     /// Consumed capacity is adjusted proportionally so that pending queued
     /// transfers are not stranded by the change.
-    fn set_outbound_limit(env: Env, admin: Address, limit: u64) -> Result<(), NttManagerError>;
+    fn set_outbound_limit(env: Env, limit: u64) -> Result<(), NttManagerError>;
     /// Updates the inbound rate limit capacity for a specific source chain.
-    fn set_inbound_limit(
-        env: Env,
-        admin: Address,
-        chain_id: u32,
-        limit: u64,
-    ) -> Result<(), NttManagerError>;
+    fn set_inbound_limit(env: Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError>;
     /// Updates the attestation threshold, the number of distinct transceivers
     /// that must attest to a message before it executes.
-    fn set_threshold(env: Env, admin: Address, threshold: u32) -> Result<(), NttManagerError>;
+    fn set_threshold(env: Env, threshold: u32) -> Result<(), NttManagerError>;
     /// Registers a new transceiver and returns the bitmap index assigned to it.
     ///
     /// Fails if the registry is full (64 entries) or the address is already
     /// registered.
-    fn set_transceiver(
-        env: Env,
-        admin: Address,
-        transceiver: Address,
-    ) -> Result<u32, NttManagerError>;
+    fn set_transceiver(env: Env, transceiver: Address) -> Result<u32, NttManagerError>;
     /// Disables a transceiver.
     ///
     /// The entry remains in the registry so its bitmap index can be reused
     /// later; only the enabled bit is cleared. Cannot disable the last
     /// enabled transceiver.
-    fn remove_transceiver(
-        env: Env,
-        admin: Address,
-        transceiver: Address,
-    ) -> Result<(), NttManagerError>;
+    fn remove_transceiver(env: Env, transceiver: Address) -> Result<(), NttManagerError>;
     /// Returns whether an inbound message with the given digest has already
     /// been executed.
     fn is_message_executed(env: Env, digest: BytesN<32>) -> bool;

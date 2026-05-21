@@ -13,8 +13,6 @@ use soroban_sdk::{contracttype, Address, BytesN};
 #[contracttype]
 pub enum DataKey {
     // Instance storage - core configuration
-    Admin,
-    PendingAdmin,
     /// Separate pauser role for emergency pause operations.
     Pauser,
     Token,
@@ -46,19 +44,4 @@ pub enum DataKey {
     OutboundQueue(u64),
     /// Queued inbound transfer by message digest.
     InboundQueue(BytesN<32>),
-}
-
-/// Aggregated configuration for the NTT Manager.
-///
-/// Returned by `get_config()` to provide a snapshot of current settings.
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct NttConfig {
-    pub mode: Mode,
-    pub token: Address,
-    pub token_decimals: u32,
-    pub chain_id: u32,
-    pub admin: Address,
-    pub paused: bool,
-    pub threshold: u32,
 }

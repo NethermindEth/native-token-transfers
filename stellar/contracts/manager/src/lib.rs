@@ -24,8 +24,9 @@ use soroban_ntt_client::{
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
 use state::{Mode, TransferResult};
+use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::pausable::{self, Pausable};
-use stellar_macros::when_not_paused;
+use stellar_macros::{only_owner, when_not_paused};
 use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
     TransceiverEntry,
@@ -47,8 +48,8 @@ pub struct ManagerContract;
 impl ManagerContract {
     /// Initializes the NTT Manager with the given configuration.
     ///
-    /// Called automatically at contract deployment (Protocol 22+). Sets up:
-    /// - Admin and token configuration
+    /// Sets up:
+    /// - Owner and token configuration
     /// - Operating mode (locking or burning)
     /// - Rate limiting parameters with configurable duration
     /// - Initial sequence number and counters
@@ -56,7 +57,7 @@ impl ManagerContract {
     /// The token's decimal precision is queried and stored for amount normalization.
     pub fn __constructor(
         env: Env,
-        admin: Address,
+        owner: Address,
         token: Address,
         mode: Mode,
         chain_id: u32,
@@ -70,7 +71,7 @@ impl ManagerContract {
             panic_with_error!(&env, NttManagerError::ChainIdTooLarge);
         }
 
-        storage.set_admin(&admin);
+        ownable::set_owner(&env, &owner);
         storage.set_token(&token);
         storage.set_token_decimals(token_decimals);
         storage.set_mode(&mode);
@@ -94,46 +95,11 @@ impl ManagerContract {
         // TODO
     }
 
-    /// Initiates a two-step ownership transfer to a new admin.
-    ///
-    /// The current admin sets a pending admin, who must then call `accept_ownership`
-    /// to complete the transfer. This prevents accidental transfers to invalid addresses.
-    pub fn transfer_ownership(
-        env: Env,
-        current_admin: Address,
-        new_admin: Address,
-    ) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&current_admin)?;
-        storage.set_pending_admin(&new_admin);
-        Ok(())
-    }
-
-    /// Completes a pending ownership transfer.
-    ///
-    /// Must be called by the address set as pending admin in `transfer_ownership`.
-    /// Clears the pending admin after successful transfer.
-    pub fn accept_ownership(env: Env, pending_admin: Address) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        pending_admin.require_auth();
-
-        let stored = storage
-            .pending_admin()
-            .ok_or(NttManagerError::InvalidPendingAdmin)?;
-
-        if stored != pending_admin {
-            return Err(NttManagerError::InvalidPendingAdmin);
-        }
-
-        storage.set_admin(&pending_admin);
-        storage.remove_pending_admin();
-        Ok(())
-    }
-
     /// Transfers the pauser capability to a new address.
     ///
-    /// Callable by either the admin or the current pauser (if set). Pass `None`
-    /// to remove the pauser role entirely, restricting pause operations to admin only.
+    /// Callable by either the contract owner or the current pauser (if set).
+    /// Pass `None` to remove the pauser role entirely, leaving `pause` as an
+    /// owner-only capability.
     pub fn transfer_pauser(
         env: Env,
         caller: Address,
@@ -145,15 +111,11 @@ impl ManagerContract {
         Ok(())
     }
 
-    /// Returns the current admin address.
-    pub fn get_admin(env: Env) -> Result<Address, NttManagerError> {
-        InstanceStorage::new(&env).admin()
-    }
-
     /// Returns the designated pauser address, if one has been set.
     ///
-    /// When set, this address can pause/unpause the contract independently
-    /// of the admin. Returns `None` if no pauser has been configured.
+    /// When set, this address can pause the contract (emergency stop)
+    /// independently of the owner. Only the owner can unpause. Returns `None`
+    /// if no pauser has been configured.
     pub fn get_pauser(env: Env) -> Option<Address> {
         InstanceStorage::new(&env).pauser()
     }
@@ -214,20 +176,10 @@ impl ManagerContract {
     ///
     /// The new WASM must be previously installed on the network. After upgrade,
     /// the contract uses the new code for all subsequent invocations while
-    /// preserving existing state.
-    ///
-    /// # Errors
-    /// - `Unauthorized` if caller is not the admin
-    pub fn upgrade(
-        env: Env,
-        admin: Address,
-        new_wasm_hash: BytesN<32>,
-    ) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
-
+    /// preserving existing state. Restricted to the contract owner.
+    #[only_owner]
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), NttManagerError> {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
-
         Ok(())
     }
 
@@ -246,7 +198,12 @@ impl ManagerContract {
 }
 
 #[contractimpl(contracttrait)]
+impl Ownable for ManagerContract {}
+
+#[contractimpl(contracttrait)]
 impl Pausable for ManagerContract {
+    // Owner-or-pauser can pause (emergency stop); only the owner can unpause.
+    // Matches EVM `ManagerBase`: a compromised pauser can DoS but cannot resume.
     fn pause(env: &Env, caller: Address) {
         if let Err(e) = InstanceStorage::new(env).require_admin_or_pauser(&caller) {
             panic_with_error!(env, e);
@@ -254,10 +211,8 @@ impl Pausable for ManagerContract {
         pausable::pause(env);
     }
 
-    fn unpause(env: &Env, caller: Address) {
-        if let Err(e) = InstanceStorage::new(env).require_admin_or_pauser(&caller) {
-            panic_with_error!(env, e);
-        }
+    fn unpause(env: &Env, _caller: Address) {
+        ownable::enforce_owner_auth(env);
         pausable::unpause(env);
     }
 }
@@ -365,64 +320,43 @@ impl NttManagerInterface for ManagerContract {
         PeerEntry::new(&env, chain_id).get()
     }
 
+    #[only_owner]
     fn set_peer(
         env: Env,
-        admin: Address,
         chain_id: u32,
         peer_address: BytesN<32>,
         token_decimals: u32,
         inbound_limit: u64,
     ) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
         set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
     }
 
-    fn set_outbound_limit(env: Env, admin: Address, limit: u64) -> Result<(), NttManagerError> {
+    #[only_owner]
+    fn set_outbound_limit(env: Env, limit: u64) -> Result<(), NttManagerError> {
         let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
-
         let mut rate_limit_params = storage.outbound_rate_limit();
         rate_limit_params.set_limit(limit, &env, storage.rate_limit_duration());
         storage.set_outbound_rate_limit(&rate_limit_params);
-
         Ok(())
     }
 
-    fn set_inbound_limit(
-        env: Env,
-        admin: Address,
-        chain_id: u32,
-        limit: u64,
-    ) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
+    #[only_owner]
+    fn set_inbound_limit(env: Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError> {
         set_inbound_limit_internal(&env, chain_id, limit)
     }
 
-    fn set_threshold(env: Env, admin: Address, threshold: u32) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
+    #[only_owner]
+    fn set_threshold(env: Env, threshold: u32) -> Result<(), NttManagerError> {
         set_threshold_value(&env, threshold)
     }
 
-    fn set_transceiver(
-        env: Env,
-        admin: Address,
-        transceiver: Address,
-    ) -> Result<u32, NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
+    #[only_owner]
+    fn set_transceiver(env: Env, transceiver: Address) -> Result<u32, NttManagerError> {
         set_transceiver_internal(&env, transceiver)
     }
 
-    fn remove_transceiver(
-        env: Env,
-        admin: Address,
-        transceiver: Address,
-    ) -> Result<(), NttManagerError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin(&admin)?;
+    #[only_owner]
+    fn remove_transceiver(env: Env, transceiver: Address) -> Result<(), NttManagerError> {
         remove_transceiver_internal(&env, &transceiver)
     }
 
