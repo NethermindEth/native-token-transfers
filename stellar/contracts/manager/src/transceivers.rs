@@ -3,13 +3,10 @@
 //! Transceivers are responsible for sending and receiving messages across chains.
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
-use soroban_ntt_client::NttManagerError;
+use soroban_ntt_client::{NttManagerError, MAX_TRANSCEIVERS};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::{
-    constants::MAX_TRANSCEIVERS,
-    storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry},
-};
+use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
 
 /// 64-bit bitmap for tracking transceiver registration and attestations.
 ///
@@ -126,18 +123,6 @@ pub fn get_transceiver(env: &Env, index: u32) -> Option<TransceiverInfo> {
 /// Returns `None` if the address is not registered.
 pub fn get_transceiver_index(env: &Env, address: &Address) -> Option<u32> {
     TransceiverIndexEntry::new(env, address.clone()).get()
-}
-
-/// Checks whether a transceiver is currently enabled.
-///
-/// Returns `false` if the address is not registered or is disabled.
-pub fn is_transceiver_enabled(env: &Env, address: &Address) -> bool {
-    if let Some(index) = get_transceiver_index(env, address) {
-        if let Some(info) = get_transceiver(env, index) {
-            return info.enabled;
-        }
-    }
-    false
 }
 
 /// Returns a list of all currently enabled transceiver addresses.

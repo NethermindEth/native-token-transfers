@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, Env};
+use soroban_sdk::{contractclient, contracttype, BytesN, Env};
+
+use crate::types::{InboundQueuedTransfer, OutboundQueuedTransfer};
 
 /// Token bucket rate limiter for controlling transfer throughput.
 ///
@@ -33,9 +35,9 @@ impl RateLimitParams {
         let now = env.ledger().timestamp();
         let time_passed = now.saturating_sub(self.last_tx_timestamp);
         let refill_u128 = (self.limit as u128) * (time_passed as u128) / (duration as u128);
-        let refill = core::cmp::min(refill_u128, self.limit as u128) as u64;
+        let refill = refill_u128.min(self.limit as u128) as u64;
 
-        core::cmp::min(self.current_capacity.saturating_add(refill), self.limit)
+        self.current_capacity.saturating_add(refill).min(self.limit)
     }
 
     /// Attempts to consume capacity for a transfer.
@@ -72,7 +74,7 @@ impl RateLimitParams {
     pub fn refill(&mut self, amount: u64, env: &Env, duration: u64) {
         let now = env.ledger().timestamp();
         let current = self.capacity_at(env, duration);
-        self.current_capacity = core::cmp::min(current.saturating_add(amount), self.limit);
+        self.current_capacity = current.saturating_add(amount).min(self.limit);
         self.last_tx_timestamp = now;
     }
 
@@ -90,10 +92,34 @@ impl RateLimitParams {
         self.current_capacity = if new_limit < old_limit {
             current.saturating_sub(old_limit - new_limit)
         } else {
-            core::cmp::min(current.saturating_add(new_limit - old_limit), new_limit)
+            current.saturating_add(new_limit - old_limit).min(new_limit)
         };
 
         self.limit = new_limit;
         self.last_tx_timestamp = now;
     }
+}
+
+/// Read-only view of the rate limiter state exposed by the NTT Manager.
+///
+/// Surfaces outbound/inbound capacity and queued-transfer entries so
+/// off-chain systems can observe rate-limit behavior without driving the
+/// transfer flow itself.
+///
+/// The `#[contractclient]` attribute generates a `RateLimiterClient`
+/// binding for callers that need to drive these queries.
+#[contractclient(name = "RateLimiterClient")]
+pub trait RateLimiterInterface {
+    /// Returns the outbound rate limit parameters.
+    fn get_outbound_limit_params(env: Env) -> RateLimitParams;
+    /// Returns the current outbound capacity after time-based refill.
+    fn get_outbound_capacity(env: Env) -> u64;
+    /// Returns the current inbound capacity for `chain_id`, if that peer exists.
+    fn get_inbound_capacity(env: Env, chain_id: u32) -> Option<u64>;
+    /// Returns the inbound rate limit parameters for `chain_id`, if that peer exists.
+    fn get_inbound_limit_params(env: Env, chain_id: u32) -> Option<RateLimitParams>;
+    /// Returns the queued outbound transfer for `sequence`, if present.
+    fn get_outbound_queue_item(env: Env, sequence: u64) -> Option<OutboundQueuedTransfer>;
+    /// Returns the queued inbound transfer for `digest`, if present.
+    fn get_inbound_queue_item(env: Env, digest: BytesN<32>) -> Option<InboundQueuedTransfer>;
 }

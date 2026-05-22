@@ -5,14 +5,16 @@
 //! - Queued transfers that exceed rate limits
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
-use soroban_ntt_client::{NttManagerError, TransceiverClient, TrimmedAmount};
+use soroban_ntt_client::{
+    address_to_bytes32, sequence_to_message_id, NativeTokenTransfer, NttManagerError,
+    NttManagerMessage, TransceiverClient, TrimmedAmount,
+};
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
-    messages::{NativeTokenTransfer, NttManagerMessage},
     peers::{get_peer, refill_inbound},
     rate_limit::{consume_or_delay_outbound, RateLimitResult},
-    state::{address_to_bytes32, sequence_to_message_id, OutboundQueuedTransfer, TransferResult},
+    state::{OutboundQueuedTransfer, TransferResult},
     storage::{InstanceStorage, OutboundQueueEntry},
     token_ops::{custody_tokens, get_token_decimals, release_tokens},
     transceivers::{get_enabled_bitmap, get_enabled_transceivers},

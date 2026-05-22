@@ -2,11 +2,12 @@
 
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use soroban_ntt_client::{NttManagerError, RateLimitParams};
+use soroban_ntt_client::{
+    NttManagerError, RateLimitParams, RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD,
+};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
 
 use crate::{
-    constants::{RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD},
     state::{
         AttestationInfo, DataKey, InboundQueuedTransfer, Mode, NttManagerPeer,
         OutboundQueuedTransfer,

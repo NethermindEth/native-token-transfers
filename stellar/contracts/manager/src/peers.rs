@@ -4,7 +4,7 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_ntt_client::{NttManagerError, RateLimitParams};
+use soroban_ntt_client::{validate_chain_id, NttManagerError, RateLimitParams};
 use soroban_sdk::{BytesN, Env};
 
 use crate::{
@@ -41,11 +41,7 @@ pub fn set_peer(
     if chain_id == 0 {
         return Err(NttManagerError::InvalidPeerChainIdZero);
     }
-
-    // TODO: Implement as validation function in core contract interface
-    if chain_id > u16::MAX as u32 {
-        return Err(NttManagerError::ChainIdTooLarge);
-    }
+    validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
 
     let storage = InstanceStorage::new(env);
     let our_chain_id = storage.chain_id()?;

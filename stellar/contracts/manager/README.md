@@ -348,11 +348,12 @@ Transceiver         NTT Manager                  Token Contract
 
 ### TTL Configuration
 
+Defined in [`soroban_ntt_client::constants`](../soroban-ntt-client/src/constants.rs)
+and shared with every contract in the workspace:
+
 ```rust
-const INSTANCE_TTL_THRESHOLD: u32 = 17280;      // ~1 day
-const INSTANCE_TTL_EXTEND: u32 = 17280 * 30;    // ~30 days
-const PERSISTENT_TTL_THRESHOLD: u32 = 17280;    // ~1 day
-const PERSISTENT_TTL_EXTEND: u32 = 17280 * 30;  // ~30 days
+pub const TTL_THRESHOLD: u32 = 17280;        // ~1 day
+pub const TTL_EXTEND:    u32 = 17280 * 30;   // ~30 days
 ```
 
 ---

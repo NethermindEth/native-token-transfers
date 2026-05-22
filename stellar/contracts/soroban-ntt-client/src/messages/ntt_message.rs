@@ -1,14 +1,18 @@
-use soroban_ntt_client::{NttManagerError, TrimmedAmount};
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
 use wormhole_soroban_client::BytesReader;
 
+use crate::constants::NTT_PREFIX;
+use crate::errors::NttManagerError;
+use crate::messages::TrimmedAmount;
+use crate::utils::validate_chain_id;
+
 /// Core payload for cross-chain token transfers.
 ///
-/// This is the inner payload of `NttManagerMessage`, containing the transfer
-/// details: amount, source token, recipient, and destination chain.
+/// Inner payload of [`NttManagerMessage`]. Carries transfer amount, source
+/// token, recipient, and destination chain.
 ///
 /// # Wire Format (79+ bytes)
-/// - `[4]` prefix: `0x994E5454`
+/// - `[4]` prefix: [`NTT_PREFIX`]
 /// - `[1]` decimals
 /// - `[8]` amount (big-endian)
 /// - `[32]` source_token
@@ -24,34 +28,29 @@ pub struct NativeTokenTransfer {
     pub source_token: BytesN<32>,
     /// Recipient address on the destination chain.
     pub to: BytesN<32>,
-    /// Destination Wormhole chain ID. Stored as `u32` for Soroban compatibility,
-    /// serialized as `u16`.
+    /// Destination Wormhole chain ID. Stored as `u32` for Soroban
+    /// compatibility, serialized as `u16`.
     pub to_chain: u32,
     /// Optional payload for custom integrations.
     pub additional_payload: Option<Bytes>,
 }
 
 impl NativeTokenTransfer {
-    /// NTT message prefix: `0x994E5454` ("™NTT").
-    pub const PREFIX: [u8; 4] = [0x99, 0x4E, 0x54, 0x54];
-
     /// Minimum message size without additional payload.
     pub const MIN_SIZE: u32 = 4 + 1 + 8 + 32 + 32 + 2;
 
     /// Serializes to the cross-chain wire format.
     ///
-    /// Returns `ChainIdTooLarge` if `to_chain` exceeds u16::MAX,
+    /// Returns `ChainIdTooLarge` if `to_chain` exceeds `u16::MAX`,
     /// or `PayloadTooLong` if additional payload exceeds 65535 bytes.
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
-        if self.to_chain > u16::MAX as u32 {
-            return Err(NttManagerError::ChainIdTooLarge);
-        }
+        let to_chain = validate_chain_id(self.to_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
 
-        let mut buf = Bytes::from_array(env, &Self::PREFIX);
+        let mut buf = Bytes::from_array(env, &NTT_PREFIX);
         buf.append(&self.amount.to_bytes(env));
         buf.extend_from_array(&self.source_token.to_array());
         buf.extend_from_array(&self.to.to_array());
-        buf.extend_from_array(&(self.to_chain as u16).to_be_bytes());
+        buf.extend_from_array(&to_chain.to_be_bytes());
 
         if let Some(ref payload) = self.additional_payload {
             if payload.len() > u16::MAX as u32 {
@@ -67,8 +66,8 @@ impl NativeTokenTransfer {
 
     /// Deserializes from the cross-chain wire format using `BytesReader`.
     ///
-    /// Returns `NttManagerError::MessageTooShort` if the input is truncated, or
-    /// `NttManagerError::InvalidPrefix` if the magic bytes don't match.
+    /// Returns `MessageTooShort` if the input is truncated, or `InvalidPrefix`
+    /// if the magic bytes don't match.
     pub fn from_bytes(_env: &Env, bytes: &Bytes) -> Result<Self, NttManagerError> {
         if bytes.len() < Self::MIN_SIZE {
             return Err(NttManagerError::MessageTooShort);
@@ -76,43 +75,21 @@ impl NativeTokenTransfer {
 
         let mut reader = BytesReader::new(bytes);
 
-        let prefix = reader
-            .read_u32_be()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-        if prefix != u32::from_be_bytes(Self::PREFIX) {
+        if reader.read_u32_be()? != u32::from_be_bytes(NTT_PREFIX) {
             return Err(NttManagerError::InvalidPrefix);
         }
 
-        let decimals = reader
-            .read_u8()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-        let amount_val = reader
-            .read_u64_be()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let decimals = reader.read_u8()?;
+        let amount_val = reader.read_u64_be()?;
         let amount = TrimmedAmount::new(amount_val, decimals)?;
 
-        let source_token: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-        let to: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-        let to_chain = reader
-            .read_u16_be()
-            .map_err(|_| NttManagerError::MessageTooShort)? as u32;
+        let source_token: BytesN<32> = reader.read_bytes_n()?;
+        let to: BytesN<32> = reader.read_bytes_n()?;
+        let to_chain = reader.read_u16_be()? as u32;
 
         let additional_payload = if reader.remaining() > 0 {
-            let len = reader
-                .read_u16_be()
-                .map_err(|_| NttManagerError::MessageTooShort)? as u32;
-            if reader.remaining() < len {
-                return Err(NttManagerError::MessageTooShort);
-            }
-            Some(
-                reader
-                    .read_bytes(len)
-                    .map_err(|_| NttManagerError::MessageTooShort)?,
-            )
+            let len = reader.read_u16_be()? as u32;
+            Some(reader.read_bytes(len)?)
         } else {
             None
         };
@@ -129,8 +106,8 @@ impl NativeTokenTransfer {
 
 /// Wrapper message that includes sender information and a unique ID.
 ///
-/// This wraps `NativeTokenTransfer` with metadata required for message
-/// tracking and attestation across chains.
+/// Wraps [`NativeTokenTransfer`] with metadata required for message tracking
+/// and attestation across chains.
 ///
 /// # Wire Format (66+ bytes)
 /// - `[32]` id (unique message identifier)
@@ -154,7 +131,7 @@ impl NttManagerMessage {
 
     /// Serializes to the cross-chain wire format.
     ///
-    /// Propagates errors from `NativeTokenTransfer::to_bytes`.
+    /// Propagates errors from [`NativeTokenTransfer::to_bytes`].
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
         let mut buf = Bytes::from_array(env, &self.id.to_array());
         buf.extend_from_array(&self.sender.to_array());
@@ -169,8 +146,8 @@ impl NttManagerMessage {
 
     /// Deserializes from the cross-chain wire format.
     ///
-    /// Returns `NttManagerError::MessageTooShort` if the input is truncated, or propagates
-    /// errors from `NativeTokenTransfer::from_bytes`.
+    /// Returns `MessageTooShort` if the input is truncated, or propagates
+    /// errors from [`NativeTokenTransfer::from_bytes`].
     pub fn from_bytes(env: &Env, bytes: &Bytes) -> Result<Self, NttManagerError> {
         if bytes.len() < Self::MIN_SIZE {
             return Err(NttManagerError::MessageTooShort);
@@ -178,23 +155,10 @@ impl NttManagerMessage {
 
         let mut reader = BytesReader::new(bytes);
 
-        let id: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-        let sender: BytesN<32> = reader
-            .read_bytes_n()
-            .map_err(|_| NttManagerError::MessageTooShort)?;
-
-        let payload_len = reader
-            .read_u16_be()
-            .map_err(|_| NttManagerError::MessageTooShort)? as u32;
-        if reader.remaining() < payload_len {
-            return Err(NttManagerError::MessageTooShort);
-        }
-
-        let payload_bytes = reader
-            .read_bytes(payload_len)
-            .map_err(|_| NttManagerError::MessageTooShort)?;
+        let id: BytesN<32> = reader.read_bytes_n()?;
+        let sender: BytesN<32> = reader.read_bytes_n()?;
+        let payload_len = reader.read_u16_be()? as u32;
+        let payload_bytes = reader.read_bytes(payload_len)?;
         let payload = NativeTokenTransfer::from_bytes(env, &payload_bytes)?;
 
         Ok(Self {
@@ -206,7 +170,7 @@ impl NttManagerMessage {
 
     /// Computes the message digest for attestation tracking.
     ///
-    /// Propagates errors from `to_bytes`.
+    /// Propagates errors from [`Self::to_bytes`].
     pub fn compute_digest(
         &self,
         env: &Env,
