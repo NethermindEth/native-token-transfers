@@ -1,8 +1,9 @@
 use soroban_sdk::{contracttype, Bytes, BytesN, Env};
 use wormhole_soroban_client::BytesReader;
 
-use crate::constants::WH_TRANSCEIVER_PREFIX;
+use crate::constants::{BROADCAST_ID_PREFIX, BROADCAST_PEER_PREFIX, WH_TRANSCEIVER_PREFIX};
 use crate::errors::TransceiverError;
+use crate::types::Mode;
 
 /// Wormhole transceiver envelope wrapping a manager payload.
 ///
@@ -98,5 +99,62 @@ impl TransceiverMessage {
             manager_payload,
             transceiver_payload,
         })
+    }
+}
+
+/// Broadcast payload announcing this transceiver to the NTT Accountant.
+///
+/// # Wire Format (70 bytes)
+/// - `[4]`  prefix: [`BROADCAST_ID_PREFIX`]
+/// - `[32]` manager_address
+/// - `[1]`  manager_mode  (0 = Locking, 1 = Burning)
+/// - `[32]` token_address
+/// - `[1]`  token_decimals
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WormholeTransceiverInfo {
+    pub manager_address: BytesN<32>,
+    pub manager_mode: Mode,
+    pub token_address: BytesN<32>,
+    pub token_decimals: u8,
+}
+
+impl WormholeTransceiverInfo {
+    /// Encoded payload size in bytes.
+    pub const SIZE: u32 = 4 + 32 + 1 + 32 + 1;
+
+    /// Serializes to the cross-chain wire format.
+    pub fn to_bytes(&self, env: &Env) -> Bytes {
+        let mut buf = Bytes::from_array(env, &BROADCAST_ID_PREFIX);
+        buf.extend_from_array(&self.manager_address.to_array());
+        buf.extend_from_array(&[self.manager_mode as u8]);
+        buf.extend_from_array(&self.token_address.to_array());
+        buf.extend_from_array(&[self.token_decimals]);
+        buf
+    }
+}
+
+/// Broadcast payload announcing a peer transceiver registration to the
+/// NTT Accountant.
+///
+/// # Wire Format (38 bytes)
+/// - `[4]`  prefix: [`BROADCAST_PEER_PREFIX`]
+/// - `[2]`  chain_id (big-endian)
+/// - `[32]` transceiver_address
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WormholeTransceiverRegistration {
+    pub chain_id: u16,
+    pub transceiver_address: BytesN<32>,
+}
+
+impl WormholeTransceiverRegistration {
+    /// Encoded payload size in bytes.
+    pub const SIZE: u32 = 4 + 2 + 32;
+
+    /// Serializes to the cross-chain wire format.
+    pub fn to_bytes(&self, env: &Env) -> Bytes {
+        let mut buf = Bytes::from_array(env, &BROADCAST_PEER_PREFIX);
+        buf.extend_from_array(&self.chain_id.to_be_bytes());
+        buf.extend_from_array(&self.transceiver_address.to_array());
+        buf
     }
 }

@@ -106,7 +106,7 @@ pub enum NttManagerError {
 /// Variants are grouped by numeric range:
 /// - `1..=3`: initialization and authorization
 /// - `10..=15`: peer registration and chain ID validation
-/// - `20..=22`: Wormhole core interactions (verify, post)
+/// - `20..=23`: Wormhole core interactions and manager queries
 /// - `30..=36`: NTT message decoding and attestation dispatch
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracterror]
@@ -130,8 +130,12 @@ pub enum TransceiverError {
     ChainIdTooLarge = 15,
     /// Wormhole core rejected the VAA — invalid format, signatures, or guardian set.
     WormholeVerificationFailed = 20,
+    /// Wormhole core read query (e.g. `get_message_fee`) failed at the host level.
+    WormholeQueryFailed = 21,
     /// Wormhole core rejected the outbound `post_message` call.
     WormholePostFailed = 22,
+    /// A query to the owning NTT manager (mode, token, decimals) failed.
+    ManagerQueryFailed = 23,
     /// Decoded NTT message prefix did not match the Wormhole transceiver magic bytes.
     InvalidTransceiverPrefix = 30,
     /// NTT message payload is shorter than the minimum transceiver message length.

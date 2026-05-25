@@ -62,6 +62,10 @@ impl TransceiverInterface for TransceiverContract {
         outbound::send_message(&env, recipient_chain, recipient_manager, manager_payload)
     }
 
+    fn quote_delivery_price(env: Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
+        outbound::quote_delivery_price(&env, recipient_chain)
+    }
+
     fn get_admin(env: Env) -> Result<Address, TransceiverError> {
         InstanceStorage::new(&env).admin()
     }
@@ -126,5 +130,13 @@ impl WormholeTransceiverInterface for TransceiverContract {
         sequence: u64,
     ) -> bool {
         inbound::is_vaa_consumed(&env, emitter_chain, &emitter_address, sequence)
+    }
+
+    fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
+        outbound::broadcast_id(&env)
+    }
+
+    fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
+        outbound::broadcast_peer(&env, chain_id)
     }
 }

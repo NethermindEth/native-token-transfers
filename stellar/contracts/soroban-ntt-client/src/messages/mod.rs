@@ -8,5 +8,7 @@ pub mod transceiver_message;
 pub mod trimmed_amount;
 
 pub use ntt_message::{NativeTokenTransfer, NttManagerMessage};
-pub use transceiver_message::TransceiverMessage;
+pub use transceiver_message::{
+    TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+};
 pub use trimmed_amount::TrimmedAmount;
