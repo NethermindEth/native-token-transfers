@@ -10,6 +10,9 @@ use soroban_ntt_client::{
     PeerInfo, TransceiverError, TransceiverInterface, WormholeTransceiverInterface,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+use stellar_access::ownable::{self, Ownable};
+use stellar_contract_utils::pausable::{self, Pausable};
+use stellar_macros::{only_owner, when_not_paused};
 
 use state::TRANSCEIVER_TYPE;
 use storage::InstanceStorage;
@@ -34,8 +37,25 @@ pub struct TransceiverContract;
 
 #[contractimpl]
 impl TransceiverContract {
-    pub fn __constructor(env: Env, admin: Address, manager: Address, wormhole_core: Address) {
-        InstanceStorage::new(&env).initialize(&admin, &manager, &wormhole_core);
+    pub fn __constructor(env: Env, owner: Address, manager: Address, wormhole_core: Address) {
+        ownable::set_owner(&env, &owner);
+        InstanceStorage::new(&env).initialize(&manager, &wormhole_core);
+    }
+}
+
+#[contractimpl(contracttrait)]
+impl Ownable for TransceiverContract {}
+
+#[contractimpl(contracttrait)]
+impl Pausable for TransceiverContract {
+    #[only_owner]
+    fn pause(env: &Env, _caller: Address) {
+        pausable::pause(env);
+    }
+
+    #[only_owner]
+    fn unpause(env: &Env, _caller: Address) {
+        pausable::unpause(env);
     }
 }
 
@@ -53,6 +73,7 @@ impl TransceiverInterface for TransceiverContract {
         Bytes::from_array(&env, &TRANSCEIVER_TYPE)
     }
 
+    #[when_not_paused]
     fn send_message(
         env: Env,
         recipient_chain: u32,
@@ -66,20 +87,8 @@ impl TransceiverInterface for TransceiverContract {
         outbound::quote_delivery_price(&env, recipient_chain)
     }
 
-    fn get_admin(env: Env) -> Result<Address, TransceiverError> {
-        InstanceStorage::new(&env).admin()
-    }
-
-    fn set_admin(env: Env, new_admin: Address) -> Result<(), TransceiverError> {
-        let storage = InstanceStorage::new(&env);
-        storage.require_admin_auth()?;
-        new_admin.require_auth();
-        storage.set_admin(&new_admin);
-        Ok(())
-    }
-
+    #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), TransceiverError> {
-        InstanceStorage::new(&env).require_admin_auth()?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
@@ -91,14 +100,17 @@ impl WormholeTransceiverInterface for TransceiverContract {
         InstanceStorage::new(&env).wormhole_core()
     }
 
+    #[only_owner]
     fn set_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
         peers::set_peer(&env, chain_id, emitter)
     }
 
+    #[only_owner]
     fn update_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
         peers::update_peer(&env, chain_id, emitter)
     }
 
+    #[only_owner]
     fn set_peer_enabled(
         env: Env,
         chain_id: u32,
@@ -119,6 +131,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         peers::is_peer_enabled(&env, chain_id)
     }
 
+    #[when_not_paused]
     fn receive_message(env: Env, vaa_bytes: Bytes) -> Result<(), TransceiverError> {
         inbound::receive_message(&env, vaa_bytes)
     }
@@ -132,10 +145,12 @@ impl WormholeTransceiverInterface for TransceiverContract {
         inbound::is_vaa_consumed(&env, emitter_chain, &emitter_address, sequence)
     }
 
+    #[when_not_paused]
     fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
         outbound::broadcast_id(&env)
     }
 
+    #[when_not_paused]
     fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
         outbound::broadcast_peer(&env, chain_id)
     }
