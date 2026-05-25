@@ -1,4 +1,4 @@
-use soroban_ntt_client::{validate_chain_id, PeerInfo, TransceiverError};
+use soroban_ntt_client::{emit_peer_set, validate_chain_id, PeerInfo, TransceiverError};
 use soroban_sdk::{BytesN, Env};
 
 use crate::storage::PeerEntry;
@@ -38,7 +38,8 @@ pub fn set_peer(
     if entry.get().is_some() {
         return Err(TransceiverError::PeerAlreadySet);
     }
-    entry.set(&PeerInfo { emitter, enabled: true });
+    entry.set(&PeerInfo { emitter: emitter.clone(), enabled: true });
+    emit_peer_set(env, chain_id, &emitter);
     Ok(())
 }
 

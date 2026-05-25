@@ -288,8 +288,6 @@ pub fn emit_message_sent(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessageReceived {
     #[topic]
-    pub digest: BytesN<32>,
-    #[topic]
     pub emitter_chain: u32,
     pub emitter_address: BytesN<32>,
     pub sequence: u64,
@@ -297,13 +295,11 @@ pub struct MessageReceived {
 
 pub fn emit_message_received(
     env: &Env,
-    digest: &BytesN<32>,
     emitter_chain: u32,
     emitter_address: &BytesN<32>,
     sequence: u64,
 ) {
     MessageReceived {
-        digest: digest.clone(),
         emitter_chain,
         emitter_address: emitter_address.clone(),
         sequence,

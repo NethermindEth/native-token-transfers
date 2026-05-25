@@ -1,4 +1,6 @@
-use soroban_ntt_client::{NttManagerClient, TransceiverError, TransceiverMessage};
+use soroban_ntt_client::{
+    emit_message_received, NttManagerClient, TransceiverError, TransceiverMessage,
+};
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 use wormhole_soroban_client::WormholeClient;
 
@@ -36,7 +38,10 @@ pub fn receive_message(env: &Env, vaa_bytes: Bytes) -> Result<(), TransceiverErr
         vaa.emitter_chain,
         decoded.source_manager,
         decoded.manager_payload,
-    )
+    )?;
+
+    emit_message_received(env, vaa.emitter_chain, &vaa.emitter_address, vaa.sequence);
+    Ok(())
 }
 
 pub fn is_vaa_consumed(
