@@ -6,6 +6,7 @@ use soroban_ntt_client::{
     NttManagerError, RateLimitParams, RATE_LIMIT_DURATION, TTL_EXTEND, TTL_THRESHOLD,
 };
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
+use stellar_access::ownable;
 
 use crate::{
     state::{
@@ -60,11 +61,6 @@ impl<'a> InstanceStorage<'a> {
     // --- Required getters (fail if uninitialized) ---
 
     #[inline]
-    pub fn admin(&self) -> Result<Address, NttManagerError> {
-        self.read_key(&DataKey::Admin)
-    }
-
-    #[inline]
     pub fn token(&self) -> Result<Address, NttManagerError> {
         self.read_key(&DataKey::Token)
     }
@@ -87,21 +83,11 @@ impl<'a> InstanceStorage<'a> {
     // --- Optional getters ---
 
     #[inline]
-    pub fn pending_admin(&self) -> Option<Address> {
-        self.env.storage().instance().get(&DataKey::PendingAdmin)
-    }
-
-    #[inline]
     pub fn pauser(&self) -> Option<Address> {
         self.env.storage().instance().get(&DataKey::Pauser)
     }
 
     // --- Default-value getters ---
-
-    #[inline]
-    pub fn is_paused(&self) -> bool {
-        self.read_key_or(&DataKey::Paused, false)
-    }
 
     #[inline]
     pub fn threshold(&self) -> u32 {
@@ -137,11 +123,6 @@ impl<'a> InstanceStorage<'a> {
     // --- Setters ---
 
     #[inline]
-    pub fn set_admin(&self, admin: &Address) {
-        self.write_key(&DataKey::Admin, admin);
-    }
-
-    #[inline]
     pub fn set_token(&self, token: &Address) {
         self.write_key(&DataKey::Token, token);
     }
@@ -171,16 +152,6 @@ impl<'a> InstanceStorage<'a> {
         self.write_key(&DataKey::RateLimitDuration, &duration);
     }
 
-    #[inline]
-    pub fn set_pending_admin(&self, pending_admin: &Address) {
-        self.write_key(&DataKey::PendingAdmin, pending_admin);
-    }
-
-    #[inline]
-    pub fn remove_pending_admin(&self) {
-        self.env.storage().instance().remove(&DataKey::PendingAdmin);
-    }
-
     /// Pass `None` to remove the pauser.
     #[inline]
     pub fn set_pauser(&self, pauser: Option<&Address>) {
@@ -188,11 +159,6 @@ impl<'a> InstanceStorage<'a> {
             Some(p) => self.write_key(&DataKey::Pauser, p),
             None => self.env.storage().instance().remove(&DataKey::Pauser),
         }
-    }
-
-    #[inline]
-    pub fn set_paused(&self, paused: bool) {
-        self.write_key(&DataKey::Paused, &paused);
     }
 
     #[inline]
@@ -239,36 +205,16 @@ impl<'a> InstanceStorage<'a> {
         current
     }
 
-    /// Authenticates `caller` and verifies they are the admin.
-    pub fn require_admin(&self, caller: &Address) -> Result<(), NttManagerError> {
-        caller.require_auth();
-        if *caller != self.admin()? {
-            return Err(NttManagerError::Unauthorized);
-        }
-        Ok(())
-    }
-
-    /// Authenticates `caller` and verifies they are admin or pauser.
+    /// Authenticates `caller` and verifies they are the contract owner or the
+    /// designated pauser.
     pub fn require_admin_or_pauser(&self, caller: &Address) -> Result<(), NttManagerError> {
         caller.require_auth();
-        if *caller == self.admin()? {
+        if ownable::get_owner(self.env).as_ref() == Some(caller)
+            || self.pauser().as_ref() == Some(caller)
+        {
             return Ok(());
         }
-        if let Some(pauser) = self.pauser() {
-            if *caller == pauser {
-                return Ok(());
-            }
-        }
         Err(NttManagerError::NotAdminOrPauser)
-    }
-
-    /// Returns `ContractPaused` error if paused.
-    #[inline]
-    pub fn require_not_paused(&self) -> Result<(), NttManagerError> {
-        if self.is_paused() {
-            return Err(NttManagerError::ContractPaused);
-        }
-        Ok(())
     }
 }
 

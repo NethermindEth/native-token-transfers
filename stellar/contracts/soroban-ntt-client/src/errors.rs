@@ -11,12 +11,16 @@ use wormhole_soroban_client::WormholeError;
 /// Variants are grouped by numeric range so clients can classify failures
 /// without string matching:
 /// - `1..=7`: message encoding, decoding, or amount normalization
-/// - `10..=13`: authorization and pause state
+/// - `13`: pauser dispatch
 /// - `20`, `30`: uninitialized storage or components
 /// - `40..=48`: transceiver registry and threshold management
 /// - `50..=55`: peer registration and validation
 /// - `60..=65`: outbound/inbound transfer flow
 /// - `80..=84`: attestation processing and redemption
+///
+/// Owner auth failures surface as OZ `OwnableError` (2100..=2102) and
+/// `RoleTransferError` (2200..=2203). Pause failures surface as
+/// `PausableError::EnforcedPause = 1000`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracterror]
 #[repr(u32)]
@@ -35,13 +39,7 @@ pub enum NttManagerError {
     DecimalMismatch = 6,
     /// Arithmetic overflow while normalizing or summing a transfer amount.
     AmountOverflow = 7,
-    /// Caller is not the admin for a privileged operation.
-    Unauthorized = 10,
-    /// The provided pending admin does not match the stored pending admin.
-    InvalidPendingAdmin = 11,
-    /// Operation rejected because the contract is currently paused.
-    ContractPaused = 12,
-    /// Caller is neither the admin nor the designated pauser.
+    /// Caller is neither the contract owner nor the designated pauser.
     NotAdminOrPauser = 13,
     /// Rate limit parameters have not been initialized for this context.
     RateLimitNotInitialized = 20,
