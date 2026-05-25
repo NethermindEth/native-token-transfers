@@ -42,20 +42,6 @@ pub fn set_peer(
     Ok(())
 }
 
-pub fn update_peer(
-    env: &Env,
-    chain_id: u32,
-    emitter: BytesN<32>,
-) -> Result<(), TransceiverError> {
-    validate_input(chain_id, &emitter)?;
-
-    let entry = PeerEntry::new(env, chain_id);
-    let mut info = entry.get().ok_or(TransceiverError::PeerNotFound)?;
-    info.emitter = emitter;
-    entry.set(&info);
-    Ok(())
-}
-
 pub fn set_peer_enabled(
     env: &Env,
     chain_id: u32,

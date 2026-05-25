@@ -106,11 +106,6 @@ impl WormholeTransceiverInterface for TransceiverContract {
     }
 
     #[only_owner]
-    fn update_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
-        peers::update_peer(&env, chain_id, emitter)
-    }
-
-    #[only_owner]
     fn set_peer_enabled(
         env: Env,
         chain_id: u32,

@@ -119,7 +119,8 @@ pub enum TransceiverError {
     InvalidPeerChainIdZero = 10,
     /// Peer emitter address is the zero address.
     InvalidPeerZeroAddress = 11,
-    /// A peer is already registered for the given chain ID; use `update_peer` instead.
+    /// A peer is already registered for the given chain ID. Peer registration
+    /// is one-shot — redeploy the transceiver to correct a mistake.
     PeerAlreadySet = 12,
     /// No peer is registered for the given chain ID.
     PeerNotFound = 13,
