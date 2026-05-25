@@ -2,6 +2,7 @@
 
 pub mod constants;
 pub mod errors;
+pub mod events;
 pub mod manager;
 pub mod messages;
 pub mod rate_limit;
@@ -15,6 +16,16 @@ pub use constants::{
     TTL_EXTEND, TTL_THRESHOLD, WH_TRANSCEIVER_PREFIX,
 };
 pub use errors::{NttManagerError, TransceiverError};
+pub use events::{
+    emit_inbound_transfer_queued, emit_message_already_executed, emit_message_attested_to,
+    emit_message_received, emit_message_sent, emit_outbound_transfer_cancelled,
+    emit_outbound_transfer_queued, emit_outbound_transfer_rate_limited, emit_peer_set,
+    emit_peer_updated, emit_threshold_changed, emit_transceiver_added, emit_transceiver_removed,
+    emit_transfer_redeemed, emit_transfer_sent, InboundTransferQueued, MessageAlreadyExecuted,
+    MessageAttestedTo, MessageReceived, MessageSent, OutboundTransferCancelled,
+    OutboundTransferQueued, OutboundTransferRateLimited, PeerSet, PeerUpdated, ThresholdChanged,
+    TransceiverAdded, TransceiverRemoved, TransferRedeemed, TransferSent,
+};
 pub use manager::{NttManagerClient, NttManagerInterface};
 pub use messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
