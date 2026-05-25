@@ -85,16 +85,6 @@ impl ManagerContract {
         storage.set_outbound_rate_limit(&RateLimitParams::new(outbound_limit, &env));
     }
 
-    pub fn receive_wormhole_message(
-        _env: Env,
-        _emitter_chain: u32,
-        _emitter_address: BytesN<32>,
-        _sequence: u64,
-        _payload: Bytes,
-    ) {
-        // TODO
-    }
-
     /// Transfers the pauser capability to a new address.
     ///
     /// Callable by either the contract owner or the current pauser (if set).
