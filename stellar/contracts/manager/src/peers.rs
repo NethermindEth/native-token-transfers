@@ -4,7 +4,7 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_ntt_client::{validate_chain_id, NttManagerError, RateLimitParams};
+use soroban_ntt_client::{emit_peer_updated, validate_chain_id, NttManagerError, RateLimitParams};
 use soroban_sdk::{BytesN, Env};
 
 use crate::{
@@ -61,23 +61,31 @@ pub fn set_peer(
 
     let entry = PeerEntry::new(env, chain_id);
     let duration = storage.rate_limit_duration();
-    let peer = entry.get().map_or_else(
-        || NttManagerPeer {
-            address: address.clone(),
-            token_decimals,
-            inbound_rate_limit: RateLimitParams::new(inbound_limit, env),
-        },
-        |mut existing| {
+
+    let (old_address, old_decimals, peer) = match entry.get() {
+        Some(mut existing) => {
+            let old_address = existing.address.clone();
+            let old_decimals = existing.token_decimals;
             existing.address = address.clone();
             existing.token_decimals = token_decimals;
             existing
                 .inbound_rate_limit
                 .set_limit(inbound_limit, env, duration);
-            existing
-        },
-    );
+            (old_address, old_decimals, existing)
+        }
+        None => (
+            zero_address,
+            0,
+            NttManagerPeer {
+                address: address.clone(),
+                token_decimals,
+                inbound_rate_limit: RateLimitParams::new(inbound_limit, env),
+            },
+        ),
+    };
 
     entry.set(&peer);
+    emit_peer_updated(env, chain_id, &old_address, old_decimals, &address, token_decimals);
     Ok(())
 }
 
