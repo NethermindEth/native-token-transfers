@@ -7,7 +7,10 @@
 //! - Queue completion after rate limit delay expires
 //! - Manual execution of approved but unexecuted messages
 
-use soroban_ntt_client::{bytes32_to_address, NttManagerError, NttManagerMessage};
+use soroban_ntt_client::{
+    bytes32_to_address, emit_inbound_transfer_queued, emit_message_already_executed,
+    emit_message_attested_to, emit_transfer_redeemed, NttManagerError, NttManagerMessage,
+};
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
@@ -61,7 +64,12 @@ pub fn attestation_received_internal(
     let mut attestation = attestation_entry.get_or_default();
 
     if attestation.executed {
-        return Err(NttManagerError::TransferAlreadyRedeemed);
+        emit_message_already_executed(env, source_ntt_manager, &digest);
+        return Ok(AttestationResult {
+            approved: true,
+            executed: true,
+            queued: false,
+        });
     }
 
     let attester_bit = 1u64 << transceiver_index;
@@ -71,6 +79,7 @@ pub fn attestation_received_internal(
 
     attestation.attested_transceivers |= attester_bit;
     attestation_entry.set(&attestation);
+    emit_message_attested_to(env, &digest, transceiver, transceiver_index);
 
     let enabled_bitmap = get_enabled_bitmap(env);
     let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
@@ -135,6 +144,7 @@ fn execute_inbound_transfer(
             release_tokens(env, &recipient, release_amount)?;
 
             refill_outbound(env, transfer.amount.amount);
+            emit_transfer_redeemed(env, digest);
 
             Ok(AttestationResult {
                 approved: true,
@@ -151,6 +161,7 @@ fn execute_inbound_transfer(
             };
 
             InboundQueueEntry::new(env, digest.clone()).set(&queued);
+            emit_inbound_transfer_queued(env, digest);
 
             Ok(AttestationResult {
                 approved: true,
@@ -192,6 +203,7 @@ pub fn complete_inbound_queued_transfer(
 
     release_tokens(env, &queued.recipient, queued.amount)?;
     refill_outbound(env, queued.trimmed_amount);
+    emit_transfer_redeemed(env, digest);
 
     Ok(())
 }

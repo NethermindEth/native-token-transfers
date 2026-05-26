@@ -6,8 +6,9 @@
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
 use soroban_ntt_client::{
-    address_to_bytes32, sequence_to_message_id, NativeTokenTransfer, NttManagerError,
-    NttManagerMessage, TransceiverClient, TrimmedAmount,
+    address_to_bytes32, emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
+    emit_outbound_transfer_rate_limited, emit_transfer_sent, sequence_to_message_id,
+    NativeTokenTransfer, NttManagerError, NttManagerMessage, TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -71,6 +72,8 @@ pub fn send_transfer(
             &payload,
         );
     }
+
+    emit_transfer_sent(env, recipient, amount.amount, 0, recipient_chain, sequence, &digest);
 
     Ok((sequence, digest))
 }
@@ -157,6 +160,16 @@ pub fn transfer_internal(
             }
 
             let sequence = storage.use_sequence();
+            let current_capacity = storage
+                .outbound_rate_limit()
+                .capacity_at(env, storage.rate_limit_duration());
+            emit_outbound_transfer_rate_limited(
+                env,
+                sender,
+                sequence,
+                trimmed.amount,
+                current_capacity,
+            );
 
             let queued = OutboundQueuedTransfer {
                 sender: sender.clone(),
@@ -170,6 +183,7 @@ pub fn transfer_internal(
             };
 
             OutboundQueueEntry::new(env, sequence).set(&queued);
+            emit_outbound_transfer_queued(env, sequence);
 
             let message_id = sequence_to_message_id(env, sequence);
             let sender_bytes = address_to_bytes32(sender);
@@ -270,8 +284,10 @@ pub fn cancel_outbound_queued_transfer(
 
     let token_decimals = get_token_decimals(env)?;
     let refund_amount = queued.amount.untrim(token_decimals as u8) as i128;
+    let cancelled_amount = queued.amount.amount;
 
     release_tokens(env, sender, refund_amount)?;
+    emit_outbound_transfer_cancelled(env, sequence, sender, cancelled_amount);
 
     Ok(())
 }
