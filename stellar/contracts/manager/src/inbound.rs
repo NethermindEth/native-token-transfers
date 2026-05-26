@@ -35,7 +35,6 @@ use crate::{
 /// - `TransceiverNotRegistered` if caller is not a registered transceiver
 /// - `TransceiverNotEnabled` if the transceiver is disabled
 /// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
-/// - `TransferAlreadyRedeemed` if tokens were already released for this message
 /// - `TransceiverAlreadyAttested` if this transceiver already attested
 pub fn attestation_received_internal(
     env: &Env,
@@ -63,15 +62,6 @@ pub fn attestation_received_internal(
     let attestation_entry = AttestationEntry::new(env, digest.clone());
     let mut attestation = attestation_entry.get_or_default();
 
-    if attestation.executed {
-        emit_message_already_executed(env, source_ntt_manager, &digest);
-        return Ok(AttestationResult {
-            approved: true,
-            executed: true,
-            queued: false,
-        });
-    }
-
     let attester_bit = 1u64 << transceiver_index;
     if attestation.attested_transceivers & attester_bit != 0 {
         return Err(NttManagerError::TransceiverAlreadyAttested);
@@ -80,6 +70,15 @@ pub fn attestation_received_internal(
     attestation.attested_transceivers |= attester_bit;
     attestation_entry.set(&attestation);
     emit_message_attested_to(env, &digest, transceiver, transceiver_index);
+
+    if attestation.executed {
+        emit_message_already_executed(env, source_ntt_manager, &digest);
+        return Ok(AttestationResult {
+            approved: true,
+            executed: true,
+            queued: false,
+        });
+    }
 
     let enabled_bitmap = get_enabled_bitmap(env);
     let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
@@ -220,7 +219,6 @@ pub fn complete_inbound_queued_transfer(
 /// # Errors
 /// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
 /// - `TransferNotApproved` if threshold not met with currently enabled transceivers
-/// - `TransferAlreadyRedeemed` if tokens were already released
 pub fn execute_msg_internal(
     env: &Env,
     source_chain: u32,
@@ -237,7 +235,12 @@ pub fn execute_msg_internal(
         .ok_or(NttManagerError::TransferNotApproved)?;
 
     if attestation.executed {
-        return Err(NttManagerError::TransferAlreadyRedeemed);
+        emit_message_already_executed(env, source_ntt_manager, &digest);
+        return Ok(AttestationResult {
+            approved: true,
+            executed: true,
+            queued: false,
+        });
     }
 
     let enabled_bitmap = get_enabled_bitmap(env);
