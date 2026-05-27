@@ -8,14 +8,13 @@ mod storage;
 
 use soroban_ntt_client::{
     flatten_call, validate_chain_id, NttManagerClient, PeerInfo, TransceiverError,
-    TransceiverInterface, WormholeTransceiverInterface,
+    TransceiverInterface, WormholeTransceiverInterface, WORMHOLE_TRANSCEIVER_TYPE,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::pausable::{self, Pausable};
 use stellar_macros::{only_owner, when_not_paused};
 
-use state::TRANSCEIVER_TYPE;
 use storage::InstanceStorage;
 
 #[contract]
@@ -70,7 +69,7 @@ impl TransceiverInterface for TransceiverContract {
     }
 
     fn get_transceiver_type(env: Env) -> Bytes {
-        Bytes::from_array(&env, &TRANSCEIVER_TYPE)
+        Bytes::from_array(&env, &WORMHOLE_TRANSCEIVER_TYPE)
     }
 
     #[when_not_paused]

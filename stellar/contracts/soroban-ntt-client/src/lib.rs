@@ -13,7 +13,7 @@ pub mod wormhole_transceiver;
 
 pub use constants::{
     BROADCAST_ID_PREFIX, BROADCAST_PEER_PREFIX, MAX_TRANSCEIVERS, NTT_PREFIX, RATE_LIMIT_DURATION,
-    TTL_EXTEND, TTL_THRESHOLD, WH_TRANSCEIVER_PREFIX,
+    TTL_EXTEND, TTL_THRESHOLD, WH_TRANSCEIVER_PREFIX, WORMHOLE_TRANSCEIVER_TYPE,
 };
 pub use errors::{NttManagerError, TransceiverError};
 pub use events::{
