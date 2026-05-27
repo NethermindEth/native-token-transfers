@@ -150,11 +150,7 @@ pub fn transfer_internal(
 
             refill_inbound(env, recipient_chain, trimmed.amount);
 
-            Ok(TransferResult {
-                sequence,
-                queued: false,
-                digest,
-            })
+            Ok(TransferResult::immediate(sequence, digest))
         }
         RateLimitResult::Delayed(release_timestamp) => {
             if !should_queue {
@@ -204,11 +200,7 @@ pub fn transfer_internal(
             let our_chain_id = storage.chain_id()?;
             let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
 
-            Ok(TransferResult {
-                sequence,
-                queued: true,
-                digest,
-            })
+            Ok(TransferResult::queued(sequence, digest))
         }
     }
 }
@@ -255,11 +247,7 @@ pub fn complete_outbound_queued_transfer(
 
     refill_inbound(env, queued.recipient_chain, queued.amount.amount);
 
-    Ok(TransferResult {
-        sequence: new_sequence,
-        queued: false,
-        digest,
-    })
+    Ok(TransferResult::immediate(new_sequence, digest))
 }
 
 /// Cancels a queued outbound transfer and refunds tokens to the sender.

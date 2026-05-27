@@ -73,11 +73,7 @@ pub fn attestation_received_internal(
 
     if attestation.executed {
         emit_message_already_executed(env, source_ntt_manager, &digest);
-        return Ok(AttestationResult {
-            approved: true,
-            executed: true,
-            queued: false,
-        });
+        return Ok(AttestationResult::executed());
     }
 
     let enabled_bitmap = get_enabled_bitmap(env);
@@ -86,11 +82,7 @@ pub fn attestation_received_internal(
     let threshold = get_threshold(env);
 
     if attestation_count < threshold {
-        return Ok(AttestationResult {
-            approved: false,
-            executed: false,
-            queued: false,
-        });
+        return Ok(AttestationResult::not_approved());
     }
 
     execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
@@ -145,11 +137,7 @@ fn execute_inbound_transfer(
             refill_outbound(env, transfer.amount.amount);
             emit_transfer_redeemed(env, digest);
 
-            Ok(AttestationResult {
-                approved: true,
-                executed: true,
-                queued: false,
-            })
+            Ok(AttestationResult::executed())
         }
         RateLimitResult::Delayed(release_timestamp) => {
             let queued = InboundQueuedTransfer {
@@ -162,11 +150,7 @@ fn execute_inbound_transfer(
             InboundQueueEntry::new(env, digest.clone()).set(&queued);
             emit_inbound_transfer_queued(env, digest);
 
-            Ok(AttestationResult {
-                approved: true,
-                executed: false,
-                queued: true,
-            })
+            Ok(AttestationResult::queued())
         }
     }
 }
@@ -236,11 +220,7 @@ pub fn execute_msg_internal(
 
     if attestation.executed {
         emit_message_already_executed(env, source_ntt_manager, &digest);
-        return Ok(AttestationResult {
-            approved: true,
-            executed: true,
-            queued: false,
-        });
+        return Ok(AttestationResult::executed());
     }
 
     let enabled_bitmap = get_enabled_bitmap(env);
