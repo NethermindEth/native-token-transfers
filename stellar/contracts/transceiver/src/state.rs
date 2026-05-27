@@ -9,6 +9,7 @@ pub enum DataKey {
     WormholeCore,
     Peer(u32),
     Consumed(ConsumedKey),
+    Version,
 }
 
 #[derive(Clone)]

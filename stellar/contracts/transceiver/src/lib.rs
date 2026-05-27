@@ -40,7 +40,9 @@ pub struct TransceiverContract;
 impl TransceiverContract {
     pub fn __constructor(env: Env, owner: Address, manager: Address, wormhole_core: Address) {
         ownable::set_owner(&env, &owner);
-        InstanceStorage::new(&env).initialize(&manager, &wormhole_core);
+        let storage = InstanceStorage::new(&env);
+        storage.initialize(&manager, &wormhole_core);
+        storage.set_version(1);
     }
 }
 
@@ -76,6 +78,10 @@ impl TransceiverInterface for TransceiverContract {
             NttManagerClient::new(&env, &manager).try_get_token(),
             TransceiverError::ManagerQueryFailed,
         )
+    }
+
+    fn get_version(env: Env) -> u32 {
+        InstanceStorage::new(&env).version()
     }
 
     fn get_transceiver_type(env: Env) -> Bytes {
