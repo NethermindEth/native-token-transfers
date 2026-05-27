@@ -7,7 +7,8 @@ mod state;
 mod storage;
 
 use soroban_ntt_client::{
-    PeerInfo, TransceiverError, TransceiverInterface, WormholeTransceiverInterface,
+    NttManagerClient, PeerInfo, TransceiverError, TransceiverInterface,
+    WormholeTransceiverInterface,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use stellar_access::ownable::{self, Ownable};
@@ -67,6 +68,14 @@ impl TransceiverInterface for TransceiverContract {
 
     fn get_manager_id(env: Env) -> Result<BytesN<32>, TransceiverError> {
         InstanceStorage::new(&env).manager_id()
+    }
+
+    fn get_manager_token(env: Env) -> Result<Address, TransceiverError> {
+        let manager = InstanceStorage::new(&env).manager()?;
+        flatten_call(
+            NttManagerClient::new(&env, &manager).try_get_token(),
+            TransceiverError::ManagerQueryFailed,
+        )
     }
 
     fn get_transceiver_type(env: Env) -> Bytes {
