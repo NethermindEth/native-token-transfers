@@ -1,4 +1,4 @@
-use soroban_ntt_client::{emit_peer_set, validate_chain_id, PeerInfo, TransceiverError};
+use soroban_ntt_client::{emit_peer_set, PeerInfo, TransceiverError};
 use soroban_sdk::{BytesN, Env};
 
 use crate::storage::PeerEntry;
@@ -17,9 +17,6 @@ pub fn load_enabled_peer(env: &Env, chain_id: u32) -> Result<PeerInfo, Transceiv
 fn validate_input(chain_id: u32, emitter: &BytesN<32>) -> Result<(), TransceiverError> {
     if chain_id == 0 {
         return Err(TransceiverError::InvalidPeerChainIdZero);
-    }
-    if validate_chain_id(chain_id).is_none() {
-        return Err(TransceiverError::ChainIdTooLarge);
     }
     if emitter.to_array() == [0u8; 32] {
         return Err(TransceiverError::InvalidPeerZeroAddress);

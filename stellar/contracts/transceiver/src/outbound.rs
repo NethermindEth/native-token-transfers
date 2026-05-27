@@ -32,10 +32,7 @@ pub fn send_message(
     Ok(())
 }
 
-pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
-    if validate_chain_id(recipient_chain).is_none() {
-        return Err(TransceiverError::ChainIdTooLarge);
-    }
+pub fn quote_delivery_price(env: &Env) -> Result<i128, TransceiverError> {
     let core = InstanceStorage::new(env).wormhole_core()?;
     let fee = flatten_call(
         WormholeClient::new(env, &core).try_get_message_fee(),

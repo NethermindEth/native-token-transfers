@@ -7,7 +7,7 @@ mod state;
 mod storage;
 
 use soroban_ntt_client::{
-    NttManagerClient, PeerInfo, TransceiverError, TransceiverInterface,
+    validate_chain_id, NttManagerClient, PeerInfo, TransceiverError, TransceiverInterface,
     WormholeTransceiverInterface,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
@@ -95,11 +95,13 @@ impl TransceiverInterface for TransceiverContract {
         recipient_manager: BytesN<32>,
         manager_payload: Bytes,
     ) -> Result<(), TransceiverError> {
+        validate_chain_id(recipient_chain).ok_or(TransceiverError::ChainIdTooLarge)?;
         outbound::send_message(&env, recipient_chain, recipient_manager, manager_payload)
     }
 
     fn quote_delivery_price(env: Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
-        outbound::quote_delivery_price(&env, recipient_chain)
+        validate_chain_id(recipient_chain).ok_or(TransceiverError::ChainIdTooLarge)?;
+        outbound::quote_delivery_price(&env)
     }
 
     #[only_owner]
@@ -117,6 +119,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
 
     #[only_owner]
     fn set_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         peers::set_peer(&env, chain_id, emitter)
     }
 
@@ -126,6 +129,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         chain_id: u32,
         enabled: bool,
     ) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         peers::set_peer_enabled(&env, chain_id, enabled)
     }
 
@@ -162,6 +166,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
 
     #[when_not_paused]
     fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         outbound::broadcast_peer(&env, chain_id)
     }
 }

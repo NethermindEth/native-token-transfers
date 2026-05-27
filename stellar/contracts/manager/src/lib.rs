@@ -147,6 +147,8 @@ impl ManagerContract {
         amount: i128,
         recipient_chain: u32,
     ) -> Result<(u64, u64, i128), NttManagerError> {
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
+
         let storage = InstanceStorage::new(&env);
 
         let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;
@@ -237,6 +239,7 @@ impl NttManagerInterface for ManagerContract {
         should_queue: bool,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         transfer_internal(
             &env,
             &sender,
@@ -259,6 +262,7 @@ impl NttManagerInterface for ManagerContract {
         additional_payload: Bytes,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         transfer_internal(
             &env,
             &sender,
@@ -301,6 +305,7 @@ impl NttManagerInterface for ManagerContract {
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
         transceiver.require_auth();
+        validate_chain_id(source_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         attestation_received_internal(
             &env,
             &transceiver,
@@ -317,6 +322,7 @@ impl NttManagerInterface for ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
+        validate_chain_id(source_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
 
@@ -336,6 +342,7 @@ impl NttManagerInterface for ManagerContract {
         token_decimals: u32,
         inbound_limit: u64,
     ) -> Result<(), NttManagerError> {
+        validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
         set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
     }
 
@@ -350,6 +357,7 @@ impl NttManagerInterface for ManagerContract {
 
     #[only_owner]
     fn set_inbound_limit(env: Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError> {
+        validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
         set_inbound_limit_internal(&env, chain_id, limit)
     }
 
