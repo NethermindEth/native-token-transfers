@@ -10,7 +10,8 @@ mod token_ops;
 mod transceivers;
 
 use inbound::{
-    attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
+    attestation_received_internal, complete_inbound_queued_transfer, count_valid_attestations,
+    execute_msg_internal,
 };
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
@@ -19,7 +20,7 @@ use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_pee
 use soroban_ntt_client::{
     flatten_call, validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
     NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
-    RateLimiterInterface, TransceiverClient, TrimmedAmount, MAX_TRANSCEIVERS,
+    RateLimiterInterface, TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
@@ -35,7 +36,7 @@ use token_ops::query_token_decimals;
 use transceivers::{
     check_threshold_invariants, get_enabled_transceivers,
     remove_transceiver as remove_transceiver_internal, set_threshold_value,
-    set_transceiver as set_transceiver_internal, TransceiverInfo,
+    set_transceiver as set_transceiver_internal, Bitmap, TransceiverInfo,
 };
 
 /// NTT Manager contract for cross-chain native token transfers.
@@ -384,32 +385,23 @@ impl NttManagerInterface for ManagerContract {
     }
 
     fn message_attestations(env: Env, digest: BytesN<32>) -> u32 {
-        let enabled = InstanceStorage::new(&env).enabled_bitmap();
         AttestationEntry::new(&env, digest)
             .get()
-            .map(|a| (a.attested_transceivers & enabled).count_ones())
+            .map(|a| count_valid_attestations(&env, &a).0)
             .unwrap_or(0)
     }
 
     fn is_message_approved(env: Env, digest: BytesN<32>) -> bool {
-        let storage = InstanceStorage::new(&env);
-        let threshold = storage.threshold();
-        if threshold == 0 {
-            return false;
-        }
-        let enabled = storage.enabled_bitmap();
-        AttestationEntry::new(&env, digest)
-            .get()
-            .is_some_and(|a| (a.attested_transceivers & enabled).count_ones() >= threshold)
+        AttestationEntry::new(&env, digest).get().is_some_and(|a| {
+            let (count, threshold) = count_valid_attestations(&env, &a);
+            threshold > 0 && count >= threshold
+        })
     }
 
     fn transceiver_attested_to_message(env: Env, digest: BytesN<32>, index: u32) -> bool {
-        if index >= MAX_TRANSCEIVERS {
-            return false;
-        }
         AttestationEntry::new(&env, digest)
             .get()
-            .is_some_and(|a| a.attested_transceivers & (1u64 << index) != 0)
+            .is_some_and(|a| Bitmap(a.attested_transceivers).is_set(index).unwrap_or(false))
     }
 
     fn get_next_sequence(env: Env) -> u64 {

@@ -9,7 +9,8 @@
 
 use soroban_ntt_client::{
     bytes32_to_address, emit_inbound_transfer_queued, emit_message_already_executed,
-    emit_message_attested_to, emit_transfer_redeemed, NttManagerError, NttManagerMessage,
+    emit_message_attested_to, emit_transfer_redeemed, AttestationInfo, NttManagerError,
+    NttManagerMessage,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -19,7 +20,9 @@ use crate::{
     state::{AttestationResult, InboundQueuedTransfer},
     storage::{AttestationEntry, InboundQueueEntry, InstanceStorage},
     token_ops::{get_token_decimals, release_tokens},
-    transceivers::{get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index},
+    transceivers::{
+        get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index, Bitmap,
+    },
 };
 
 /// Processes an attestation from a transceiver for an inbound message.
@@ -62,12 +65,12 @@ pub fn attestation_received_internal(
     let attestation_entry = AttestationEntry::new(env, digest.clone());
     let mut attestation = attestation_entry.get_or_default();
 
-    let attester_bit = 1u64 << transceiver_index;
-    if attestation.attested_transceivers & attester_bit != 0 {
+    let mut attested = Bitmap(attestation.attested_transceivers);
+    if attested.is_set(transceiver_index)? {
         return Err(NttManagerError::TransceiverAlreadyAttested);
     }
-
-    attestation.attested_transceivers |= attester_bit;
+    attested.set(transceiver_index)?;
+    attestation.attested_transceivers = attested.raw();
     attestation_entry.set(&attestation);
     emit_message_attested_to(env, &digest, transceiver, transceiver_index);
 
@@ -76,10 +79,7 @@ pub fn attestation_received_internal(
         return Ok(AttestationResult::executed());
     }
 
-    let enabled_bitmap = get_enabled_bitmap(env);
-    let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
-    let attestation_count = valid_attestations.count_ones() as u32;
-    let threshold = get_threshold(env);
+    let (attestation_count, threshold) = count_valid_attestations(env, &attestation);
 
     if attestation_count < threshold {
         return Ok(AttestationResult::not_approved());
@@ -223,14 +223,18 @@ pub fn execute_msg_internal(
         return Ok(AttestationResult::executed());
     }
 
-    let enabled_bitmap = get_enabled_bitmap(env);
-    let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
-    let attestation_count = valid_attestations.count_ones() as u32;
-    let threshold = get_threshold(env);
+    let (attestation_count, threshold) = count_valid_attestations(env, &attestation);
 
     if attestation_count < threshold {
         return Err(NttManagerError::TransferNotApproved);
     }
 
     execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
+}
+
+/// Counts attestations from currently enabled transceivers, returning
+/// `(count, threshold)`.
+pub fn count_valid_attestations(env: &Env, attestation: &AttestationInfo) -> (u32, u32) {
+    let valid = Bitmap(attestation.attested_transceivers).and(&get_enabled_bitmap(env));
+    (valid.count_ones() as u32, get_threshold(env))
 }
