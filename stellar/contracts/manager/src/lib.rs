@@ -17,7 +17,7 @@ use outbound::{
 };
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use soroban_ntt_client::{
-    validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
+    flatten_call, validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
     NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
     RateLimiterInterface, TransceiverClient, TrimmedAmount, MAX_TRANSCEIVERS,
 };
@@ -140,7 +140,7 @@ impl ManagerContract {
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
     /// - `NotInitialized` if token decimals are not set
-    /// - `TransceiverQueryFailed` if a transceiver's quote call fails
+    /// - `TransceiverCallFailed` if a transceiver's quote call fails
     /// - `AmountOverflow` if the summed fee exceeds `i128::MAX`
     pub fn quote_transfer(
         env: Env,
@@ -163,10 +163,10 @@ impl ManagerContract {
 
         let mut total_fee: i128 = 0;
         for transceiver in get_enabled_transceivers(&env)?.iter() {
-            let fee = TransceiverClient::new(&env, &transceiver)
-                .try_quote_delivery_price(&recipient_chain)
-                .map_err(|_| NttManagerError::TransceiverQueryFailed)?
-                .map_err(|_| NttManagerError::TransceiverQueryFailed)?;
+            let fee = flatten_call(
+                TransceiverClient::new(&env, &transceiver).try_quote_delivery_price(&recipient_chain),
+                NttManagerError::TransceiverCallFailed,
+            )?;
             total_fee = total_fee
                 .checked_add(fee)
                 .ok_or(NttManagerError::AmountOverflow)?;

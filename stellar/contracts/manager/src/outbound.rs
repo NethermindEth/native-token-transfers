@@ -7,7 +7,7 @@
 
 use soroban_ntt_client::{
     address_to_bytes32, emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
-    emit_outbound_transfer_rate_limited, emit_transfer_sent, sequence_to_message_id,
+    emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, sequence_to_message_id,
     NativeTokenTransfer, NttManagerError, NttManagerMessage, TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
@@ -66,11 +66,14 @@ pub fn send_transfer(
     }
 
     for transceiver in transceivers.iter() {
-        TransceiverClient::new(env, &transceiver).send_message(
-            &recipient_chain,
-            recipient_ntt_manager,
-            &payload,
-        );
+        flatten_call(
+            TransceiverClient::new(env, &transceiver).try_send_message(
+                &recipient_chain,
+                recipient_ntt_manager,
+                &payload,
+            ),
+            NttManagerError::TransceiverCallFailed,
+        )?;
     }
 
     emit_transfer_sent(env, recipient, amount.amount, 0, recipient_chain, sequence, &digest);

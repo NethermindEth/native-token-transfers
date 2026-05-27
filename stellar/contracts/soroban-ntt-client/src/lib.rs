@@ -37,5 +37,8 @@ pub use types::{
     AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerPeer,
     OutboundQueuedTransfer, PeerInfo, TransferResult,
 };
-pub use utils::{address_to_bytes32, bytes32_to_address, sequence_to_message_id, validate_chain_id};
+pub use utils::{
+    address_to_bytes32, bytes32_to_address, flatten_call, sequence_to_message_id,
+    validate_chain_id,
+};
 pub use wormhole_transceiver::{WormholeTransceiverClient, WormholeTransceiverInterface};

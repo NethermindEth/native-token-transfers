@@ -7,8 +7,8 @@ mod state;
 mod storage;
 
 use soroban_ntt_client::{
-    validate_chain_id, NttManagerClient, PeerInfo, TransceiverError, TransceiverInterface,
-    WormholeTransceiverInterface,
+    flatten_call, validate_chain_id, NttManagerClient, PeerInfo, TransceiverError,
+    TransceiverInterface, WormholeTransceiverInterface,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use stellar_access::ownable::{self, Ownable};
@@ -17,21 +17,6 @@ use stellar_macros::{only_owner, when_not_paused};
 
 use state::TRANSCEIVER_TYPE;
 use storage::InstanceStorage;
-
-/// Flattens a Soroban `try_X` client result, mapping any failure to `err`.
-///
-/// `try_X` returns `Result<Result<T, E1>, E2>` (outer = invocation, inner =
-/// contract error vs. host error). The transceiver collapses both layers
-/// to a single `TransceiverError` variant chosen by the caller.
-pub(crate) fn flatten_call<T, E1, E2>(
-    r: Result<Result<T, E1>, E2>,
-    err: TransceiverError,
-) -> Result<T, TransceiverError> {
-    match r {
-        Ok(Ok(v)) => Ok(v),
-        _ => Err(err),
-    }
-}
 
 #[contract]
 pub struct TransceiverContract;
