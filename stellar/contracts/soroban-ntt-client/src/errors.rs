@@ -13,7 +13,7 @@ use wormhole_soroban_client::WormholeError;
 /// - `1..=7`: message encoding, decoding, or amount normalization
 /// - `13`: pauser dispatch
 /// - `20`, `30`: uninitialized storage or components
-/// - `40..=48`: transceiver registry and threshold management
+/// - `40..=49`: transceiver registry, threshold management, and delivery queries
 /// - `50..=55`: peer registration and validation
 /// - `60..=65`: outbound/inbound transfer flow
 /// - `80..=84`: attestation processing and redemption
@@ -63,6 +63,8 @@ pub enum NttManagerError {
     NoEnabledTransceivers = 47,
     /// Transceiver bitmap index is outside the representable range.
     BitmapIndexOutOfRange = 48,
+    /// A query to a registered transceiver (e.g. `quote_delivery_price`) failed.
+    TransceiverQueryFailed = 49,
     /// No peer is registered for the given chain ID.
     PeerNotFound = 50,
     /// Peer chain ID cannot be zero.

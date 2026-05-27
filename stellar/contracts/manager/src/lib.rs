@@ -19,7 +19,7 @@ use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_pee
 use soroban_ntt_client::{
     validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
     NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
-    RateLimiterInterface, TrimmedAmount, MAX_TRANSCEIVERS,
+    RateLimiterInterface, TransceiverClient, TrimmedAmount, MAX_TRANSCEIVERS,
 };
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 pub use state::AttestationResult;
@@ -33,8 +33,9 @@ use storage::{
 };
 use token_ops::query_token_decimals;
 use transceivers::{
-    check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
-    set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
+    check_threshold_invariants, get_enabled_transceivers,
+    remove_transceiver as remove_transceiver_internal, set_threshold_value,
+    set_transceiver as set_transceiver_internal, TransceiverInfo,
 };
 
 /// NTT Manager contract for cross-chain native token transfers.
@@ -126,20 +127,26 @@ impl ManagerContract {
         TransceiverEntry::new(&env, index).get()
     }
 
-    /// Computes the effective transfer amount after decimal normalization.
+    /// Quotes an outbound transfer's normalized amount and delivery fee.
     ///
-    /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
-    /// recipient will receive and `dust` is the precision lost due to decimal
-    /// differences between chains.
+    /// Returns `(trimmed_amount, dust, total_delivery_fee)`:
+    /// - `trimmed_amount` is what the recipient will receive after decimal
+    ///   normalization between the local and peer token.
+    /// - `dust` is the precision lost in that normalization.
+    /// - `total_delivery_fee` is the sum of `quote_delivery_price` across
+    ///   every enabled transceiver, in stroops. Zero when no transceivers
+    ///   are enabled.
     ///
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
     /// - `NotInitialized` if token decimals are not set
+    /// - `TransceiverQueryFailed` if a transceiver's quote call fails
+    /// - `AmountOverflow` if the summed fee exceeds `i128::MAX`
     pub fn quote_transfer(
         env: Env,
         amount: i128,
         recipient_chain: u32,
-    ) -> Result<(u64, u64), NttManagerError> {
+    ) -> Result<(u64, u64, i128), NttManagerError> {
         let storage = InstanceStorage::new(&env);
 
         let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;
@@ -152,7 +159,18 @@ impl ManagerContract {
             peer.token_decimals as u8,
         )?;
 
-        Ok((trimmed.amount, dust as u64))
+        let mut total_fee: i128 = 0;
+        for transceiver in get_enabled_transceivers(&env)?.iter() {
+            let fee = TransceiverClient::new(&env, &transceiver)
+                .try_quote_delivery_price(&recipient_chain)
+                .map_err(|_| NttManagerError::TransceiverQueryFailed)?
+                .map_err(|_| NttManagerError::TransceiverQueryFailed)?;
+            total_fee = total_fee
+                .checked_add(fee)
+                .ok_or(NttManagerError::AmountOverflow)?;
+        }
+
+        Ok((trimmed.amount, dust as u64, total_fee))
     }
 
     /// Returns the rate limit duration in seconds.
