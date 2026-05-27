@@ -38,6 +38,14 @@ pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
     BytesN::from_array(env, &bytes)
 }
 
+/// Returns `true` if every byte of `b` is zero.
+///
+/// Used as the canonical "unset" or "invalid" sentinel check across NTT
+/// peer addresses, recipient addresses, and Wormhole emitter addresses.
+pub fn is_zero_bytes32(b: &BytesN<32>) -> bool {
+    b.to_array() == [0u8; 32]
+}
+
 /// Narrows a Wormhole chain identifier to its protocol-defined `u16` range.
 ///
 /// Wormhole chain IDs are 16-bit by spec; values above `u16::MAX` are

@@ -4,7 +4,7 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_ntt_client::{emit_peer_updated, NttManagerError, RateLimitParams};
+use soroban_ntt_client::{emit_peer_updated, is_zero_bytes32, NttManagerError, RateLimitParams};
 use soroban_sdk::{BytesN, Env};
 
 use crate::{
@@ -49,8 +49,7 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerSameChainId);
     }
 
-    let zero_address = BytesN::from_array(env, &[0u8; 32]);
-    if address == zero_address {
+    if is_zero_bytes32(&address) {
         return Err(NttManagerError::InvalidPeerZeroAddress);
     }
 
@@ -73,7 +72,7 @@ pub fn set_peer(
             (old_address, old_decimals, existing)
         }
         None => (
-            zero_address,
+            BytesN::from_array(env, &[0u8; 32]),
             0,
             NttManagerPeer {
                 address: address.clone(),
@@ -121,16 +120,6 @@ pub fn verify_peer(
         return Err(NttManagerError::InvalidPeer);
     }
     Ok(())
-}
-
-/// Retrieves the inbound rate limit parameters for a chain.
-///
-/// Returns `None` if no peer is registered for the chain ID.
-#[allow(dead_code)]
-pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParams> {
-    PeerEntry::new(env, chain_id)
-        .get()
-        .map(|p| p.inbound_rate_limit)
 }
 
 /// Refills the inbound rate limit for a specific peer chain.

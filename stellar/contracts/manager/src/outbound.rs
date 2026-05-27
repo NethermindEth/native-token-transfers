@@ -7,8 +7,9 @@
 
 use soroban_ntt_client::{
     address_to_bytes32, emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
-    emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, sequence_to_message_id,
-    NativeTokenTransfer, NttManagerError, NttManagerMessage, TransceiverClient, TrimmedAmount,
+    emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, is_zero_bytes32,
+    sequence_to_message_id, NativeTokenTransfer, NttManagerError, NttManagerMessage,
+    TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -107,8 +108,7 @@ pub fn transfer_internal(
         return Err(NttManagerError::ZeroAmount);
     }
 
-    let zero = BytesN::from_array(env, &[0u8; 32]);
-    if *recipient == zero {
+    if is_zero_bytes32(recipient) {
         return Err(NttManagerError::InvalidRecipient);
     }
 
