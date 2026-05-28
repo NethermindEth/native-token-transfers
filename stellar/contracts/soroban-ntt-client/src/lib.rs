@@ -13,7 +13,7 @@ pub mod wormhole_transceiver;
 
 pub use constants::{
     BROADCAST_ID_PREFIX, BROADCAST_PEER_PREFIX, MAX_TRANSCEIVERS, NTT_PREFIX, RATE_LIMIT_DURATION,
-    TTL_EXTEND, TTL_THRESHOLD, WH_TRANSCEIVER_PREFIX,
+    TTL_EXTEND, TTL_THRESHOLD, WH_TRANSCEIVER_PREFIX, WORMHOLE_TRANSCEIVER_TYPE,
 };
 pub use errors::{NttManagerError, TransceiverError};
 pub use events::{
@@ -37,5 +37,8 @@ pub use types::{
     AttestationInfo, AttestationResult, InboundQueuedTransfer, Mode, NttManagerPeer,
     OutboundQueuedTransfer, PeerInfo, TransferResult,
 };
-pub use utils::{address_to_bytes32, bytes32_to_address, sequence_to_message_id, validate_chain_id};
+pub use utils::{
+    address_to_bytes32, bytes32_to_address, flatten_call, is_zero_bytes32, sequence_to_message_id,
+    validate_chain_id,
+};
 pub use wormhole_transceiver::{WormholeTransceiverClient, WormholeTransceiverInterface};

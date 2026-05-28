@@ -1,4 +1,4 @@
-use soroban_ntt_client::{emit_peer_set, PeerInfo, TransceiverError};
+use soroban_ntt_client::{emit_peer_set, is_zero_bytes32, PeerInfo, TransceiverError};
 use soroban_sdk::{BytesN, Env};
 
 use crate::storage::PeerEntry;
@@ -18,7 +18,7 @@ fn validate_input(chain_id: u32, emitter: &BytesN<32>) -> Result<(), Transceiver
     if chain_id == 0 {
         return Err(TransceiverError::InvalidPeerChainIdZero);
     }
-    if emitter.to_array() == [0u8; 32] {
+    if is_zero_bytes32(emitter) {
         return Err(TransceiverError::InvalidPeerZeroAddress);
     }
     Ok(())

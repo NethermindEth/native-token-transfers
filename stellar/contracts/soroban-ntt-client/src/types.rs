@@ -53,6 +53,18 @@ pub struct TransferResult {
     pub digest: BytesN<32>,
 }
 
+impl TransferResult {
+    /// Transfer dispatched to transceivers in the same call.
+    pub fn immediate(sequence: u64, digest: BytesN<32>) -> Self {
+        Self { sequence, queued: false, digest }
+    }
+
+    /// Transfer queued by the rate limiter and pending later release.
+    pub fn queued(sequence: u64, digest: BytesN<32>) -> Self {
+        Self { sequence, queued: true, digest }
+    }
+}
+
 /// Result of processing an attestation from a transceiver.
 ///
 /// Indicates whether the attestation threshold was met, whether tokens
@@ -66,6 +78,23 @@ pub struct AttestationResult {
     pub executed: bool,
     /// Whether the transfer was queued due to rate limiting.
     pub queued: bool,
+}
+
+impl AttestationResult {
+    /// Threshold met and tokens released in the same call.
+    pub const fn executed() -> Self {
+        Self { approved: true, executed: true, queued: false }
+    }
+
+    /// Threshold met but the transfer was queued by the rate limiter.
+    pub const fn queued() -> Self {
+        Self { approved: true, executed: false, queued: true }
+    }
+
+    /// Threshold not yet met; waiting for more attestations.
+    pub const fn not_approved() -> Self {
+        Self { approved: false, executed: false, queued: false }
+    }
 }
 
 /// Outbound transfer currently queued by the rate limiter.

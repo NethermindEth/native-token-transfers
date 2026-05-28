@@ -1,11 +1,10 @@
 use soroban_ntt_client::{
-    address_to_bytes32, emit_message_sent, validate_chain_id, NttManagerClient, TransceiverError,
-    TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+    address_to_bytes32, emit_message_sent, flatten_call, validate_chain_id, NttManagerClient,
+    TransceiverError, TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
-use crate::flatten_call;
 use crate::peers::{get_peer_info, load_enabled_peer};
 use crate::storage::InstanceStorage;
 

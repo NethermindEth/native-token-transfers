@@ -1,10 +1,9 @@
 use soroban_ntt_client::{
-    emit_message_received, NttManagerClient, TransceiverError, TransceiverMessage,
+    emit_message_received, flatten_call, NttManagerClient, TransceiverError, TransceiverMessage,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 use wormhole_soroban_client::WormholeClient;
 
-use crate::flatten_call;
 use crate::peers::load_enabled_peer;
 use crate::storage::{ConsumedEntry, InstanceStorage};
 
