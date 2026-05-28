@@ -65,6 +65,21 @@ impl TransferResult {
     }
 }
 
+/// Delivery-fee quote for a single enabled transceiver.
+///
+/// `fee` is `None` when that transceiver could not produce a quote, so a
+/// caller sees exactly which transceiver is unavailable rather than losing
+/// the whole result to one failure. Sum the `Some` values for the total cost
+/// of dispatching a transfer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[contracttype]
+pub struct TransceiverFee {
+    /// The enabled transceiver this quote came from.
+    pub transceiver: Address,
+    /// Delivery fee in stroops, or `None` if the transceiver's quote failed.
+    pub fee: Option<i128>,
+}
+
 /// Result of processing an attestation from a transceiver.
 ///
 /// Indicates whether the attestation threshold was met, whether tokens

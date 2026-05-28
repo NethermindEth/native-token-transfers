@@ -18,11 +18,11 @@ use outbound::{
 };
 use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_peer_internal};
 use soroban_ntt_client::{
-    flatten_call, validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
+    validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
     NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
-    RateLimiterInterface, TransceiverClient, TrimmedAmount,
+    RateLimiterInterface, TransceiverClient, TransceiverFee, TrimmedAmount,
 };
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Vec};
 pub use state::AttestationResult;
 use state::{Mode, TransferResult};
 use stellar_access::ownable::{self, Ownable};
@@ -128,26 +128,21 @@ impl ManagerContract {
         TransceiverEntry::new(&env, index).get()
     }
 
-    /// Quotes an outbound transfer's normalized amount and delivery fee.
+    /// Computes the effective transfer amount after decimal normalization.
     ///
-    /// Returns `(trimmed_amount, dust, total_delivery_fee)`:
-    /// - `trimmed_amount` is what the recipient will receive after decimal
-    ///   normalization between the local and peer token.
-    /// - `dust` is the precision lost in that normalization.
-    /// - `total_delivery_fee` is the sum of `quote_delivery_price` across
-    ///   every enabled transceiver, in stroops. Zero when no transceivers
-    ///   are enabled.
+    /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
+    /// recipient receives and `dust` is the precision lost to decimal
+    /// differences between the local and peer token. Delivery fees are quoted
+    /// separately via [`quote_delivery_price`](Self::quote_delivery_price).
     ///
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
     /// - `NotInitialized` if token decimals are not set
-    /// - `TransceiverCallFailed` if a transceiver's quote call fails
-    /// - `AmountOverflow` if the summed fee exceeds `i128::MAX`
     pub fn quote_transfer(
         env: Env,
         amount: i128,
         recipient_chain: u32,
-    ) -> Result<(u64, u64, i128), NttManagerError> {
+    ) -> Result<(u64, u64), NttManagerError> {
         validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
 
         let storage = InstanceStorage::new(&env);
@@ -162,18 +157,35 @@ impl ManagerContract {
             peer.token_decimals as u8,
         )?;
 
-        let mut total_fee: i128 = 0;
-        for transceiver in get_enabled_transceivers(&env)?.iter() {
-            let fee = flatten_call(
-                TransceiverClient::new(&env, &transceiver).try_quote_delivery_price(&recipient_chain),
-                NttManagerError::TransceiverCallFailed,
-            )?;
-            total_fee = total_fee
-                .checked_add(fee)
-                .ok_or(NttManagerError::AmountOverflow)?;
-        }
+        Ok((trimmed.amount, dust as u64))
+    }
 
-        Ok((trimmed.amount, dust as u64, total_fee))
+    /// Quotes the delivery fee for each enabled transceiver.
+    ///
+    /// Returns one [`TransceiverFee`] per enabled transceiver, in registry
+    /// order. A transceiver whose quote call fails yields `fee: None` rather
+    /// than failing the whole query, so the caller can see which transceiver
+    /// is unavailable. Sum the `Some` values for the total dispatch cost.
+    ///
+    /// # Errors
+    /// - `ChainIdTooLarge` if `recipient_chain` exceeds the Wormhole range
+    pub fn quote_delivery_price(
+        env: Env,
+        recipient_chain: u32,
+    ) -> Result<Vec<TransceiverFee>, NttManagerError> {
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
+
+        let mut fees = Vec::new(&env);
+        for transceiver in get_enabled_transceivers(&env)?.iter() {
+            let fee = match TransceiverClient::new(&env, &transceiver)
+                .try_quote_delivery_price(&recipient_chain)
+            {
+                Ok(Ok(fee)) => Some(fee),
+                _ => None,
+            };
+            fees.push_back(TransceiverFee { transceiver, fee });
+        }
+        Ok(fees)
     }
 
     /// Returns the rate limit duration in seconds.
