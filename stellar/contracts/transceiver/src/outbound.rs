@@ -1,11 +1,10 @@
 use soroban_ntt_client::{
-    address_to_bytes32, emit_message_sent, validate_chain_id, NttManagerClient, TransceiverError,
-    TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+    address_to_bytes32, emit_message_sent, flatten_call, validate_chain_id, NttManagerClient,
+    TransceiverError, TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{Bytes, BytesN, Env};
 use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
 
-use crate::flatten_call;
 use crate::peers::{get_peer_info, load_enabled_peer};
 use crate::storage::InstanceStorage;
 
@@ -32,10 +31,7 @@ pub fn send_message(
     Ok(())
 }
 
-pub fn quote_delivery_price(env: &Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
-    if validate_chain_id(recipient_chain).is_none() {
-        return Err(TransceiverError::ChainIdTooLarge);
-    }
+pub fn quote_delivery_price(env: &Env) -> Result<i128, TransceiverError> {
     let core = InstanceStorage::new(env).wormhole_core()?;
     let fee = flatten_call(
         WormholeClient::new(env, &core).try_get_message_fee(),

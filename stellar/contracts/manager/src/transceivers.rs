@@ -22,11 +22,6 @@ use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
 pub struct Bitmap(pub u64);
 
 impl Bitmap {
-    /// Creates an empty bitmap with all bits cleared.
-    pub fn new() -> Self {
-        Self(0)
-    }
-
     /// Sets the bit at the given index.
     ///
     /// Returns `BitmapIndexOutOfRange` if `index >= 64`.
@@ -62,11 +57,6 @@ impl Bitmap {
     /// Returns the bitwise AND of two bitmaps.
     pub fn and(&self, other: &Self) -> Self {
         Self(self.0 & other.0)
-    }
-
-    /// Returns the bitwise OR of two bitmaps.
-    pub fn or(&self, other: &Self) -> Self {
-        Self(self.0 | other.0)
     }
 
     /// Returns the number of set bits (population count).

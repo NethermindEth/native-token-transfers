@@ -21,6 +21,10 @@ pub trait TransceiverInterface {
     /// This is the canonical on-chain representation of the manager used
     /// inside NTT messages, and must match the manager's address payload.
     fn get_manager_id(env: Env) -> Result<BytesN<32>, TransceiverError>;
+    /// Returns the token address the owning manager is configured with.
+    fn get_manager_token(env: Env) -> Result<Address, TransceiverError>;
+    /// Returns the current contract version number.
+    fn get_version(env: Env) -> u32;
     /// Returns the transport identifier for this transceiver implementation.
     fn get_transceiver_type(env: Env) -> Bytes;
     /// Dispatches an outbound NTT message to the peer on `recipient_chain`.

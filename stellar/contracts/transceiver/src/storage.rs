@@ -49,10 +49,17 @@ impl<'a> InstanceStorage<'a> {
         self.require(&DataKey::WormholeCore)
     }
 
-    pub fn require_manager_auth(&self) -> Result<Address, TransceiverError> {
-        let manager = self.manager()?;
-        manager.require_auth();
-        Ok(manager)
+    pub fn version(&self) -> u32 {
+        self.read(&DataKey::Version).unwrap_or(1)
+    }
+
+    pub fn set_version(&self, version: u32) {
+        self.write(&DataKey::Version, &version);
+    }
+
+    pub fn require_manager_auth(&self) -> Result<(), TransceiverError> {
+        self.manager()?.require_auth();
+        Ok(())
     }
 
     pub fn initialize(&self, manager: &Address, wormhole_core: &Address) {

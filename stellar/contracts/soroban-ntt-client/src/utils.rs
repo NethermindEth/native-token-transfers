@@ -38,6 +38,14 @@ pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
     BytesN::from_array(env, &bytes)
 }
 
+/// Returns `true` if every byte of `b` is zero.
+///
+/// Used as the canonical "unset" or "invalid" sentinel check across NTT
+/// peer addresses, recipient addresses, and Wormhole emitter addresses.
+pub fn is_zero_bytes32(b: &BytesN<32>) -> bool {
+    b.to_array() == [0u8; 32]
+}
+
 /// Narrows a Wormhole chain identifier to its protocol-defined `u16` range.
 ///
 /// Wormhole chain IDs are 16-bit by spec; values above `u16::MAX` are
@@ -46,4 +54,20 @@ pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
 /// of error variant to the caller.
 pub fn validate_chain_id(chain_id: u32) -> Option<u16> {
     u16::try_from(chain_id).ok()
+}
+
+/// Flattens a Soroban `try_X` client result, mapping any failure to `err`.
+///
+/// `try_X` methods return `Result<Result<T, E1>, E2>`: the outer `Result`
+/// reports invocation-level failures, the inner reports a contract error
+/// or host error. Both layers collapse to a single error variant chosen
+/// by the caller.
+pub fn flatten_call<T, E1, E2, Err>(
+    r: Result<Result<T, E1>, E2>,
+    err: Err,
+) -> Result<T, Err> {
+    match r {
+        Ok(Ok(v)) => Ok(v),
+        _ => Err(err),
+    }
 }

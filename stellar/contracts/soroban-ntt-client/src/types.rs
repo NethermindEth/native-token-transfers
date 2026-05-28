@@ -53,6 +53,33 @@ pub struct TransferResult {
     pub digest: BytesN<32>,
 }
 
+impl TransferResult {
+    /// Transfer dispatched to transceivers in the same call.
+    pub fn immediate(sequence: u64, digest: BytesN<32>) -> Self {
+        Self { sequence, queued: false, digest }
+    }
+
+    /// Transfer queued by the rate limiter and pending later release.
+    pub fn queued(sequence: u64, digest: BytesN<32>) -> Self {
+        Self { sequence, queued: true, digest }
+    }
+}
+
+/// Delivery-fee quote for a single enabled transceiver.
+///
+/// `fee` is `None` when that transceiver could not produce a quote, so a
+/// caller sees exactly which transceiver is unavailable rather than losing
+/// the whole result to one failure. Sum the `Some` values for the total cost
+/// of dispatching a transfer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[contracttype]
+pub struct TransceiverFee {
+    /// The enabled transceiver this quote came from.
+    pub transceiver: Address,
+    /// Delivery fee in stroops, or `None` if the transceiver's quote failed.
+    pub fee: Option<i128>,
+}
+
 /// Result of processing an attestation from a transceiver.
 ///
 /// Indicates whether the attestation threshold was met, whether tokens
@@ -66,6 +93,23 @@ pub struct AttestationResult {
     pub executed: bool,
     /// Whether the transfer was queued due to rate limiting.
     pub queued: bool,
+}
+
+impl AttestationResult {
+    /// Threshold met and tokens released in the same call.
+    pub const fn executed() -> Self {
+        Self { approved: true, executed: true, queued: false }
+    }
+
+    /// Threshold met but the transfer was queued by the rate limiter.
+    pub const fn queued() -> Self {
+        Self { approved: true, executed: false, queued: true }
+    }
+
+    /// Threshold not yet met; waiting for more attestations.
+    pub const fn not_approved() -> Self {
+        Self { approved: false, executed: false, queued: false }
+    }
 }
 
 /// Outbound transfer currently queued by the rate limiter.

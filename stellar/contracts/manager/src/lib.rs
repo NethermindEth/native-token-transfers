@@ -10,7 +10,8 @@ mod token_ops;
 mod transceivers;
 
 use inbound::{
-    attestation_received_internal, complete_inbound_queued_transfer, execute_msg_internal,
+    attestation_received_internal, complete_inbound_queued_transfer, count_valid_attestations,
+    execute_msg_internal,
 };
 use outbound::{
     cancel_outbound_queued_transfer, complete_outbound_queued_transfer, transfer_internal,
@@ -19,9 +20,9 @@ use peers::{set_inbound_limit as set_inbound_limit_internal, set_peer as set_pee
 use soroban_ntt_client::{
     validate_chain_id, AttestationInfo, InboundQueuedTransfer, NttManagerError,
     NttManagerInterface, NttManagerPeer, OutboundQueuedTransfer, RateLimitParams,
-    RateLimiterInterface, TrimmedAmount,
+    RateLimiterInterface, TransceiverClient, TransceiverFee, TrimmedAmount,
 };
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Vec};
 pub use state::AttestationResult;
 use state::{Mode, TransferResult};
 use stellar_access::ownable::{self, Ownable};
@@ -33,8 +34,9 @@ use storage::{
 };
 use token_ops::query_token_decimals;
 use transceivers::{
-    check_threshold_invariants, remove_transceiver as remove_transceiver_internal,
-    set_threshold_value, set_transceiver as set_transceiver_internal, TransceiverInfo,
+    check_threshold_invariants, get_enabled_transceivers,
+    remove_transceiver as remove_transceiver_internal, set_threshold_value,
+    set_transceiver as set_transceiver_internal, Bitmap, TransceiverInfo,
 };
 
 /// NTT Manager contract for cross-chain native token transfers.
@@ -129,8 +131,9 @@ impl ManagerContract {
     /// Computes the effective transfer amount after decimal normalization.
     ///
     /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
-    /// recipient will receive and `dust` is the precision lost due to decimal
-    /// differences between chains.
+    /// recipient receives and `dust` is the precision lost to decimal
+    /// differences between the local and peer token. Delivery fees are quoted
+    /// separately via [`quote_delivery_price`](Self::quote_delivery_price).
     ///
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
@@ -140,6 +143,8 @@ impl ManagerContract {
         amount: i128,
         recipient_chain: u32,
     ) -> Result<(u64, u64), NttManagerError> {
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
+
         let storage = InstanceStorage::new(&env);
 
         let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;
@@ -153,6 +158,38 @@ impl ManagerContract {
         )?;
 
         Ok((trimmed.amount, dust as u64))
+    }
+
+    /// Quotes the delivery fee for each enabled transceiver.
+    ///
+    /// Returns one [`TransceiverFee`] per enabled transceiver, in registry
+    /// order. A transceiver whose quote call fails yields `fee: None` rather
+    /// than failing the whole query, so the caller can see which transceiver
+    /// is unavailable. Sum the `Some` values for the total dispatch cost.
+    ///
+    /// Makes one cross-contract call per enabled transceiver, so cost scales
+    /// linearly with the registry size; intended as an off-chain query rather
+    /// than a hot on-chain path.
+    ///
+    /// # Errors
+    /// - `ChainIdTooLarge` if `recipient_chain` exceeds the Wormhole range
+    pub fn quote_delivery_price(
+        env: Env,
+        recipient_chain: u32,
+    ) -> Result<Vec<TransceiverFee>, NttManagerError> {
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
+
+        let mut fees = Vec::new(&env);
+        for transceiver in get_enabled_transceivers(&env)?.iter() {
+            let fee = match TransceiverClient::new(&env, &transceiver)
+                .try_quote_delivery_price(&recipient_chain)
+            {
+                Ok(Ok(fee)) => Some(fee),
+                _ => None,
+            };
+            fees.push_back(TransceiverFee { transceiver, fee });
+        }
+        Ok(fees)
     }
 
     /// Returns the rate limit duration in seconds.
@@ -219,6 +256,7 @@ impl NttManagerInterface for ManagerContract {
         should_queue: bool,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         transfer_internal(
             &env,
             &sender,
@@ -241,6 +279,7 @@ impl NttManagerInterface for ManagerContract {
         additional_payload: Bytes,
     ) -> Result<TransferResult, NttManagerError> {
         sender.require_auth();
+        validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         transfer_internal(
             &env,
             &sender,
@@ -283,6 +322,7 @@ impl NttManagerInterface for ManagerContract {
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
         transceiver.require_auth();
+        validate_chain_id(source_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         attestation_received_internal(
             &env,
             &transceiver,
@@ -299,6 +339,7 @@ impl NttManagerInterface for ManagerContract {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError> {
+        validate_chain_id(source_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
         execute_msg_internal(&env, source_chain, &source_ntt_manager, &payload)
     }
 
@@ -318,6 +359,7 @@ impl NttManagerInterface for ManagerContract {
         token_decimals: u32,
         inbound_limit: u64,
     ) -> Result<(), NttManagerError> {
+        validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
         set_peer_internal(&env, chain_id, peer_address, token_decimals, inbound_limit)
     }
 
@@ -332,6 +374,7 @@ impl NttManagerInterface for ManagerContract {
 
     #[only_owner]
     fn set_inbound_limit(env: Env, chain_id: u32, limit: u64) -> Result<(), NttManagerError> {
+        validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
         set_inbound_limit_internal(&env, chain_id, limit)
     }
 
@@ -355,6 +398,26 @@ impl NttManagerInterface for ManagerContract {
             .get()
             .map(|a| a.executed)
             .unwrap_or(false)
+    }
+
+    fn message_attestations(env: Env, digest: BytesN<32>) -> u32 {
+        AttestationEntry::new(&env, digest)
+            .get()
+            .map(|a| count_valid_attestations(&env, &a).0)
+            .unwrap_or(0)
+    }
+
+    fn is_message_approved(env: Env, digest: BytesN<32>) -> bool {
+        AttestationEntry::new(&env, digest).get().is_some_and(|a| {
+            let (count, threshold) = count_valid_attestations(&env, &a);
+            threshold > 0 && count >= threshold
+        })
+    }
+
+    fn transceiver_attested_to_message(env: Env, digest: BytesN<32>, index: u32) -> bool {
+        AttestationEntry::new(&env, digest)
+            .get()
+            .is_some_and(|a| Bitmap(a.attested_transceivers).is_set(index).unwrap_or(false))
     }
 
     fn get_next_sequence(env: Env) -> u64 {

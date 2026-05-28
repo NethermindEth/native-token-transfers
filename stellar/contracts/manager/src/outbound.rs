@@ -7,8 +7,9 @@
 
 use soroban_ntt_client::{
     address_to_bytes32, emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
-    emit_outbound_transfer_rate_limited, emit_transfer_sent, sequence_to_message_id,
-    NativeTokenTransfer, NttManagerError, NttManagerMessage, TransceiverClient, TrimmedAmount,
+    emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, is_zero_bytes32,
+    sequence_to_message_id, NativeTokenTransfer, NttManagerError, NttManagerMessage,
+    TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -66,11 +67,14 @@ pub fn send_transfer(
     }
 
     for transceiver in transceivers.iter() {
-        TransceiverClient::new(env, &transceiver).send_message(
-            &recipient_chain,
-            recipient_ntt_manager,
-            &payload,
-        );
+        flatten_call(
+            TransceiverClient::new(env, &transceiver).try_send_message(
+                &recipient_chain,
+                recipient_ntt_manager,
+                &payload,
+            ),
+            NttManagerError::TransceiverCallFailed,
+        )?;
     }
 
     emit_transfer_sent(env, recipient, amount.amount, 0, recipient_chain, sequence, &digest);
@@ -104,8 +108,7 @@ pub fn transfer_internal(
         return Err(NttManagerError::ZeroAmount);
     }
 
-    let zero = BytesN::from_array(env, &[0u8; 32]);
-    if *recipient == zero {
+    if is_zero_bytes32(recipient) {
         return Err(NttManagerError::InvalidRecipient);
     }
 
@@ -147,11 +150,7 @@ pub fn transfer_internal(
 
             refill_inbound(env, recipient_chain, trimmed.amount);
 
-            Ok(TransferResult {
-                sequence,
-                queued: false,
-                digest,
-            })
+            Ok(TransferResult::immediate(sequence, digest))
         }
         RateLimitResult::Delayed(release_timestamp) => {
             if !should_queue {
@@ -201,11 +200,7 @@ pub fn transfer_internal(
             let our_chain_id = storage.chain_id()?;
             let digest = ntt_message.compute_digest(env, our_chain_id as u16)?;
 
-            Ok(TransferResult {
-                sequence,
-                queued: true,
-                digest,
-            })
+            Ok(TransferResult::queued(sequence, digest))
         }
     }
 }
@@ -252,11 +247,7 @@ pub fn complete_outbound_queued_transfer(
 
     refill_inbound(env, queued.recipient_chain, queued.amount.amount);
 
-    Ok(TransferResult {
-        sequence: new_sequence,
-        queued: false,
-        digest,
-    })
+    Ok(TransferResult::immediate(new_sequence, digest))
 }
 
 /// Cancels a queued outbound transfer and refunds tokens to the sender.
