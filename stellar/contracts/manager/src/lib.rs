@@ -167,6 +167,10 @@ impl ManagerContract {
     /// than failing the whole query, so the caller can see which transceiver
     /// is unavailable. Sum the `Some` values for the total dispatch cost.
     ///
+    /// Makes one cross-contract call per enabled transceiver, so cost scales
+    /// linearly with the registry size; intended as an off-chain query rather
+    /// than a hot on-chain path.
+    ///
     /// # Errors
     /// - `ChainIdTooLarge` if `recipient_chain` exceeds the Wormhole range
     pub fn quote_delivery_price(
