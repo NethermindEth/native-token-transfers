@@ -125,6 +125,18 @@ pub trait NttManagerInterface {
     /// Returns whether an inbound message with the given digest has already
     /// been executed.
     fn is_message_executed(env: Env, digest: BytesN<32>) -> bool;
+    /// Returns the number of distinct attestations recorded for a message,
+    /// counting only transceivers that are currently enabled. Disabling a
+    /// transceiver retroactively removes its attestations from the count.
+    fn message_attestations(env: Env, digest: BytesN<32>) -> u32;
+    /// Returns whether a message has reached the attestation threshold.
+    /// Always `false` when no threshold is configured.
+    fn is_message_approved(env: Env, digest: BytesN<32>) -> bool;
+    /// Returns whether the transceiver at `index` ever attested to the
+    /// message. Reports raw historical state, unmasked by the enabled
+    /// bitmap — a later-disabled transceiver still reads as having
+    /// attested. `false` for `index >= MAX_TRANSCEIVERS`.
+    fn transceiver_attested_to_message(env: Env, digest: BytesN<32>, index: u32) -> bool;
     /// Returns the next outbound transfer sequence number.
     fn get_next_sequence(env: Env) -> u64;
     /// Returns the token handling mode (locking or burning) set at init.

@@ -4,7 +4,7 @@
 //! by their Wormhole chain ID and store the remote manager's address, token
 //! decimals, and an independent inbound rate limit.
 
-use soroban_ntt_client::{validate_chain_id, NttManagerError, RateLimitParams};
+use soroban_ntt_client::{emit_peer_updated, is_zero_bytes32, NttManagerError, RateLimitParams};
 use soroban_sdk::{BytesN, Env};
 
 use crate::{
@@ -41,7 +41,6 @@ pub fn set_peer(
     if chain_id == 0 {
         return Err(NttManagerError::InvalidPeerChainIdZero);
     }
-    validate_chain_id(chain_id).ok_or(NttManagerError::ChainIdTooLarge)?;
 
     let storage = InstanceStorage::new(env);
     let our_chain_id = storage.chain_id()?;
@@ -50,8 +49,7 @@ pub fn set_peer(
         return Err(NttManagerError::InvalidPeerSameChainId);
     }
 
-    let zero_address = BytesN::from_array(env, &[0u8; 32]);
-    if address == zero_address {
+    if is_zero_bytes32(&address) {
         return Err(NttManagerError::InvalidPeerZeroAddress);
     }
 
@@ -61,23 +59,31 @@ pub fn set_peer(
 
     let entry = PeerEntry::new(env, chain_id);
     let duration = storage.rate_limit_duration();
-    let peer = entry.get().map_or_else(
-        || NttManagerPeer {
-            address: address.clone(),
-            token_decimals,
-            inbound_rate_limit: RateLimitParams::new(inbound_limit, env),
-        },
-        |mut existing| {
+
+    let (old_address, old_decimals, peer) = match entry.get() {
+        Some(mut existing) => {
+            let old_address = existing.address.clone();
+            let old_decimals = existing.token_decimals;
             existing.address = address.clone();
             existing.token_decimals = token_decimals;
             existing
                 .inbound_rate_limit
                 .set_limit(inbound_limit, env, duration);
-            existing
-        },
-    );
+            (old_address, old_decimals, existing)
+        }
+        None => (
+            BytesN::from_array(env, &[0u8; 32]),
+            0,
+            NttManagerPeer {
+                address: address.clone(),
+                token_decimals,
+                inbound_rate_limit: RateLimitParams::new(inbound_limit, env),
+            },
+        ),
+    };
 
     entry.set(&peer);
+    emit_peer_updated(env, chain_id, &old_address, old_decimals, &address, token_decimals);
     Ok(())
 }
 
@@ -114,16 +120,6 @@ pub fn verify_peer(
         return Err(NttManagerError::InvalidPeer);
     }
     Ok(())
-}
-
-/// Retrieves the inbound rate limit parameters for a chain.
-///
-/// Returns `None` if no peer is registered for the chain ID.
-#[allow(dead_code)]
-pub fn get_inbound_rate_limit(env: &Env, chain_id: u32) -> Option<RateLimitParams> {
-    PeerEntry::new(env, chain_id)
-        .get()
-        .map(|p| p.inbound_rate_limit)
 }
 
 /// Refills the inbound rate limit for a specific peer chain.

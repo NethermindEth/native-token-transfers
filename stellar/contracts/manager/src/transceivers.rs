@@ -3,7 +3,10 @@
 //! Transceivers are responsible for sending and receiving messages across chains.
 //! This module provides a bitmap-based registry that tracks up to 64 transceivers,
 //! along with threshold-based attestation requirements.
-use soroban_ntt_client::{NttManagerError, MAX_TRANSCEIVERS};
+use soroban_ntt_client::{
+    emit_threshold_changed, emit_transceiver_added, emit_transceiver_removed, NttManagerError,
+    MAX_TRANSCEIVERS,
+};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
@@ -19,11 +22,6 @@ use crate::storage::{InstanceStorage, TransceiverEntry, TransceiverIndexEntry};
 pub struct Bitmap(pub u64);
 
 impl Bitmap {
-    /// Creates an empty bitmap with all bits cleared.
-    pub fn new() -> Self {
-        Self(0)
-    }
-
     /// Sets the bit at the given index.
     ///
     /// Returns `BitmapIndexOutOfRange` if `index >= 64`.
@@ -59,11 +57,6 @@ impl Bitmap {
     /// Returns the bitwise AND of two bitmaps.
     pub fn and(&self, other: &Self) -> Self {
         Self(self.0 & other.0)
-    }
-
-    /// Returns the bitwise OR of two bitmaps.
-    pub fn or(&self, other: &Self) -> Self {
-        Self(self.0 | other.0)
     }
 
     /// Returns the number of set bits (population count).
@@ -199,6 +192,8 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
         storage.set_enabled_bitmap(bitmap.raw());
 
         check_threshold_invariants(env)?;
+        let enabled_count = bitmap.count_ones() as u32;
+        emit_transceiver_added(env, &info.address, enabled_count, storage.threshold());
         return Ok(index);
     }
 
@@ -229,6 +224,8 @@ pub fn set_transceiver(env: &Env, transceiver: Address) -> Result<u32, NttManage
     }
 
     check_threshold_invariants(env)?;
+    let enabled_count = bitmap.count_ones() as u32;
+    emit_transceiver_added(env, &info.address, enabled_count, storage.threshold());
 
     Ok(index)
 }
@@ -278,6 +275,7 @@ pub fn remove_transceiver(env: &Env, transceiver: &Address) -> Result<(), NttMan
     }
 
     check_threshold_invariants(env)?;
+    emit_transceiver_removed(env, transceiver, storage.threshold());
 
     Ok(())
 }
@@ -296,8 +294,10 @@ pub fn set_threshold_value(env: &Env, threshold: u32) -> Result<(), NttManagerEr
     }
 
     let storage = InstanceStorage::new(env);
+    let old_threshold = storage.threshold();
     storage.set_threshold(threshold);
     check_threshold_invariants(env)?;
+    emit_threshold_changed(env, old_threshold, threshold);
 
     Ok(())
 }

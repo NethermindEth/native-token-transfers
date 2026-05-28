@@ -7,30 +7,15 @@ mod state;
 mod storage;
 
 use soroban_ntt_client::{
-    PeerInfo, TransceiverError, TransceiverInterface, WormholeTransceiverInterface,
+    flatten_call, validate_chain_id, NttManagerClient, PeerInfo, TransceiverError,
+    TransceiverInterface, WormholeTransceiverInterface, WORMHOLE_TRANSCEIVER_TYPE,
 };
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
 use stellar_access::ownable::{self, Ownable};
 use stellar_contract_utils::pausable::{self, Pausable};
 use stellar_macros::{only_owner, when_not_paused};
 
-use state::TRANSCEIVER_TYPE;
 use storage::InstanceStorage;
-
-/// Flattens a Soroban `try_X` client result, mapping any failure to `err`.
-///
-/// `try_X` returns `Result<Result<T, E1>, E2>` (outer = invocation, inner =
-/// contract error vs. host error). The transceiver collapses both layers
-/// to a single `TransceiverError` variant chosen by the caller.
-pub(crate) fn flatten_call<T, E1, E2>(
-    r: Result<Result<T, E1>, E2>,
-    err: TransceiverError,
-) -> Result<T, TransceiverError> {
-    match r {
-        Ok(Ok(v)) => Ok(v),
-        _ => Err(err),
-    }
-}
 
 #[contract]
 pub struct TransceiverContract;
@@ -39,7 +24,9 @@ pub struct TransceiverContract;
 impl TransceiverContract {
     pub fn __constructor(env: Env, owner: Address, manager: Address, wormhole_core: Address) {
         ownable::set_owner(&env, &owner);
-        InstanceStorage::new(&env).initialize(&manager, &wormhole_core);
+        let storage = InstanceStorage::new(&env);
+        storage.initialize(&manager, &wormhole_core);
+        storage.set_version(1);
     }
 }
 
@@ -69,8 +56,20 @@ impl TransceiverInterface for TransceiverContract {
         InstanceStorage::new(&env).manager_id()
     }
 
+    fn get_manager_token(env: Env) -> Result<Address, TransceiverError> {
+        let manager = InstanceStorage::new(&env).manager()?;
+        flatten_call(
+            NttManagerClient::new(&env, &manager).try_get_token(),
+            TransceiverError::ManagerQueryFailed,
+        )
+    }
+
+    fn get_version(env: Env) -> u32 {
+        InstanceStorage::new(&env).version()
+    }
+
     fn get_transceiver_type(env: Env) -> Bytes {
-        Bytes::from_array(&env, &TRANSCEIVER_TYPE)
+        Bytes::from_array(&env, &WORMHOLE_TRANSCEIVER_TYPE)
     }
 
     #[when_not_paused]
@@ -80,11 +79,13 @@ impl TransceiverInterface for TransceiverContract {
         recipient_manager: BytesN<32>,
         manager_payload: Bytes,
     ) -> Result<(), TransceiverError> {
+        validate_chain_id(recipient_chain).ok_or(TransceiverError::ChainIdTooLarge)?;
         outbound::send_message(&env, recipient_chain, recipient_manager, manager_payload)
     }
 
     fn quote_delivery_price(env: Env, recipient_chain: u32) -> Result<i128, TransceiverError> {
-        outbound::quote_delivery_price(&env, recipient_chain)
+        validate_chain_id(recipient_chain).ok_or(TransceiverError::ChainIdTooLarge)?;
+        outbound::quote_delivery_price(&env)
     }
 
     #[only_owner]
@@ -102,12 +103,8 @@ impl WormholeTransceiverInterface for TransceiverContract {
 
     #[only_owner]
     fn set_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         peers::set_peer(&env, chain_id, emitter)
-    }
-
-    #[only_owner]
-    fn update_peer(env: Env, chain_id: u32, emitter: BytesN<32>) -> Result<(), TransceiverError> {
-        peers::update_peer(&env, chain_id, emitter)
     }
 
     #[only_owner]
@@ -116,6 +113,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
         chain_id: u32,
         enabled: bool,
     ) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         peers::set_peer_enabled(&env, chain_id, enabled)
     }
 
@@ -152,6 +150,7 @@ impl WormholeTransceiverInterface for TransceiverContract {
 
     #[when_not_paused]
     fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
+        validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
         outbound::broadcast_peer(&env, chain_id)
     }
 }

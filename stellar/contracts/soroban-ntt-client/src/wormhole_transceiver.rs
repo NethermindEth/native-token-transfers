@@ -18,17 +18,12 @@ pub trait WormholeTransceiverInterface {
     fn get_wormhole_core(env: Env) -> Result<Address, TransceiverError>;
     /// Registers a new peer transceiver for `chain_id`.
     ///
-    /// Rejects zero chain IDs, chain IDs above `u16::MAX`, zero emitter
-    /// addresses, and chains that already have a peer registered.
+    /// One-shot: once a peer is registered for a chain the entry is immutable.
+    /// To correct a mistake, deploy a fresh transceiver and re-register it
+    /// with the manager. Rejects zero chain IDs, chain IDs above `u16::MAX`,
+    /// zero emitter addresses, and chains that already have a peer registered.
     /// The peer is enabled by default.
     fn set_peer(
-        env: Env,
-        chain_id: u32,
-        emitter: BytesN<32>,
-    ) -> Result<(), TransceiverError>;
-    /// Updates the emitter address of an existing peer without changing its
-    /// enabled state. Fails if no peer is registered for `chain_id`.
-    fn update_peer(
         env: Env,
         chain_id: u32,
         emitter: BytesN<32>,

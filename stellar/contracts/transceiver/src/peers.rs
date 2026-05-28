@@ -1,4 +1,4 @@
-use soroban_ntt_client::{validate_chain_id, PeerInfo, TransceiverError};
+use soroban_ntt_client::{emit_peer_set, is_zero_bytes32, PeerInfo, TransceiverError};
 use soroban_sdk::{BytesN, Env};
 
 use crate::storage::PeerEntry;
@@ -18,10 +18,7 @@ fn validate_input(chain_id: u32, emitter: &BytesN<32>) -> Result<(), Transceiver
     if chain_id == 0 {
         return Err(TransceiverError::InvalidPeerChainIdZero);
     }
-    if validate_chain_id(chain_id).is_none() {
-        return Err(TransceiverError::ChainIdTooLarge);
-    }
-    if emitter.to_array() == [0u8; 32] {
+    if is_zero_bytes32(emitter) {
         return Err(TransceiverError::InvalidPeerZeroAddress);
     }
     Ok(())
@@ -38,21 +35,8 @@ pub fn set_peer(
     if entry.get().is_some() {
         return Err(TransceiverError::PeerAlreadySet);
     }
-    entry.set(&PeerInfo { emitter, enabled: true });
-    Ok(())
-}
-
-pub fn update_peer(
-    env: &Env,
-    chain_id: u32,
-    emitter: BytesN<32>,
-) -> Result<(), TransceiverError> {
-    validate_input(chain_id, &emitter)?;
-
-    let entry = PeerEntry::new(env, chain_id);
-    let mut info = entry.get().ok_or(TransceiverError::PeerNotFound)?;
-    info.emitter = emitter;
-    entry.set(&info);
+    entry.set(&PeerInfo { emitter: emitter.clone(), enabled: true });
+    emit_peer_set(env, chain_id, &emitter);
     Ok(())
 }
 

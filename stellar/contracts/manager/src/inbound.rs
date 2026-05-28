@@ -7,7 +7,11 @@
 //! - Queue completion after rate limit delay expires
 //! - Manual execution of approved but unexecuted messages
 
-use soroban_ntt_client::{bytes32_to_address, NttManagerError, NttManagerMessage};
+use soroban_ntt_client::{
+    bytes32_to_address, emit_inbound_transfer_queued, emit_message_already_executed,
+    emit_message_attested_to, emit_transfer_redeemed, AttestationInfo, NttManagerError,
+    NttManagerMessage,
+};
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
@@ -16,7 +20,9 @@ use crate::{
     state::{AttestationResult, InboundQueuedTransfer},
     storage::{AttestationEntry, InboundQueueEntry, InstanceStorage},
     token_ops::{get_token_decimals, release_tokens},
-    transceivers::{get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index},
+    transceivers::{
+        get_enabled_bitmap, get_threshold, get_transceiver, get_transceiver_index, Bitmap,
+    },
 };
 
 /// Processes an attestation from a transceiver for an inbound message.
@@ -32,7 +38,6 @@ use crate::{
 /// - `TransceiverNotRegistered` if caller is not a registered transceiver
 /// - `TransceiverNotEnabled` if the transceiver is disabled
 /// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
-/// - `TransferAlreadyRedeemed` if tokens were already released for this message
 /// - `TransceiverAlreadyAttested` if this transceiver already attested
 pub fn attestation_received_internal(
     env: &Env,
@@ -60,29 +65,24 @@ pub fn attestation_received_internal(
     let attestation_entry = AttestationEntry::new(env, digest.clone());
     let mut attestation = attestation_entry.get_or_default();
 
-    if attestation.executed {
-        return Err(NttManagerError::TransferAlreadyRedeemed);
-    }
-
-    let attester_bit = 1u64 << transceiver_index;
-    if attestation.attested_transceivers & attester_bit != 0 {
+    let mut attested = Bitmap(attestation.attested_transceivers);
+    if attested.is_set(transceiver_index)? {
         return Err(NttManagerError::TransceiverAlreadyAttested);
     }
-
-    attestation.attested_transceivers |= attester_bit;
+    attested.set(transceiver_index)?;
+    attestation.attested_transceivers = attested.raw();
     attestation_entry.set(&attestation);
+    emit_message_attested_to(env, &digest, transceiver, transceiver_index);
 
-    let enabled_bitmap = get_enabled_bitmap(env);
-    let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
-    let attestation_count = valid_attestations.count_ones() as u32;
-    let threshold = get_threshold(env);
+    if attestation.executed {
+        emit_message_already_executed(env, source_ntt_manager, &digest);
+        return Ok(AttestationResult::executed());
+    }
+
+    let (attestation_count, threshold) = count_valid_attestations(env, &attestation);
 
     if attestation_count < threshold {
-        return Ok(AttestationResult {
-            approved: false,
-            executed: false,
-            queued: false,
-        });
+        return Ok(AttestationResult::not_approved());
     }
 
     execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
@@ -135,12 +135,9 @@ fn execute_inbound_transfer(
             release_tokens(env, &recipient, release_amount)?;
 
             refill_outbound(env, transfer.amount.amount);
+            emit_transfer_redeemed(env, digest);
 
-            Ok(AttestationResult {
-                approved: true,
-                executed: true,
-                queued: false,
-            })
+            Ok(AttestationResult::executed())
         }
         RateLimitResult::Delayed(release_timestamp) => {
             let queued = InboundQueuedTransfer {
@@ -151,12 +148,9 @@ fn execute_inbound_transfer(
             };
 
             InboundQueueEntry::new(env, digest.clone()).set(&queued);
+            emit_inbound_transfer_queued(env, digest);
 
-            Ok(AttestationResult {
-                approved: true,
-                executed: false,
-                queued: true,
-            })
+            Ok(AttestationResult::queued())
         }
     }
 }
@@ -192,6 +186,7 @@ pub fn complete_inbound_queued_transfer(
 
     release_tokens(env, &queued.recipient, queued.amount)?;
     refill_outbound(env, queued.trimmed_amount);
+    emit_transfer_redeemed(env, digest);
 
     Ok(())
 }
@@ -208,7 +203,6 @@ pub fn complete_inbound_queued_transfer(
 /// # Errors
 /// - `PeerNotFound` or `InvalidPeer` if source doesn't match registered peer
 /// - `TransferNotApproved` if threshold not met with currently enabled transceivers
-/// - `TransferAlreadyRedeemed` if tokens were already released
 pub fn execute_msg_internal(
     env: &Env,
     source_chain: u32,
@@ -225,17 +219,22 @@ pub fn execute_msg_internal(
         .ok_or(NttManagerError::TransferNotApproved)?;
 
     if attestation.executed {
-        return Err(NttManagerError::TransferAlreadyRedeemed);
+        emit_message_already_executed(env, source_ntt_manager, &digest);
+        return Ok(AttestationResult::executed());
     }
 
-    let enabled_bitmap = get_enabled_bitmap(env);
-    let valid_attestations = attestation.attested_transceivers & enabled_bitmap.raw();
-    let attestation_count = valid_attestations.count_ones() as u32;
-    let threshold = get_threshold(env);
+    let (attestation_count, threshold) = count_valid_attestations(env, &attestation);
 
     if attestation_count < threshold {
         return Err(NttManagerError::TransferNotApproved);
     }
 
     execute_inbound_transfer(env, source_chain, &ntt_message, &digest)
+}
+
+/// Counts attestations from currently enabled transceivers, returning
+/// `(count, threshold)`.
+pub fn count_valid_attestations(env: &Env, attestation: &AttestationInfo) -> (u32, u32) {
+    let valid = Bitmap(attestation.attested_transceivers).and(&get_enabled_bitmap(env));
+    (valid.count_ones() as u32, get_threshold(env))
 }

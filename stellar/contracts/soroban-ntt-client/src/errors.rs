@@ -13,7 +13,7 @@ use wormhole_soroban_client::WormholeError;
 /// - `1..=7`: message encoding, decoding, or amount normalization
 /// - `13`: pauser dispatch
 /// - `20`, `30`: uninitialized storage or components
-/// - `40..=48`: transceiver registry and threshold management
+/// - `40..=49`: transceiver registry, threshold management, and transceiver-call failures
 /// - `50..=55`: peer registration and validation
 /// - `60..=65`: outbound/inbound transfer flow
 /// - `80..=84`: attestation processing and redemption
@@ -63,6 +63,8 @@ pub enum NttManagerError {
     NoEnabledTransceivers = 47,
     /// Transceiver bitmap index is outside the representable range.
     BitmapIndexOutOfRange = 48,
+    /// A call to a registered transceiver failed (e.g. `quote_delivery_price` or `send_message`).
+    TransceiverCallFailed = 49,
     /// No peer is registered for the given chain ID.
     PeerNotFound = 50,
     /// Peer chain ID cannot be zero.
@@ -119,7 +121,8 @@ pub enum TransceiverError {
     InvalidPeerChainIdZero = 10,
     /// Peer emitter address is the zero address.
     InvalidPeerZeroAddress = 11,
-    /// A peer is already registered for the given chain ID; use `update_peer` instead.
+    /// A peer is already registered for the given chain ID. Peer registration
+    /// is one-shot — redeploy the transceiver to correct a mistake.
     PeerAlreadySet = 12,
     /// No peer is registered for the given chain ID.
     PeerNotFound = 13,
