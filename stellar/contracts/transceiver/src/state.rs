@@ -1,7 +1,5 @@
 use soroban_sdk::{contracttype, BytesN};
 
-pub(crate) const TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
-
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -9,6 +7,7 @@ pub enum DataKey {
     WormholeCore,
     Peer(u32),
     Consumed(ConsumedKey),
+    Version,
 }
 
 #[derive(Clone)]

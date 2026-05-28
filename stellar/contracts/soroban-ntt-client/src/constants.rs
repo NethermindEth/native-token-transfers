@@ -50,3 +50,9 @@ pub const BROADCAST_ID_PREFIX: [u8; 4] = [0x9C, 0x23, 0xBD, 0x3B];
 /// Identifies the per-peer registration broadcasts consumed by the NTT
 /// Accountant. See `evm/src/libraries/TransceiverStructs.sol`.
 pub const BROADCAST_PEER_PREFIX: [u8; 4] = [0x18, 0xFC, 0x67, 0xC2];
+
+/// Transceiver-type identifier returned by Wormhole transceiver instances.
+///
+/// Off-chain tooling reads this to distinguish a Wormhole transceiver from
+/// other transceiver kinds. Part of the published protocol surface.
+pub const WORMHOLE_TRANSCEIVER_TYPE: [u8; 8] = *b"wormhole";
