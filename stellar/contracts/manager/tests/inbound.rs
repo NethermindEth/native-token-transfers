@@ -210,6 +210,35 @@ fn attestation_received_executes_at_quorum() {
     assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100);
 }
 
+/// Locking-mode release unlocks the manager's held tokens to the recipient (a
+/// `transfer` out), mirroring burning-mode mint but moving custody rather than
+/// creating supply.
+#[test]
+fn attestation_releases_via_unlock_in_locking_mode() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) = setup_manager_with_token(&env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600, &token);
+    let transceiver = add_transceiver(&env, &client, 0, false); // threshold 1
+    let source_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&SRC_CHAIN, &source_manager, &7, &u64::MAX);
+    // The manager must hold tokens to unlock, as if locked by a prior outbound.
+    MockTokenClient::new(&env, &token).mint(&client.address, &1000);
+
+    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
+    let recipient = bytes32_to_address(&env, &recipient_bytes);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+
+    assert!(client
+        .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
+        .executed);
+    assert!(client.is_message_executed(&digest));
+
+    let mock = MockTokenClient::new(&env, &token);
+    assert_eq!(mock.balance(&recipient), 100); // unlocked to the recipient
+    assert_eq!(mock.balance(&client.address), 900); // released from the manager's custody
+}
+
 /// An inbound transfer over the peer's rate limit is queued (not released) yet
 /// still marked executed for replay protection, emitting `InboundTransferQueued`.
 #[test]
