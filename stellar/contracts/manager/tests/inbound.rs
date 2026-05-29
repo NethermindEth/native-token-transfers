@@ -11,11 +11,11 @@ mod transceiver;
 use common::{setup_manager, setup_manager_with_token};
 use messages::ntt_message;
 use soroban_ntt_client::{
-    bytes32_to_address, InboundTransferQueued, MessageAttestedTo, Mode, NttManagerError,
-    TransferRedeemed,
+    bytes32_to_address, InboundTransferQueued, MessageAlreadyExecuted, MessageAttestedTo, Mode,
+    NttManagerError, TransferRedeemed,
 };
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     Address, Bytes, BytesN, Env, Event,
 };
 use stellar_ntt_manager::ManagerContractClient;
@@ -28,12 +28,27 @@ const OTHER_CHAIN: u32 = 9;
 
 /// Locking manager (SAC) with one enabled transceiver (threshold 1) and a peer
 /// registered for SRC_CHAIN. For error-path tests that never release tokens.
-fn wired<'a>(env: &Env) -> (ManagerContractClient<'a>, Address, BytesN<32>) {
+fn locking_inbound<'a>(env: &Env) -> (ManagerContractClient<'a>, Address, BytesN<32>) {
     let (_, _, client) = setup_manager(env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600);
     let transceiver = add_transceiver(env, &client, 0, false);
     let source_manager = BytesN::from_array(env, &[0x11; 32]);
     client.set_peer(&SRC_CHAIN, &source_manager, &7, &u64::MAX);
     (client, transceiver, source_manager)
+}
+
+/// Burning manager over a 7-decimal mock token with one enabled transceiver and
+/// a peer at SRC_CHAIN (capacity `inbound_limit`). For tests that release tokens.
+/// Returns client, token, transceiver, and source-manager bytes.
+fn burning_inbound<'a>(
+    env: &Env,
+    inbound_limit: u64,
+) -> (ManagerContractClient<'a>, Address, Address, BytesN<32>) {
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) = setup_manager_with_token(env, Mode::Burning, OUR_CHAIN, u64::MAX, 3600, &token);
+    let transceiver = add_transceiver(env, &client, 0, false);
+    let source_manager = BytesN::from_array(env, &[0x11; 32]);
+    client.set_peer(&SRC_CHAIN, &source_manager, &7, &inbound_limit);
+    (client, token, transceiver, source_manager)
 }
 
 /// Only registered, enabled transceivers may attest: an unknown caller is
@@ -43,7 +58,7 @@ fn wired<'a>(env: &Env) -> (ManagerContractClient<'a>, Address, BytesN<32>) {
 fn attestation_received_rejects_unregistered_or_disabled_transceiver() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, registered, source_manager) = wired(&env);
+    let (client, registered, source_manager) = locking_inbound(&env);
     // A second transceiver keeps the enabled set non-empty when `registered` is removed.
     add_transceiver(&env, &client, 0, false);
     let dummy = Bytes::new(&env);
@@ -68,7 +83,7 @@ fn attestation_received_rejects_unregistered_or_disabled_transceiver() {
 fn attestation_received_rejects_unknown_or_mismatched_peer() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, transceiver, source_manager) = wired(&env);
+    let (client, transceiver, source_manager) = locking_inbound(&env);
     let dummy = Bytes::new(&env);
 
     assert_eq!(
@@ -89,7 +104,7 @@ fn attestation_received_rejects_unknown_or_mismatched_peer() {
 fn attestation_received_rejects_wrong_target_chain() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, transceiver, source_manager) = wired(&env);
+    let (client, transceiver, source_manager) = locking_inbound(&env);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
     let (payload, _) = ntt_message(&env, 100, 7, &recipient, OTHER_CHAIN, SRC_CHAIN);
@@ -106,7 +121,7 @@ fn attestation_received_rejects_wrong_target_chain() {
 fn attestation_received_records_vote_below_threshold() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, first, source_manager) = wired(&env);
+    let (client, first, source_manager) = locking_inbound(&env);
     add_transceiver(&env, &client, 0, false);
     client.set_threshold(&2);
 
@@ -139,7 +154,7 @@ fn attestation_received_records_vote_below_threshold() {
 fn attestation_received_rejects_double_vote() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, first, source_manager) = wired(&env);
+    let (client, first, source_manager) = locking_inbound(&env);
     add_transceiver(&env, &client, 0, false);
     client.set_threshold(&2);
 
@@ -160,13 +175,9 @@ fn attestation_received_rejects_double_vote() {
 fn attestation_received_executes_at_quorum() {
     let env = Env::default();
     env.mock_all_auths();
-    let token = env.register(MockToken, (7u32,));
-    let (_, client) = setup_manager_with_token(&env, Mode::Burning, OUR_CHAIN, u64::MAX, 3600, &token);
-    let first = add_transceiver(&env, &client, 0, false);
+    let (client, token, first, source_manager) = burning_inbound(&env, u64::MAX);
     let second = add_transceiver(&env, &client, 0, false);
     client.set_threshold(&2);
-    let source_manager = BytesN::from_array(&env, &[0x11; 32]);
-    client.set_peer(&SRC_CHAIN, &source_manager, &7, &u64::MAX);
 
     let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
     let recipient = bytes32_to_address(&env, &recipient_bytes);
@@ -205,12 +216,8 @@ fn attestation_received_executes_at_quorum() {
 fn attestation_received_queues_when_rate_limited() {
     let env = Env::default();
     env.mock_all_auths();
-    let token = env.register(MockToken, (7u32,));
-    let (_, client) = setup_manager_with_token(&env, Mode::Burning, OUR_CHAIN, u64::MAX, 3600, &token);
-    let transceiver = add_transceiver(&env, &client, 0, false);
-    let source_manager = BytesN::from_array(&env, &[0x11; 32]);
     // Inbound capacity below the transfer amount forces queuing.
-    client.set_peer(&SRC_CHAIN, &source_manager, &7, &50);
+    let (client, token, transceiver, source_manager) = burning_inbound(&env, 50);
 
     let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
     let recipient = bytes32_to_address(&env, &recipient_bytes);
@@ -272,7 +279,7 @@ fn attestation_received_blocked_when_paused() {
 fn attestation_received_requires_transceiver_auth() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, first, source_manager) = wired(&env);
+    let (client, first, source_manager) = locking_inbound(&env);
     add_transceiver(&env, &client, 0, false);
     client.set_threshold(&2);
 
@@ -284,4 +291,131 @@ fn attestation_received_requires_transceiver_auth() {
     assert!(client
         .try_attestation_received(&first, &SRC_CHAIN, &source_manager, &payload)
         .is_err());
+}
+
+/// A queued inbound transfer cannot be completed before its release window
+/// (`TransferNotReleasable`); after advancing the ledger it releases tokens and
+/// emits `TransferRedeemed`, and a second completion fails (`TransferNotQueued`).
+#[test]
+fn complete_inbound_transfer_lifecycle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    // Low inbound limit forces queuing.
+    let (client, token, transceiver, source_manager) = burning_inbound(&env, 50);
+
+    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
+    let recipient = bytes32_to_address(&env, &recipient_bytes);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+
+    assert!(client
+        .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
+        .queued);
+
+    assert_eq!(
+        client.try_complete_inbound_transfer(&digest),
+        Err(Ok(NttManagerError::TransferNotReleasable))
+    );
+
+    let release_at = client.get_inbound_queue_item(&digest).unwrap().release_timestamp;
+    env.ledger().set_timestamp(release_at);
+
+    client.complete_inbound_transfer(&digest);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![TransferRedeemed { digest: digest.clone() }.to_xdr(&env, &client.address)]
+    );
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100);
+
+    assert_eq!(
+        client.try_complete_inbound_transfer(&digest),
+        Err(Ok(NttManagerError::TransferNotQueued))
+    );
+}
+
+/// A second transceiver attesting an already-executed digest is idempotent: it
+/// records its vote and emits `MessageAlreadyExecuted` without releasing tokens
+/// again.
+#[test]
+fn attestation_on_executed_digest_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, token, first, source_manager) = burning_inbound(&env, u64::MAX);
+    let second = add_transceiver(&env, &client, 0, false); // threshold stays 1
+
+    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
+    let recipient = bytes32_to_address(&env, &recipient_bytes);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+
+    assert!(client
+        .attestation_received(&first, &SRC_CHAIN, &source_manager, &payload)
+        .executed);
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100);
+
+    let replay = client.attestation_received(&second, &SRC_CHAIN, &source_manager, &payload);
+    assert!(replay.executed);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![
+            MessageAttestedTo {
+                digest: digest.clone(),
+                transceiver: second,
+                index: 1,
+            }
+            .to_xdr(&env, &client.address),
+            MessageAlreadyExecuted {
+                source_ntt_manager: source_manager,
+                msg_hash: digest,
+            }
+            .to_xdr(&env, &client.address),
+        ]
+    );
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100); // not re-minted
+}
+
+/// `execute_msg` on a digest with no recorded attestation is rejected
+/// (`TransferNotApproved`).
+#[test]
+fn execute_msg_rejects_unapproved_message() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, client) = setup_manager(&env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600);
+    let source_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&SRC_CHAIN, &source_manager, &7, &u64::MAX);
+
+    let recipient = BytesN::from_array(&env, &[0x22; 32]);
+    let (payload, _) = ntt_message(&env, 100, 7, &recipient, OUR_CHAIN, SRC_CHAIN);
+
+    assert_eq!(
+        client.try_execute_msg(&SRC_CHAIN, &source_manager, &payload),
+        Err(Ok(NttManagerError::TransferNotApproved))
+    );
+}
+
+/// `execute_msg` on an already-executed digest is idempotent: it emits
+/// `MessageAlreadyExecuted` and does not release tokens again.
+#[test]
+fn execute_msg_on_executed_digest_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, token, transceiver, source_manager) = burning_inbound(&env, u64::MAX); // threshold 1
+
+    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
+    let recipient = bytes32_to_address(&env, &recipient_bytes);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+
+    assert!(client
+        .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
+        .executed);
+
+    let replay = client.execute_msg(&SRC_CHAIN, &source_manager, &payload);
+    assert!(replay.executed);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![MessageAlreadyExecuted {
+            source_ntt_manager: source_manager,
+            msg_hash: digest,
+        }
+        .to_xdr(&env, &client.address)]
+    );
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100); // not re-minted
 }
