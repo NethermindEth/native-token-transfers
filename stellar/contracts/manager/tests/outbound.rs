@@ -298,3 +298,20 @@ fn complete_queued_transfer_blocked_when_paused() {
         Err(Err(soroban_sdk::InvokeError::Contract(1000)))
     );
 }
+
+/// Each transfer gets a distinct sequence, so two otherwise-identical transfers
+/// produce distinct digests and cannot collide on the receiving side.
+#[test]
+fn repeated_transfers_produce_distinct_digests() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, _, sender) = outbound_setup(&env, Mode::Locking, u64::MAX);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+
+    let first = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &false);
+    let second = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &false);
+
+    assert_eq!(first.sequence, 1);
+    assert_eq!(second.sequence, 2);
+    assert_ne!(first.digest, second.digest);
+}
