@@ -9,6 +9,9 @@ use soroban_ntt_client::Mode;
 use soroban_sdk::Env;
 use token::MockToken;
 
+/// The constructor persists every config field and initial counter — owner,
+/// token, mode, chain id, threshold 0, version 1, full outbound capacity, and
+/// the rate-limit duration from the argument (not the 86400 default).
 #[test]
 fn constructor_stores_config() {
     let env = Env::default();
@@ -33,6 +36,8 @@ fn constructor_stores_config() {
     assert_eq!(params.current_capacity, 1000);
 }
 
+/// The constructor reads decimals from the token contract rather than assuming
+/// the SAC's 7, caching whatever the token reports (18 here).
 #[test]
 fn constructor_queries_token_decimals() {
     // SAC tokens are fixed at 7 decimals; an 18-decimal token proves the

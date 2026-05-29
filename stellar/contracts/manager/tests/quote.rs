@@ -9,6 +9,8 @@ use soroban_ntt_client::{Mode, NttManagerError};
 use soroban_sdk::{BytesN, Env};
 use transceiver::add_transceiver;
 
+/// `quote_transfer` rejects an unregistered recipient chain (`PeerNotFound`)
+/// and a chain id beyond the `u16` Wormhole range (`ChainIdTooLarge`).
 #[test]
 fn quote_transfer_rejects_bad_inputs() {
     let env = Env::default();
@@ -24,6 +26,9 @@ fn quote_transfer_rejects_bad_inputs() {
     );
 }
 
+/// `quote_transfer` normalizes an amount to the lesser of local/peer decimals,
+/// returning `(trimmed, dust)`: trimming down sheds dust (7->6), equal decimals
+/// pass through, and a wider peer is capped at the local precision (7->9).
 #[test]
 fn quote_transfer_trims_and_reports_dust() {
     let env = Env::default();
@@ -41,6 +46,9 @@ fn quote_transfer_trims_and_reports_dust() {
     assert_eq!(client.quote_transfer(&1005, &4), (1005, 0)); // peer wider, capped at local
 }
 
+/// `quote_delivery_price` returns one fee per enabled transceiver in registry
+/// order, isolating a failing transceiver to `fee: None` rather than failing
+/// the whole quote.
 #[test]
 fn quote_delivery_price_reports_each_transceiver() {
     let env = Env::default();
