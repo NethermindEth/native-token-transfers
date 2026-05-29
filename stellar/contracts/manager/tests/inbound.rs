@@ -18,6 +18,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _},
     Address, Bytes, BytesN, Env, Event,
 };
+use stellar_ntt_manager::ManagerContractClient;
 use token::{MockToken, MockTokenClient};
 use transceiver::add_transceiver;
 
@@ -27,7 +28,7 @@ const OTHER_CHAIN: u32 = 9;
 
 /// Locking manager (SAC) with one enabled transceiver (threshold 1) and a peer
 /// registered for SRC_CHAIN. For error-path tests that never release tokens.
-fn wired<'a>(env: &Env) -> (stellar_ntt_manager::ManagerContractClient<'a>, Address, BytesN<32>) {
+fn wired<'a>(env: &Env) -> (ManagerContractClient<'a>, Address, BytesN<32>) {
     let (_, _, client) = setup_manager(env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600);
     let transceiver = add_transceiver(env, &client, 0, false);
     let source_manager = BytesN::from_array(env, &[0x11; 32]);
@@ -91,8 +92,7 @@ fn attestation_received_rejects_wrong_target_chain() {
     let (client, transceiver, source_manager) = wired(&env);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
-    let message = ntt_message(&env, 1, 100, 7, &recipient, OTHER_CHAIN);
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, _) = ntt_message(&env, 100, 7, &recipient, OTHER_CHAIN, SRC_CHAIN);
 
     assert_eq!(
         client.try_attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload),
@@ -111,9 +111,7 @@ fn attestation_received_records_vote_below_threshold() {
     client.set_threshold(&2);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
-    let message = ntt_message(&env, 1, 100, 7, &recipient, OUR_CHAIN);
-    let digest = message.compute_digest(&env, SRC_CHAIN as u16).unwrap();
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient, OUR_CHAIN, SRC_CHAIN);
 
     let result = client.attestation_received(&first, &SRC_CHAIN, &source_manager, &payload);
     assert!(!result.approved && !result.executed && !result.queued);
@@ -146,8 +144,7 @@ fn attestation_received_rejects_double_vote() {
     client.set_threshold(&2);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
-    let message = ntt_message(&env, 1, 100, 7, &recipient, OUR_CHAIN);
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, _) = ntt_message(&env, 100, 7, &recipient, OUR_CHAIN, SRC_CHAIN);
 
     client.attestation_received(&first, &SRC_CHAIN, &source_manager, &payload);
     assert_eq!(
@@ -173,9 +170,7 @@ fn attestation_received_executes_at_quorum() {
 
     let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
     let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let message = ntt_message(&env, 1, 100, 7, &recipient_bytes, OUR_CHAIN);
-    let digest = message.compute_digest(&env, SRC_CHAIN as u16).unwrap();
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
 
     let pending = client.attestation_received(&first, &SRC_CHAIN, &source_manager, &payload);
     assert!(!pending.approved);
@@ -219,9 +214,7 @@ fn attestation_received_queues_when_rate_limited() {
 
     let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
     let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let message = ntt_message(&env, 1, 100, 7, &recipient_bytes, OUR_CHAIN);
-    let digest = message.compute_digest(&env, SRC_CHAIN as u16).unwrap();
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
 
     let result = client.attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload);
     assert!(result.approved && !result.executed && result.queued);
@@ -264,8 +257,7 @@ fn attestation_received_blocked_when_paused() {
     client.pause(&owner);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
-    let message = ntt_message(&env, 1, 100, 7, &recipient, OUR_CHAIN);
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, _) = ntt_message(&env, 100, 7, &recipient, OUR_CHAIN, SRC_CHAIN);
 
     assert_eq!(
         client.try_attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload),
@@ -285,8 +277,7 @@ fn attestation_received_requires_transceiver_auth() {
     client.set_threshold(&2);
 
     let recipient = BytesN::from_array(&env, &[0x22; 32]);
-    let message = ntt_message(&env, 1, 100, 7, &recipient, OUR_CHAIN);
-    let payload = message.to_bytes(&env).unwrap();
+    let (payload, _) = ntt_message(&env, 100, 7, &recipient, OUR_CHAIN, SRC_CHAIN);
 
     // Drop the blanket auth mock so the transceiver must explicitly authorize.
     env.mock_auths(&[]);

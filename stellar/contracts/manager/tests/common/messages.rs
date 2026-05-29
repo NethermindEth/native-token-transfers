@@ -1,19 +1,19 @@
 use soroban_ntt_client::{NativeTokenTransfer, NttManagerMessage, TrimmedAmount};
-use soroban_sdk::{BytesN, Env};
+use soroban_sdk::{Bytes, BytesN, Env};
 
-/// Builds an inbound NTT message carrying `amount` (at `decimals`) destined for
-/// `to` on `to_chain`. `id` fills the 32-byte message id so distinct messages
-/// produce distinct digests.
+/// Encodes an inbound NTT message (amount at `decimals`, destined for `to` on
+/// `to_chain`) and returns its wire bytes and digest under `source_chain` — the
+/// two forms the manager's inbound entrypoints consume.
 pub fn ntt_message(
     env: &Env,
-    id: u8,
     amount: u64,
     decimals: u8,
     to: &BytesN<32>,
     to_chain: u32,
-) -> NttManagerMessage {
-    NttManagerMessage {
-        id: BytesN::from_array(env, &[id; 32]),
+    source_chain: u32,
+) -> (Bytes, BytesN<32>) {
+    let message = NttManagerMessage {
+        id: BytesN::from_array(env, &[1; 32]),
         sender: BytesN::from_array(env, &[0xAB; 32]),
         payload: NativeTokenTransfer {
             amount: TrimmedAmount::new(amount, decimals).unwrap(),
@@ -22,5 +22,9 @@ pub fn ntt_message(
             to_chain,
             additional_payload: None,
         },
-    }
+    };
+    (
+        message.to_bytes(env).unwrap(),
+        message.compute_digest(env, source_chain as u16).unwrap(),
+    )
 }

@@ -17,23 +17,27 @@ impl MockToken {
     }
 
     pub fn balance(env: Env, id: Address) -> i128 {
-        env.storage().persistent().get(&id).unwrap_or(0)
+        read(&env, &id)
     }
 
     pub fn mint(env: Env, to: Address, amount: i128) {
-        let updated = Self::balance(env.clone(), to.clone()) + amount;
-        env.storage().persistent().set(&to, &updated);
+        write(&env, &to, read(&env, &to) + amount);
     }
 
     pub fn burn(env: Env, from: Address, amount: i128) {
-        let updated = Self::balance(env.clone(), from.clone()) - amount;
-        env.storage().persistent().set(&from, &updated);
+        write(&env, &from, read(&env, &from) - amount);
     }
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
-        let from_balance = Self::balance(env.clone(), from.clone()) - amount;
-        let to_balance = Self::balance(env.clone(), to.clone()) + amount;
-        env.storage().persistent().set(&from, &from_balance);
-        env.storage().persistent().set(&to, &to_balance);
+        write(&env, &from, read(&env, &from) - amount);
+        write(&env, &to, read(&env, &to) + amount);
     }
+}
+
+fn read(env: &Env, id: &Address) -> i128 {
+    env.storage().persistent().get(id).unwrap_or(0)
+}
+
+fn write(env: &Env, id: &Address, value: i128) {
+    env.storage().persistent().set(id, &value);
 }
