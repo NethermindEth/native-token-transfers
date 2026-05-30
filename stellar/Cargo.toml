@@ -4,6 +4,7 @@ members = [
   "contracts/transceiver",
   "contracts/soroban-ntt-client",
   "contracts/mock-token",
+  "integration-tests",
 ]
 
 resolver = "3"
