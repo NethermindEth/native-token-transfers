@@ -22,9 +22,19 @@ docker run --rm -d \
   --standalone
 
 echo "Waiting for localnet to be ready..."
-until curl -s "$SOROBAN_RPC_URL" -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth","params":{}}' | grep -q '"status":"healthy"'; do
+LAST_SEQ=0
+ADVANCES=0
+while [ "$ADVANCES" -lt 2 ]; do
   printf "."
-  sleep 2
+  HEALTH=$(curl -sf "$SOROBAN_RPC_URL" -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth","params":{}}' || echo "")
+  if echo "$HEALTH" | grep -q '"status":"healthy"'; then
+    SEQ=$(curl -sf "$SOROBAN_RPC_URL" -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}' 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('sequence', 0))" 2>/dev/null || echo 0)
+    if [ "${SEQ:-0}" -gt "$LAST_SEQ" ]; then
+      ADVANCES=$((ADVANCES + 1))
+      LAST_SEQ=$SEQ
+    fi
+  fi
+  sleep 3
 done
 echo
-echo "Localnet ready."
+echo "Localnet ready (ledger=$LAST_SEQ)."

@@ -46,7 +46,6 @@ pub fn try_invoke(
         "--network", &network,
         "--source", source,
         "--id", id,
-        "--output", "json",
         "--",
         func,
     ];

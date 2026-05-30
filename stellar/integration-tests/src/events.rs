@@ -50,29 +50,33 @@ impl<'a> EventQuery<'a> {
         self
     }
 
-    pub fn poll(&self, timeout: Duration) -> Vec<DecodedEvent> {
+    pub fn fetch(&self) -> Vec<DecodedEvent> {
+        let latest = rpc_latest_ledger(&self.ctx.rpc_url);
+        let start = self
+            .start_ledger
+            .unwrap_or_else(|| latest.saturating_sub(200).max(1));
+        let body = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"getEvents","params":{{"startLedger":{start},"filters":[{{"type":"contract","contractIds":["{cid}"]}}],"pagination":{{"limit":100}}}}}}"#,
+            cid = self.contract_id,
+        );
+        let resp = rpc_call(&self.ctx.rpc_url, &body);
+        let arr = resp["result"]["events"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        arr.iter().filter_map(decode_event).collect()
+    }
+
+    pub fn find_with_topic(&self, symbol: &str, timeout: Duration) -> Option<DecodedEvent> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
-            let latest = rpc_latest_ledger(&self.ctx.rpc_url);
-            let start = self
-                .start_ledger
-                .unwrap_or_else(|| latest.saturating_sub(200).max(1));
-            let body = format!(
-                r#"{{"jsonrpc":"2.0","id":1,"method":"getEvents","params":{{"startLedger":{start},"filters":[{{"type":"contract","contractIds":["{cid}"]}}],"pagination":{{"limit":100}}}}}}"#,
-                cid = self.contract_id,
-            );
-            let resp = rpc_call(&self.ctx.rpc_url, &body);
-            let arr = resp["result"]["events"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            let decoded: Vec<DecodedEvent> =
-                arr.iter().filter_map(decode_event).collect();
-            if !decoded.is_empty() {
-                return decoded;
+            for ev in self.fetch() {
+                if ev.topic_symbol(0).as_deref() == Some(symbol) {
+                    return Some(ev);
+                }
             }
             if std::time::Instant::now() >= deadline {
-                return Vec::new();
+                return None;
             }
             thread::sleep(Duration::from_secs(1));
         }

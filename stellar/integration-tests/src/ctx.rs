@@ -74,6 +74,31 @@ impl TestContext {
         addr
     }
 
+    pub fn native_sac(&self) -> String {
+        let _ = cli::try_run(&[
+            "contract",
+            "asset",
+            "deploy",
+            "--asset",
+            "native",
+            "--source",
+            &self.admin_identity,
+            "--network",
+            &self.network,
+        ]);
+        cli::run(&[
+            "contract",
+            "id",
+            "asset",
+            "--asset",
+            "native",
+            "--network",
+            &self.network,
+        ])
+        .trim()
+        .to_string()
+    }
+
     pub fn friendbot(&self, addr: &str) {
         let url = format!("{}?addr={}", self.friendbot_url, addr);
         let out = Command::new("curl")

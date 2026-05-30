@@ -25,4 +25,13 @@ fi
 IDENTITY_ADDR=$(stellar keys address "$STELLAR_IDENTITY")
 curl -s "$STELLAR_FRIENDBOT_URL?addr=$IDENTITY_ADDR" > /dev/null
 
-echo "Identity $STELLAR_IDENTITY ($IDENTITY_ADDR) funded."
+HORIZON_URL="${STELLAR_FRIENDBOT_URL%/friendbot}"
+for i in $(seq 1 30); do
+  if curl -sf "$HORIZON_URL/accounts/$IDENTITY_ADDR" >/dev/null 2>&1; then
+    echo "Identity $STELLAR_IDENTITY ($IDENTITY_ADDR) funded."
+    exit 0
+  fi
+  sleep 1
+done
+echo "Identity $STELLAR_IDENTITY ($IDENTITY_ADDR) friendbot called but account not visible after 30s" >&2
+exit 1
