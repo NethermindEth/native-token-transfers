@@ -824,6 +824,7 @@ dependencies = [
  "stellar-strkey 0.0.13",
  "stellar-xdr",
  "tiny-keccak",
+ "wormhole-soroban-client",
 ]
 
 [[package]]

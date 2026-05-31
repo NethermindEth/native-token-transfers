@@ -10,14 +10,11 @@
 
 use serde_json::Value;
 use soroban_ntt_client::types::Mode;
+use wormhole_soroban_client::GOVERNANCE_EMITTER;
 
 use crate::cli;
 use crate::ctx::TestContext;
 use crate::vaa;
-
-/// Required governance emitter for the Nethermind Wormhole core port.
-const GOVERNANCE_EMITTER_HEX: &str =
-    "0000000000000000000000000000000000000000000000000000000000000004";
 
 /// Vendored NethermindEth Wormhole core.
 pub struct WormholeCore;
@@ -30,12 +27,15 @@ pub struct Transceiver;
 
 impl WormholeCore {
     /// Deploys the vendored Wormhole core with `guardians` as the initial
-    /// guardian set (index 0). Returns the new contract id.
+    /// guardian set (index 0). Returns the new contract id. The governance
+    /// emitter is taken from `wormhole_soroban_client::GOVERNANCE_EMITTER`
+    /// — the core enforces it at construction.
     pub fn deploy(ctx: &TestContext, guardians: &[[u8; 20]]) -> String {
         let json = serde_json::to_string(
             &guardians.iter().map(hex::encode).collect::<Vec<_>>(),
         )
         .expect("encode guardian array");
+        let governance_emitter_hex = hex::encode(GOVERNANCE_EMITTER);
         cli::deploy(
             &ctx.admin_identity,
             &ctx.wormhole_core_wasm_path,
@@ -43,7 +43,7 @@ impl WormholeCore {
                 "--initial_guardians",
                 &json,
                 "--governance_emitter",
-                GOVERNANCE_EMITTER_HEX,
+                &governance_emitter_hex,
             ],
         )
     }

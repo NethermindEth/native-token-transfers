@@ -1,49 +1,27 @@
-//! Wormhole VAA assembly + secp256k1 signing, plus the Stellar-address →
-//! 32-byte conversion used in NTT message recipient fields.
+//! Host-side guardian primitives: secp256k1 VAA signing and the
+//! Ethereum-style guardian address derivation that pairs with it.
 //!
-//! The harness signs VAAs host-side as the test guardian, so inbound
-//! integration tests can submit messages with the same wire format real
-//! guardian signatures would produce. [`craft_body`] builds the VAA body
-//! that gets keccak-then-keccak hashed and signed by [`sign`];
-//! [`assemble`] prepends the version byte, guardian-set index, and
-//! signature list to produce the final VAA bytes.
+//! Wormhole VAAs are produced off-chain by the guardian network in
+//! production. Integration tests simulate one such guardian here so
+//! they can submit signed VAAs to the on-chain Wormhole core for
+//! verification. The VAA body itself is serialized via
+//! `wormhole_soroban_client::VAA::serialize_body`; this module only
+//! handles signing the body's hash and assembling the wire envelope
+//! (version + guardian-set index + signatures + body) the core expects
+//! on `parse_and_verify_vaa`.
 
 use secp256k1::{
     ecdsa::RecoverableSignature, Message, PublicKey, SecretKey,
 };
-use stellar_strkey::Strkey;
 use tiny_keccak::{Hasher, Keccak};
 
-/// Decoded Stellar strkey converted to its raw 32-byte payload — the
-/// representation NTT messages use for cross-chain addresses. Accepts both
-/// G-account public keys and C-contract hashes; panics for other strkey
-/// types (muxed accounts, secret seeds, etc.).
-pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
-    match Strkey::from_string(addr).expect("invalid Stellar strkey") {
-        Strkey::PublicKeyEd25519(pk) => pk.0,
-        Strkey::Contract(c) => c.0,
-        other => panic!("unsupported Stellar address type: {other:?}"),
-    }
-}
-
-/// One guardian's signature over a VAA body, in the wire layout
-/// [`assemble`] expects: 1-byte guardian index, 64-byte compact signature,
-/// 1-byte recovery id.
+/// One guardian's signature over a VAA body, laid out exactly as the
+/// Wormhole wire format expects: 1-byte guardian index, 64-byte compact
+/// signature, 1-byte recovery id.
 pub struct GuardianSignature {
     pub index: u8,
     pub sig: [u8; 64],
     pub recovery_id: u8,
-}
-
-/// Inputs to [`craft_body`]. Mirrors the Wormhole VAA body layout 1:1.
-pub struct VaaBodyInputs<'a> {
-    pub timestamp: u32,
-    pub nonce: u32,
-    pub emitter_chain: u16,
-    pub emitter_address: [u8; 32],
-    pub sequence: u64,
-    pub consistency_level: u8,
-    pub payload: &'a [u8],
 }
 
 /// Keccak-256 hash of `data`.
@@ -69,23 +47,8 @@ pub fn eth_address_from_privkey(privkey: &[u8; 32]) -> [u8; 20] {
     addr
 }
 
-/// Builds the Wormhole VAA body bytes for `inputs`. The body is what
-/// [`sign`] hashes; it does not include the version byte, guardian-set
-/// index, or signatures (those come from [`assemble`]).
-pub fn craft_body(inputs: &VaaBodyInputs<'_>) -> Vec<u8> {
-    let mut body = Vec::with_capacity(51 + inputs.payload.len());
-    body.extend_from_slice(&inputs.timestamp.to_be_bytes());
-    body.extend_from_slice(&inputs.nonce.to_be_bytes());
-    body.extend_from_slice(&inputs.emitter_chain.to_be_bytes());
-    body.extend_from_slice(&inputs.emitter_address);
-    body.extend_from_slice(&inputs.sequence.to_be_bytes());
-    body.push(inputs.consistency_level);
-    body.extend_from_slice(inputs.payload);
-    body
-}
-
-/// Signs the keccak-then-keccak hash of `body` with `privkey` (the
-/// Wormhole guardian signing convention).
+/// Signs the keccak-then-keccak hash of `body` with `privkey` — the Wormhole
+/// guardian signing convention.
 pub fn sign(body: &[u8], privkey: &[u8; 32], guardian_index: u8) -> GuardianSignature {
     let body_hash = keccak256(&keccak256(body));
     let sk = SecretKey::from_secret_bytes(*privkey)
@@ -102,7 +65,7 @@ pub fn sign(body: &[u8], privkey: &[u8; 32], guardian_index: u8) -> GuardianSign
 
 /// Concatenates the VAA envelope (version, guardian-set index, signature
 /// count, signatures) with `body` to produce the bytes the Wormhole core
-/// accepts on `verify_vaa`.
+/// accepts on `parse_and_verify_vaa`.
 pub fn assemble(
     guardian_set_index: u32,
     sigs: &[GuardianSignature],

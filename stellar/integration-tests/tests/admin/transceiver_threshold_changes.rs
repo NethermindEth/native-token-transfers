@@ -7,7 +7,7 @@ use integration_tests::events::EventQuery;
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
 };
-use integration_tests::vaa::stellar_addr_to_bytes32;
+use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 

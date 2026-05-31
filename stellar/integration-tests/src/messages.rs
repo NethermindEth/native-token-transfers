@@ -1,19 +1,22 @@
 //! Host-side encoders for the NTT manager + transceiver wire messages, plus
-//! the high-level [`build_inbound_vaa_hex`] helper that composes the full
-//! inbound VAA a test wants to submit.
+//! [`build_inbound_vaa_hex`] which composes the full inbound VAA a test
+//! wants to submit, and [`stellar_addr_to_bytes32`] for cross-chain
+//! recipient encoding.
 //!
-//! The contract-side encoders in `soroban-ntt-client` require a Soroban
-//! `Env` to allocate, so the harness instantiates a `testutils` `Env`
-//! locally and reuses the same encoders. This keeps `soroban-ntt-client`
-//! as the single source of truth for the wire format — no hand-rolled
-//! byte layouts here.
+//! The contract-side encoders in `soroban-ntt-client` and the VAA body
+//! serializer in `wormhole-soroban-client` both require a Soroban `Env` to
+//! allocate, so the harness instantiates a `testutils` `Env` locally and
+//! reuses them. This keeps those crates as the single source of truth for
+//! the on-the-wire format — no hand-rolled byte layouts here.
 
 use soroban_ntt_client::messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
 };
-use soroban_sdk::{Bytes, BytesN, Env};
+use soroban_sdk::{Bytes, BytesN, Env, Vec as SorobanVec};
+use stellar_strkey::Strkey;
+use wormhole_soroban_client::{ConsistencyLevel, VAA};
 
-use crate::vaa::{self, GuardianSignature, VaaBodyInputs};
+use crate::vaa::{self, GuardianSignature};
 
 /// Field-level inputs for [`encode_ntt_manager_message`] and
 /// [`compute_message_digest`]. Mirrors `NttManagerMessage` + the inner
@@ -43,26 +46,44 @@ pub struct InboundVaaInputs<'a> {
     pub guardian_secret: &'a [u8; 32],
 }
 
+/// Decodes `addr` (a Stellar strkey) into its raw 32-byte payload — the
+/// representation NTT messages use for cross-chain addresses. Accepts both
+/// G-account public keys and C-contract hashes; panics for other strkey
+/// types (muxed accounts, secret seeds, etc.).
+pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
+    match Strkey::from_string(addr).expect("invalid Stellar strkey") {
+        Strkey::PublicKeyEd25519(pk) => pk.0,
+        Strkey::Contract(c) => c.0,
+        other => panic!("unsupported Stellar address type: {other:?}"),
+    }
+}
+
 /// Composes the full inbound flow end-to-end: encodes the NTT manager
 /// message, wraps it in a transceiver message with the given source +
-/// recipient managers, crafts the VAA body, signs it with the guardian
-/// secret, assembles the VAA, and hex-encodes it for the CLI.
+/// recipient managers, builds the VAA body via
+/// `wormhole_soroban_client::VAA::serialize_body`, signs it with the
+/// guardian secret, assembles the VAA, and hex-encodes it for the CLI.
 pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
+    let env = Env::default();
     let manager_payload = encode_ntt_manager_message(&inputs.ntt);
     let transceiver_payload = encode_transceiver_message(
         inputs.source_manager,
         inputs.recipient_manager,
         &manager_payload,
     );
-    let body = vaa::craft_body(&VaaBodyInputs {
+    let vaa_for_body = VAA {
+        version: 1,
+        guardian_set_index: 0,
+        signatures: SorobanVec::new(&env),
         timestamp: 0,
         nonce: 0,
-        emitter_chain: inputs.emitter_chain,
-        emitter_address: inputs.emitter_address,
+        emitter_chain: u32::from(inputs.emitter_chain),
+        emitter_address: BytesN::from_array(&env, &inputs.emitter_address),
         sequence: inputs.sequence,
-        consistency_level: 1,
-        payload: &transceiver_payload,
-    });
+        consistency_level: ConsistencyLevel::Confirmed,
+        payload: Bytes::from_slice(&env, &transceiver_payload),
+    };
+    let body: Vec<u8> = vaa_for_body.serialize_body(&env).iter().collect();
     let sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
     let assembled = vaa::assemble(0, std::slice::from_ref(&sig), &body);
     hex::encode(assembled)
