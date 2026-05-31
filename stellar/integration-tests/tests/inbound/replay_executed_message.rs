@@ -1,4 +1,3 @@
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
@@ -83,12 +82,7 @@ fn build_vaa(f: &Fixture, sequence: u64) -> String {
 fn second_transceiver_replay_after_execution_is_idempotent() {
     let f = setup();
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &build_vaa(&f, 0)],
-    );
+    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &build_vaa(&f, 0));
 
     let after_first = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
@@ -96,12 +90,7 @@ fn second_transceiver_replay_after_execution_is_idempotent() {
         "threshold=1: first attestation must execute the mint"
     );
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.transceiver_two,
-        "receive_message",
-        &["--vaa_bytes", &build_vaa(&f, 1)],
-    );
+    f.stack.receive_message(&f.ctx, &f.transceiver_two, &build_vaa(&f, 1));
 
     let after_second = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(

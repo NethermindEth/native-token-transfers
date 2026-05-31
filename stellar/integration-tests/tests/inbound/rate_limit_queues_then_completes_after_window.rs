@@ -76,12 +76,7 @@ fn send_vaa(
         sequence,
         guardian_secret: &f.ctx.guardian_secret,
     });
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &vaa_hex],
-    );
+    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
     ntt
 }
 

@@ -1,4 +1,3 @@
-use integration_tests::cli::{invoke, try_invoke};
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
@@ -80,12 +79,7 @@ fn build_vaa(f: &Fixture, sequence: u64) -> String {
 fn same_transceiver_double_attest_errors_and_never_executes() {
     let f = setup();
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &build_vaa(&f, 0)],
-    );
+    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &build_vaa(&f, 0));
 
     let after_first = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
@@ -93,13 +87,10 @@ fn same_transceiver_double_attest_errors_and_never_executes() {
         "1/2 attestations must not execute under threshold=2"
     );
 
-    let err = try_invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &build_vaa(&f, 1)],
-    )
-    .expect_err("second submission from the same transceiver must be rejected");
+    let err = f
+        .stack
+        .try_receive_message(&f.ctx, &f.stack.transceiver, &build_vaa(&f, 1))
+        .expect_err("second submission from the same transceiver must be rejected");
     assert_eq!(
         err.code,
         Some(36),

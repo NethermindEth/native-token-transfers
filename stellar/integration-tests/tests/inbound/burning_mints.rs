@@ -1,4 +1,3 @@
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
@@ -72,12 +71,7 @@ fn inbound_burning_mints_recipient() {
         guardian_secret: &f.ctx.guardian_secret,
     });
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &vaa_hex],
-    );
+    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
 
     let recipient_balance = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(

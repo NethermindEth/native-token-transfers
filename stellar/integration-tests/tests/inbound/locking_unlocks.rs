@@ -89,12 +89,7 @@ fn inbound_locking_unlocks_recipient() {
         guardian_secret: &f.ctx.guardian_secret,
     });
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &vaa_hex],
-    );
+    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
 
     let manager_after = f.stack.token_balance(&f.ctx, &f.stack.manager);
     let recipient_after = f.stack.token_balance(&f.ctx, &f.recipient_addr);

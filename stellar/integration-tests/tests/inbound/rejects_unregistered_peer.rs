@@ -1,4 +1,3 @@
-use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
@@ -67,13 +66,10 @@ fn inbound_from_unregistered_manager_peer_errors_36() {
         guardian_secret: &f.ctx.guardian_secret,
     });
 
-    let err = try_invoke(
-        &f.ctx.admin_identity,
-        &f.stack.transceiver,
-        "receive_message",
-        &["--vaa_bytes", &vaa_hex],
-    )
-    .expect_err("receive_message must reject when manager has no peer for source chain");
+    let err = f
+        .stack
+        .try_receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex)
+        .expect_err("receive_message must reject when manager has no peer for source chain");
     assert_eq!(
         err.code,
         Some(36),
