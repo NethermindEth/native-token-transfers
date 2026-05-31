@@ -220,6 +220,67 @@ impl Stack {
             &["--to", recipient, "--amount", &amount_s],
         );
     }
+
+    pub fn register_transceiver_addr(&self, ctx: &TestContext, transceiver: &str) {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "set_transceiver",
+            &["--transceiver", transceiver],
+        );
+    }
+
+    pub fn register_transceiver_peer_only(
+        &self,
+        ctx: &TestContext,
+        chain_id: u32,
+        peer_addr: &[u8; 32],
+    ) {
+        let peer_hex = hex::encode(peer_addr);
+        let chain_id_s = chain_id.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.transceiver,
+            "set_peer",
+            &["--chain_id", &chain_id_s, "--emitter", &peer_hex],
+        );
+    }
+
+    pub fn set_transceiver_peer(
+        &self,
+        ctx: &TestContext,
+        transceiver: &str,
+        chain_id: u32,
+        peer_addr: &[u8; 32],
+    ) {
+        let peer_hex = hex::encode(peer_addr);
+        let chain_id_s = chain_id.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            transceiver,
+            "set_peer",
+            &["--chain_id", &chain_id_s, "--emitter", &peer_hex],
+        );
+    }
+
+    pub fn set_threshold(&self, ctx: &TestContext, threshold: u32) {
+        let t = threshold.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "set_threshold",
+            &["--threshold", &t],
+        );
+    }
+
+    pub fn deploy_extra_transceiver(&self, ctx: &TestContext) -> String {
+        Transceiver::deploy(
+            ctx,
+            &ctx.admin_address,
+            &self.manager,
+            &self.wormhole_core,
+        )
+    }
 }
 
 pub fn parse_i128(v: &Value) -> i128 {

@@ -62,7 +62,7 @@ fn send_transfer(f: &Fixture, amount: i128, should_queue: bool) -> serde_json::V
 /// against live ledger time vs the test-only mock_ledger time.
 #[test]
 #[ignore]
-fn queued_outbound_releases_after_real_clock_window() {
+fn queued_outbound_releases_after_window() {
     let f = setup();
 
     send_transfer(&f, PRIMER_AMOUNT, false);

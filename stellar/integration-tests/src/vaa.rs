@@ -1,7 +1,16 @@
 use secp256k1::{
     ecdsa::RecoverableSignature, Message, PublicKey, SecretKey,
 };
+use stellar_strkey::Strkey;
 use tiny_keccak::{Hasher, Keccak};
+
+pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
+    match Strkey::from_string(addr).expect("invalid Stellar strkey") {
+        Strkey::PublicKeyEd25519(pk) => pk.0,
+        Strkey::Contract(c) => c.0,
+        other => panic!("unsupported Stellar address type: {other:?}"),
+    }
+}
 
 pub struct GuardianSignature {
     pub index: u8,

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 autobins = false
+autotests = false
 
 [lib]
 
@@ -16,3 +17,59 @@ stellar-strkey = "0.0.13"
 hex = "0.4"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 secp256k1 = { version = "0.32.0-beta.2", default-features = false, features = ["alloc", "recovery"] }
+
+[[test]]
+name = "admin_register_peer_and_transceiver"
+path = "tests/admin/register_peer_and_transceiver.rs"
+
+[[test]]
+name = "outbound_burning_balances"
+path = "tests/outbound/burning_balances.rs"
+
+[[test]]
+name = "outbound_locking_balances"
+path = "tests/outbound/locking_balances.rs"
+
+[[test]]
+name = "outbound_no_peer_rejects"
+path = "tests/outbound/no_peer_rejects.rs"
+
+[[test]]
+name = "outbound_queued_cancel_refunds"
+path = "tests/outbound/queued_cancel_refunds.rs"
+
+[[test]]
+name = "outbound_queued_complete_after_window"
+path = "tests/outbound/queued_complete_after_window.rs"
+
+[[test]]
+name = "outbound_rate_limit_rejects"
+path = "tests/outbound/rate_limit_rejects.rs"
+
+[[test]]
+name = "inbound_burning_mints"
+path = "tests/inbound/burning_mints.rs"
+
+[[test]]
+name = "inbound_locking_unlocks"
+path = "tests/inbound/locking_unlocks.rs"
+
+[[test]]
+name = "inbound_rate_limit_queues_then_completes_after_window"
+path = "tests/inbound/rate_limit_queues_then_completes_after_window.rs"
+
+[[test]]
+name = "inbound_rejects_unregistered_peer"
+path = "tests/inbound/rejects_unregistered_peer.rs"
+
+[[test]]
+name = "inbound_rejects_unregistered_transceiver"
+path = "tests/inbound/rejects_unregistered_transceiver.rs"
+
+[[test]]
+name = "inbound_replay_double_attest"
+path = "tests/inbound/replay_double_attest.rs"
+
+[[test]]
+name = "inbound_replay_executed_message"
+path = "tests/inbound/replay_executed_message.rs"
