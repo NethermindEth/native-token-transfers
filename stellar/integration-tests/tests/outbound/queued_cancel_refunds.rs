@@ -1,3 +1,5 @@
+//! Queued outbound transfer can be cancelled by the sender, fully refunding the queued amount.
+
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;

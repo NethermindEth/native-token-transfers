@@ -89,3 +89,23 @@ path = "tests/inbound/replay_double_attest.rs"
 [[test]]
 name = "inbound_replay_executed_message"
 path = "tests/inbound/replay_executed_message.rs"
+
+[[test]]
+name = "cross_cutting_decimal_trimming"
+path = "tests/cross_cutting/decimal_trimming.rs"
+
+[[test]]
+name = "cross_cutting_event_shapes_outbound"
+path = "tests/cross_cutting/event_shapes_outbound.rs"
+
+[[test]]
+name = "cross_cutting_event_shapes_inbound"
+path = "tests/cross_cutting/event_shapes_inbound.rs"
+
+[[test]]
+name = "cross_cutting_wasm_size_budget"
+path = "tests/cross_cutting/wasm_size_budget.rs"
+
+[[test]]
+name = "cross_cutting_chain_to_chain_round_trip"
+path = "tests/cross_cutting/chain_to_chain_round_trip.rs"

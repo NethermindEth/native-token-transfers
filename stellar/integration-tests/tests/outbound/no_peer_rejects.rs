@@ -1,3 +1,5 @@
+//! Manager rejects an outbound transfer to a chain with no registered peer.
+
 use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;

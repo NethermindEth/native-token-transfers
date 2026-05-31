@@ -1,4 +1,4 @@
-//! End-to-end outbound burning happy path: sender burns, manager balance stays zero, `transfer_sent` fires.
+//! Asserts the typed shape of the `transfer_sent` event — topic order and data field names.
 
 use std::time::Duration;
 
@@ -11,7 +11,8 @@ use soroban_ntt_client::types::Mode;
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
 const SUPPLY: i128 = 100_000_000;
-const TRANSFER_AMOUNT: i128 = 60_000_000;
+const TRANSFER_AMOUNT: i128 = 10_000_000;
+const TRIMMED_AMOUNT: u64 = 10_000_000;
 
 struct Fixture {
     ctx: TestContext,
@@ -35,18 +36,15 @@ fn setup() -> Fixture {
     Fixture { ctx, stack }
 }
 
-/// Catches: burning mode wrongly crediting the manager contract — would
-/// double-supply tokens across the bridge (peer chain mints AND manager
-/// holds escrow simultaneously).
+/// Catches: changes to the `transfer_sent` event ABI — topic order or data
+/// field names. Off-chain indexers key on these; even renaming a data field
+/// like `amount` → `wire_amount` would silently break every integrator.
 #[test]
 #[ignore]
-fn outbound_burning_burns_sender_keeps_manager_at_zero() {
+fn transfer_sent_event_carries_typed_topics_and_data_fields() {
     let f = setup();
-
-    let manager_before = f.stack.token_balance(&f.ctx, &f.stack.manager);
-    assert_eq!(manager_before, 0, "manager must hold no tokens in burning mode");
-
     let recipient = [0xbb; 32];
+
     invoke(
         &f.ctx.admin_identity,
         &f.stack.manager,
@@ -65,20 +63,31 @@ fn outbound_burning_burns_sender_keeps_manager_at_zero() {
         ],
     );
 
-    let sender_after = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
-    let manager_after = f.stack.token_balance(&f.ctx, &f.stack.manager);
+    let event = EventQuery::new(&f.ctx, &f.stack.manager)
+        .find_with_topic("transfer_sent", Duration::from_secs(15))
+        .expect("transfer_sent must fire");
 
     assert_eq!(
-        sender_after,
-        SUPPLY - TRANSFER_AMOUNT,
-        "sender's mock-token should be burned by transfer amount"
+        event.topic_u32(1),
+        Some(PEER_CHAIN),
+        "topic[1] must be recipient_chain"
     );
     assert_eq!(
-        manager_after, 0,
-        "manager must still hold zero tokens after burning-mode transfer"
+        event.data_u64("amount"),
+        Some(TRIMMED_AMOUNT),
+        "data.amount must be the trimmed u64"
     );
-
-    let sent = EventQuery::new(&f.ctx, &f.stack.manager)
-        .find_with_topic("transfer_sent", Duration::from_secs(15));
-    assert!(sent.is_some(), "manager must emit transfer_sent within 15s");
+    assert_eq!(
+        event.data_u64("msg_sequence"),
+        Some(1),
+        "data.msg_sequence must be the manager's assigned sequence (1-indexed)"
+    );
+    assert!(
+        event.data_field("recipient").is_some(),
+        "data.recipient must be present"
+    );
+    assert!(
+        event.data_field("fee").is_some(),
+        "data.fee must be present"
+    );
 }

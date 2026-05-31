@@ -1,3 +1,5 @@
+//! Asserts default deploy state and that registering the first transceiver auto-bumps threshold to 1 and persists peer state across both registries.
+
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;

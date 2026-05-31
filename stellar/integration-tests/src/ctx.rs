@@ -1,8 +1,20 @@
+//! Per-test context: localnet configuration loaded from environment +
+//! identity / friendbot / native-SAC / ledger helpers.
+//!
+//! [`TestContext::from_env`] reads the keys exported by `.env.localnet` and
+//! resolves the admin identity's account address up front. The methods
+//! cover the imperative setup steps tests need before invoking contract
+//! code: bringing an identity into existence, funding it via friendbot,
+//! registering the network alias, deploying the native asset's SAC,
+//! and querying the current ledger sequence for time-bounded operations.
+
 use std::env;
 use std::process::Command;
 
 use crate::cli;
 
+/// Localnet configuration + admin identity, populated from
+/// `.env.localnet` environment variables exported by `scripts/run-tests.sh`.
 pub struct TestContext {
     pub network: String,
     pub network_passphrase: String,
@@ -19,6 +31,8 @@ pub struct TestContext {
 }
 
 impl TestContext {
+    /// Reads all required env vars and resolves `admin`'s account address.
+    /// Panics if any env var is missing or the guardian hex is malformed.
     pub fn from_env() -> Self {
         let network =
             env::var("STELLAR_NETWORK").expect("STELLAR_NETWORK not set");
@@ -52,6 +66,8 @@ impl TestContext {
         }
     }
 
+    /// Idempotently (re-)registers the configured network alias with the
+    /// stellar CLI.
     pub fn network_add(&self) {
         let _ = cli::try_run(&["network", "rm", &self.network]);
         cli::run(&[
@@ -65,6 +81,8 @@ impl TestContext {
         ]);
     }
 
+    /// Ensures identity `name` exists in the stellar CLI keystore and is
+    /// funded by friendbot. Returns its account address.
     pub fn setup_identity(&self, name: &str) -> String {
         if cli::try_run(&["keys", "address", name]).is_err() {
             cli::run(&["keys", "generate", "--network", &self.network, name]);
@@ -74,6 +92,9 @@ impl TestContext {
         addr
     }
 
+    /// Idempotently deploys the native asset's SAC and returns its contract
+    /// id. The first call creates the contract; subsequent calls return the
+    /// existing id.
     pub fn native_sac(&self) -> String {
         let _ = cli::try_run(&[
             "contract",
@@ -99,6 +120,9 @@ impl TestContext {
         .to_string()
     }
 
+    /// Hits friendbot for `addr`. Panics if the request fails — the caller
+    /// is still responsible for waiting until the funding tx is visible on
+    /// Horizon.
     pub fn friendbot(&self, addr: &str) {
         let url = format!("{}?addr={}", self.friendbot_url, addr);
         let out = Command::new("curl")
@@ -113,6 +137,9 @@ impl TestContext {
         }
     }
 
+    /// Returns the latest ledger sequence reported by Soroban RPC. Used to
+    /// derive ledger-relative TTLs (e.g. `transfer_ownership`'s
+    /// `live_until_ledger`).
     pub fn current_ledger(&self) -> u32 {
         let body =
             r#"{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}"#;

@@ -1,3 +1,5 @@
+//! Asserts the two-step ownership transfer actually re-gates owner-only methods on the new identity.
+
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;

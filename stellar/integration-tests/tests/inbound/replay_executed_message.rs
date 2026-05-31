@@ -1,3 +1,5 @@
+//! Post-execution replay via a second transceiver is idempotent — no double-mint.
+
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,

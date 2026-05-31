@@ -1,3 +1,5 @@
+//! Inbound queue + window release: an over-limit VAA queues, then completes after the wall-clock window elapses.
+
 use std::{thread, time::Duration};
 
 use integration_tests::cli::invoke;

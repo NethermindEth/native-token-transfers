@@ -1,3 +1,5 @@
+//! Asserts the Pausable split — pauser may pause; only owner may unpause — under signed auth.
+
 use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;

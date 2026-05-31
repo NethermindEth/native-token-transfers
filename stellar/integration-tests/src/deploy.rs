@@ -1,3 +1,13 @@
+//! Typed deployers for the four contracts the harness puts on localnet —
+//! [`WormholeCore`], [`MockToken`], [`Manager`], [`Transceiver`] — and a
+//! [`Stack`] that bundles them together with the orchestration helpers
+//! tests need (peer + transceiver registration, threshold management,
+//! pause / ownership flows, token balance reads, inbound submission).
+//!
+//! The Wormhole core enforces a fixed governance emitter at deploy time
+//! ([`GOVERNANCE_EMITTER_HEX`]); the harness bakes it in so tests don't
+//! have to know that detail.
+
 use serde_json::Value;
 use soroban_ntt_client::types::Mode;
 
@@ -5,15 +15,22 @@ use crate::cli;
 use crate::ctx::TestContext;
 use crate::vaa;
 
+/// Required governance emitter for the Nethermind Wormhole core port.
 const GOVERNANCE_EMITTER_HEX: &str =
     "0000000000000000000000000000000000000000000000000000000000000004";
 
+/// Vendored NethermindEth Wormhole core.
 pub struct WormholeCore;
+/// Parameterised-decimals fixture token.
 pub struct MockToken;
+/// NTT manager.
 pub struct Manager;
+/// NTT Wormhole transceiver.
 pub struct Transceiver;
 
 impl WormholeCore {
+    /// Deploys the vendored Wormhole core with `guardians` as the initial
+    /// guardian set (index 0). Returns the new contract id.
     pub fn deploy(ctx: &TestContext, guardians: &[[u8; 20]]) -> String {
         let json = serde_json::to_string(
             &guardians.iter().map(hex::encode).collect::<Vec<_>>(),
@@ -31,6 +48,9 @@ impl WormholeCore {
         )
     }
 
+    /// Deploys with the single test guardian whose secret lives in
+    /// `ctx.guardian_secret`. The harness can then sign VAAs that verify
+    /// against this guardian set.
     pub fn deploy_with_test_guardian(ctx: &TestContext) -> String {
         let addr = vaa::eth_address_from_privkey(&ctx.guardian_secret);
         Self::deploy(ctx, &[addr])
@@ -38,6 +58,7 @@ impl WormholeCore {
 }
 
 impl MockToken {
+    /// Deploys a fresh mock token with the given decimal precision.
     pub fn deploy(ctx: &TestContext, decimals: u32) -> String {
         let decimals_s = decimals.to_string();
         cli::deploy(
@@ -49,6 +70,9 @@ impl MockToken {
 }
 
 impl Manager {
+    /// Deploys the manager bound to `token`. `mode` is passed as the integer
+    /// discriminant because the CLI's JSON deserializer doesn't yet support
+    /// unit-variant enums.
     pub fn deploy(
         ctx: &TestContext,
         owner: &str,
@@ -87,6 +111,9 @@ impl Manager {
 }
 
 impl Transceiver {
+    /// Deploys a fresh transceiver bound to `manager` + `wormhole_core`.
+    /// Multiple transceivers can target the same manager — registry order
+    /// determines the index used in attestation bitmaps.
     pub fn deploy(
         ctx: &TestContext,
         owner: &str,
@@ -108,13 +135,19 @@ impl Transceiver {
     }
 }
 
+/// Configuration consumed by [`Stack::deploy`].
 pub struct StackOptions {
     pub mode: Mode,
+    /// Decimals for the mock token in Burning mode; ignored in Locking
+    /// mode (which uses the native SAC, fixed at 7 decimals).
     pub token_decimals: u32,
     pub outbound_limit: u64,
     pub rate_limit_duration: u64,
 }
 
+/// All four deployed contract ids for one test fixture, plus the mode the
+/// manager was deployed with. Fields are public so tests can also call
+/// contracts directly when a [`Stack`] helper doesn't cover the case.
 pub struct Stack {
     pub mode: Mode,
     pub wormhole_core: String,
@@ -124,6 +157,10 @@ pub struct Stack {
 }
 
 impl Stack {
+    /// Deploys a Wormhole core (with test guardian), a token (native SAC for
+    /// `Locking`, fresh `MockToken` for `Burning`), the manager, and one
+    /// transceiver. The transceiver is not yet registered with the manager;
+    /// the test calls [`register_transceiver`] when it needs that.
     pub fn deploy(ctx: &TestContext, opts: &StackOptions) -> Self {
         let wormhole_core = WormholeCore::deploy_with_test_guardian(ctx);
         let token = match opts.mode {
@@ -154,6 +191,8 @@ impl Stack {
         }
     }
 
+    /// Registers `self.transceiver` on the manager under admin auth.
+    /// Auto-bumps the manager's threshold from 0 to 1 on first registration.
     pub fn register_transceiver(&self, ctx: &TestContext) {
         cli::invoke(
             &ctx.admin_identity,
@@ -163,6 +202,10 @@ impl Stack {
         );
     }
 
+    /// Registers `peer_addr` for `chain_id` on both the manager (as the peer
+    /// NTT manager address) and `self.transceiver` (as the peer emitter).
+    /// This is the common case — outbound flows route via the transceiver,
+    /// inbound flows verify the source against both sides.
     pub fn register_peer(
         &self,
         ctx: &TestContext,
@@ -198,6 +241,7 @@ impl Stack {
         );
     }
 
+    /// Returns `account`'s balance on `self.token`.
     pub fn token_balance(&self, ctx: &TestContext, account: &str) -> i128 {
         let v = cli::invoke(
             &ctx.admin_identity,
@@ -208,6 +252,8 @@ impl Stack {
         parse_i128(&v)
     }
 
+    /// Credits `amount` to `recipient` on the mock token. Panics in Locking
+    /// mode (the native SAC has no test-friendly mint — fund via friendbot).
     pub fn mint_to(&self, ctx: &TestContext, recipient: &str, amount: i128) {
         if matches!(self.mode, Mode::Locking) {
             panic!("mint_to only works in Burning mode; Locking uses friendbot-funded XLM");
@@ -221,6 +267,8 @@ impl Stack {
         );
     }
 
+    /// Registers `transceiver` (any address) on the manager. Used to wire a
+    /// second or third transceiver returned by [`deploy_extra_transceiver`].
     pub fn register_transceiver_addr(&self, ctx: &TestContext, transceiver: &str) {
         cli::invoke(
             &ctx.admin_identity,
@@ -230,6 +278,10 @@ impl Stack {
         );
     }
 
+    /// Registers `peer_addr` only on the transceiver's peer table, leaving
+    /// the manager's peer table empty. Lets tests isolate the manager-side
+    /// peer-not-found error path that the transceiver-side check would
+    /// otherwise short-circuit.
     pub fn register_transceiver_peer_only(
         &self,
         ctx: &TestContext,
@@ -246,6 +298,9 @@ impl Stack {
         );
     }
 
+    /// Sets `peer_addr` as the peer emitter for `chain_id` on the given
+    /// transceiver contract id. Used to wire additional transceivers
+    /// returned by [`deploy_extra_transceiver`].
     pub fn set_transceiver_peer(
         &self,
         ctx: &TestContext,
@@ -263,6 +318,7 @@ impl Stack {
         );
     }
 
+    /// Sets the manager's attestation threshold under admin auth.
     pub fn set_threshold(&self, ctx: &TestContext, threshold: u32) {
         let t = threshold.to_string();
         cli::invoke(
@@ -273,6 +329,9 @@ impl Stack {
         );
     }
 
+    /// Deploys an additional transceiver bound to the same manager and
+    /// Wormhole core. Returns its contract id; the caller registers it via
+    /// [`register_transceiver_addr`].
     pub fn deploy_extra_transceiver(&self, ctx: &TestContext) -> String {
         Transceiver::deploy(
             ctx,
@@ -282,12 +341,14 @@ impl Stack {
         )
     }
 
+    /// Reads the manager's `paused` getter.
     pub fn paused(&self, ctx: &TestContext) -> bool {
         cli::invoke(&ctx.admin_identity, &self.manager, "paused", &[])
             .as_bool()
             .expect("paused must return bool")
     }
 
+    /// Reads the manager's current owner (G-address).
     pub fn owner(&self, ctx: &TestContext) -> String {
         cli::invoke(&ctx.admin_identity, &self.manager, "get_owner", &[])
             .as_str()
@@ -295,6 +356,9 @@ impl Stack {
             .to_string()
     }
 
+    /// Initiates the OZ two-step ownership transfer. `source` is the
+    /// current owner; `new_owner` has until `live_until_ledger` to call
+    /// `accept_ownership`.
     pub fn transfer_ownership(
         &self,
         source: &str,
@@ -315,10 +379,14 @@ impl Stack {
         );
     }
 
+    /// Completes the OZ two-step ownership transfer; `source` is the pending
+    /// new owner.
     pub fn accept_ownership(&self, source: &str) {
         cli::invoke(source, &self.manager, "accept_ownership", &[]);
     }
 
+    /// Sets the manager's pauser identity to `new_pauser` under admin auth.
+    /// The CLI's `Option<Address>` arg requires JSON-string quoting.
     pub fn set_pauser_to(&self, ctx: &TestContext, new_pauser: &str) {
         let json = format!("\"{new_pauser}\"");
         cli::invoke(
@@ -334,6 +402,8 @@ impl Stack {
         );
     }
 
+    /// Pauses the manager. `source` is the signing identity; `caller_addr`
+    /// must be owner or pauser.
     pub fn pause(&self, source: &str, caller_addr: &str) {
         cli::invoke(
             source,
@@ -343,6 +413,8 @@ impl Stack {
         );
     }
 
+    /// `pause` returning a `Result` for negative tests (e.g. asserting a
+    /// non-pauser is rejected with `NotAdminOrPauser`).
     pub fn try_pause(
         &self,
         source: &str,
@@ -356,6 +428,9 @@ impl Stack {
         )
     }
 
+    /// Unpauses the manager. `source` must be the owner — the contract's
+    /// `unpause` calls `enforce_owner_auth` and ignores `caller_addr`,
+    /// but the arg is still required by the CLI signature.
     pub fn unpause(&self, source: &str, caller_addr: &str) {
         cli::invoke(
             source,
@@ -365,6 +440,8 @@ impl Stack {
         );
     }
 
+    /// `unpause` returning a `Result` for negative tests (e.g. asserting a
+    /// pauser-only identity cannot unpause).
     pub fn try_unpause(
         &self,
         source: &str,
@@ -378,6 +455,7 @@ impl Stack {
         )
     }
 
+    /// Sets the manager's outbound rate-limit capacity. Owner-only.
     pub fn set_outbound_limit(&self, source: &str, limit: u64) {
         let limit_s = limit.to_string();
         cli::invoke(
@@ -388,6 +466,8 @@ impl Stack {
         );
     }
 
+    /// `set_outbound_limit` returning a `Result` for tests that need to
+    /// assert auth failure from a non-owner caller.
     pub fn try_set_outbound_limit(
         &self,
         source: &str,
@@ -402,6 +482,8 @@ impl Stack {
         )
     }
 
+    /// `remove_transceiver` returning a `Result`. Used by tests that expect
+    /// `CannotDisableLastTransceiver`.
     pub fn try_remove_transceiver(
         &self,
         ctx: &TestContext,
@@ -415,6 +497,9 @@ impl Stack {
         )
     }
 
+    /// Submits a signed VAA to `transceiver_addr.receive_message`. Used for
+    /// inbound flows after constructing the VAA via
+    /// `messages::build_inbound_vaa_hex`.
     pub fn receive_message(
         &self,
         ctx: &TestContext,
@@ -429,6 +514,8 @@ impl Stack {
         );
     }
 
+    /// `receive_message` returning a `Result` for negative inbound tests
+    /// (peer-not-found, replay rejection, etc.).
     pub fn try_receive_message(
         &self,
         ctx: &TestContext,
@@ -444,6 +531,9 @@ impl Stack {
     }
 }
 
+/// Parses a Soroban `i128` return value out of the CLI's JSON output, which
+/// may arrive as a string, a positive integer, or a negative integer
+/// depending on magnitude.
 pub fn parse_i128(v: &Value) -> i128 {
     if let Some(s) = v.as_str() {
         return s.parse().expect("i128 not parseable");

@@ -1,3 +1,5 @@
+//! End-to-end outbound locking happy path: sender debits to manager SAC custody, `transfer_sent` fires.
+
 use std::time::Duration;
 
 use integration_tests::cli::invoke;

@@ -1,3 +1,5 @@
+//! Manager-side peer check fires on inbound from a chain whose peer was never registered (surfaces as #36 through the transceiver wrapper).
+
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,

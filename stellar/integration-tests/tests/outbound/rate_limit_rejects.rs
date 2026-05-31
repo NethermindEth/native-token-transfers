@@ -1,3 +1,5 @@
+//! Outbound transfer over rate-limit capacity with `should_queue=false` is rejected without leaking sender custody.
+
 use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;

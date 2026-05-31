@@ -1,3 +1,5 @@
+//! End-to-end inbound locking happy path: signed VAA releases pre-deposited SAC custody to recipient.
+
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{

@@ -1,3 +1,5 @@
+//! Asserts the manager refuses to remove its only registered transceiver.
+
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;

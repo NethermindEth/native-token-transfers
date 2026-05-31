@@ -1,3 +1,5 @@
+//! Manager-side registry check fires when a rogue identity calls `attestation_received` directly.
+
 use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{encode_ntt_manager_message, NttManagerMessageInputs};

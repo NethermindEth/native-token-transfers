@@ -1,3 +1,5 @@
+//! Asserts that raising the attestation threshold enforces N-of-M quorum on inbound execution.
+
 use std::time::Duration;
 
 use integration_tests::deploy::{Stack, StackOptions};

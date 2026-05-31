@@ -1,3 +1,5 @@
+//! Manager-side bitmap collision fires when the same transceiver attests the same digest twice.
+
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,

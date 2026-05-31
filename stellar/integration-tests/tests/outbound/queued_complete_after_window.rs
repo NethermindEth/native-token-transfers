@@ -1,3 +1,5 @@
+//! Queued outbound transfer completes after its rate-limit window elapses.
+
 use std::{thread, time::Duration};
 
 use integration_tests::cli::invoke;
