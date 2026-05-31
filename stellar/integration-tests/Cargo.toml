@@ -23,6 +23,22 @@ name = "admin_register_peer_and_transceiver"
 path = "tests/admin/register_peer_and_transceiver.rs"
 
 [[test]]
+name = "admin_ownership_two_step"
+path = "tests/admin/ownership_two_step.rs"
+
+[[test]]
+name = "admin_pause_unpause"
+path = "tests/admin/pause_unpause.rs"
+
+[[test]]
+name = "admin_transceiver_threshold_changes"
+path = "tests/admin/transceiver_threshold_changes.rs"
+
+[[test]]
+name = "admin_disable_last_transceiver_rejects"
+path = "tests/admin/disable_last_transceiver_rejects.rs"
+
+[[test]]
 name = "outbound_burning_balances"
 path = "tests/outbound/burning_balances.rs"
 

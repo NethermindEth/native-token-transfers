@@ -112,6 +112,29 @@ impl TestContext {
             );
         }
     }
+
+    pub fn current_ledger(&self) -> u32 {
+        let body =
+            r#"{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}"#;
+        let out = Command::new("curl")
+            .args([
+                "-s",
+                "-X",
+                "POST",
+                &self.rpc_url,
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                body,
+            ])
+            .output()
+            .expect("failed to spawn curl");
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .expect("getLatestLedger response not JSON");
+        v["result"]["sequence"]
+            .as_u64()
+            .expect("missing sequence field") as u32
+    }
 }
 
 fn decode_guardian_secret() -> [u8; 32] {

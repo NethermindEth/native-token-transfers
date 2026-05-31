@@ -281,6 +281,167 @@ impl Stack {
             &self.wormhole_core,
         )
     }
+
+    pub fn paused(&self, ctx: &TestContext) -> bool {
+        cli::invoke(&ctx.admin_identity, &self.manager, "paused", &[])
+            .as_bool()
+            .expect("paused must return bool")
+    }
+
+    pub fn owner(&self, ctx: &TestContext) -> String {
+        cli::invoke(&ctx.admin_identity, &self.manager, "get_owner", &[])
+            .as_str()
+            .expect("get_owner must return string")
+            .to_string()
+    }
+
+    pub fn transfer_ownership(
+        &self,
+        source: &str,
+        new_owner: &str,
+        live_until_ledger: u32,
+    ) {
+        let live_until_s = live_until_ledger.to_string();
+        cli::invoke(
+            source,
+            &self.manager,
+            "transfer_ownership",
+            &[
+                "--new_owner",
+                new_owner,
+                "--live_until_ledger",
+                &live_until_s,
+            ],
+        );
+    }
+
+    pub fn accept_ownership(&self, source: &str) {
+        cli::invoke(source, &self.manager, "accept_ownership", &[]);
+    }
+
+    pub fn set_pauser_to(&self, ctx: &TestContext, new_pauser: &str) {
+        let json = format!("\"{new_pauser}\"");
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "transfer_pauser",
+            &[
+                "--caller",
+                &ctx.admin_address,
+                "--new_pauser",
+                &json,
+            ],
+        );
+    }
+
+    pub fn pause(&self, source: &str, caller_addr: &str) {
+        cli::invoke(
+            source,
+            &self.manager,
+            "pause",
+            &["--caller", caller_addr],
+        );
+    }
+
+    pub fn try_pause(
+        &self,
+        source: &str,
+        caller_addr: &str,
+    ) -> Result<Value, cli::CliError> {
+        cli::try_invoke(
+            source,
+            &self.manager,
+            "pause",
+            &["--caller", caller_addr],
+        )
+    }
+
+    pub fn unpause(&self, source: &str, caller_addr: &str) {
+        cli::invoke(
+            source,
+            &self.manager,
+            "unpause",
+            &["--caller", caller_addr],
+        );
+    }
+
+    pub fn try_unpause(
+        &self,
+        source: &str,
+        caller_addr: &str,
+    ) -> Result<Value, cli::CliError> {
+        cli::try_invoke(
+            source,
+            &self.manager,
+            "unpause",
+            &["--caller", caller_addr],
+        )
+    }
+
+    pub fn set_outbound_limit(&self, source: &str, limit: u64) {
+        let limit_s = limit.to_string();
+        cli::invoke(
+            source,
+            &self.manager,
+            "set_outbound_limit",
+            &["--limit", &limit_s],
+        );
+    }
+
+    pub fn try_set_outbound_limit(
+        &self,
+        source: &str,
+        limit: u64,
+    ) -> Result<Value, cli::CliError> {
+        let limit_s = limit.to_string();
+        cli::try_invoke(
+            source,
+            &self.manager,
+            "set_outbound_limit",
+            &["--limit", &limit_s],
+        )
+    }
+
+    pub fn try_remove_transceiver(
+        &self,
+        ctx: &TestContext,
+        transceiver: &str,
+    ) -> Result<Value, cli::CliError> {
+        cli::try_invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "remove_transceiver",
+            &["--transceiver", transceiver],
+        )
+    }
+
+    pub fn receive_message(
+        &self,
+        ctx: &TestContext,
+        transceiver_addr: &str,
+        vaa_hex: &str,
+    ) {
+        cli::invoke(
+            &ctx.admin_identity,
+            transceiver_addr,
+            "receive_message",
+            &["--vaa_bytes", vaa_hex],
+        );
+    }
+
+    pub fn try_receive_message(
+        &self,
+        ctx: &TestContext,
+        transceiver_addr: &str,
+        vaa_hex: &str,
+    ) -> Result<Value, cli::CliError> {
+        cli::try_invoke(
+            &ctx.admin_identity,
+            transceiver_addr,
+            "receive_message",
+            &["--vaa_bytes", vaa_hex],
+        )
+    }
 }
 
 pub fn parse_i128(v: &Value) -> i128 {
