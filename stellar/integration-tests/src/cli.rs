@@ -105,6 +105,38 @@ pub fn deploy(source: &str, wasm_path: &str, constructor_args: &[&str]) -> Strin
         .to_string()
 }
 
+/// POSTs `body` as JSON to the Soroban RPC at `rpc_url` and returns the
+/// parsed response. Panics if curl fails or the body is not JSON.
+pub fn rpc_call(rpc_url: &str, body: &str) -> Value {
+    let out = Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            rpc_url,
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            body,
+        ])
+        .output()
+        .expect("failed to spawn curl");
+    if !out.status.success() {
+        panic!("curl failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    serde_json::from_slice(&out.stdout).expect("RPC response not JSON")
+}
+
+/// Returns the latest ledger sequence reported by Soroban RPC at `rpc_url`.
+pub fn rpc_latest_ledger(rpc_url: &str) -> u32 {
+    let body =
+        r#"{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}"#;
+    let resp = rpc_call(rpc_url, body);
+    resp["result"]["sequence"]
+        .as_u64()
+        .expect("ledger sequence missing") as u32
+}
+
 fn extract_error_code(s: &str) -> Option<u32> {
     let needle = "Error(Contract, #";
     let i = s.find(needle)?;

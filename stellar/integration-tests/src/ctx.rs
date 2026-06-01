@@ -31,8 +31,10 @@ pub struct TestContext {
 }
 
 impl TestContext {
-    /// Reads all required env vars and resolves `admin`'s account address.
-    /// Panics if any env var is missing or the guardian hex is malformed.
+    /// Reads all required env vars, resolves `admin`'s account address, and
+    /// idempotently registers the network alias with the stellar CLI so
+    /// callers don't have to assume `fund-identity.sh` ran first. Panics if
+    /// any env var is missing or the guardian hex is malformed.
     pub fn from_env() -> Self {
         let network =
             env::var("STELLAR_NETWORK").expect("STELLAR_NETWORK not set");
@@ -41,7 +43,7 @@ impl TestContext {
         let admin_address = cli::run(&["keys", "address", &admin_identity])
             .trim()
             .to_string();
-        Self {
+        let ctx = Self {
             network,
             network_passphrase: env::var("STELLAR_NETWORK_PASSPHRASE")
                 .expect("STELLAR_NETWORK_PASSPHRASE not set"),
@@ -63,7 +65,9 @@ impl TestContext {
                 .expect("STELLAR_CHAIN_ID not set")
                 .parse()
                 .expect("STELLAR_CHAIN_ID not u32"),
-        }
+        };
+        ctx.network_add();
+        ctx
     }
 
     /// Idempotently (re-)registers the configured network alias with the
@@ -141,26 +145,7 @@ impl TestContext {
     /// derive ledger-relative TTLs (e.g. `transfer_ownership`'s
     /// `live_until_ledger`).
     pub fn current_ledger(&self) -> u32 {
-        let body =
-            r#"{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}"#;
-        let out = Command::new("curl")
-            .args([
-                "-s",
-                "-X",
-                "POST",
-                &self.rpc_url,
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                body,
-            ])
-            .output()
-            .expect("failed to spawn curl");
-        let v: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .expect("getLatestLedger response not JSON");
-        v["result"]["sequence"]
-            .as_u64()
-            .expect("missing sequence field") as u32
+        cli::rpc_latest_ledger(&self.rpc_url)
     }
 }
 

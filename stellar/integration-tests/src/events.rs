@@ -12,7 +12,7 @@ use std::{thread, time::Duration};
 use serde_json::Value;
 use stellar_xdr::curr::{Limits, ReadXdr, ScMapEntry, ScVal};
 
-use crate::ctx::TestContext;
+use crate::{cli, ctx::TestContext};
 
 /// One Soroban contract event with its topics and data decoded out of XDR.
 pub struct DecodedEvent {
@@ -97,7 +97,7 @@ impl<'a> EventQuery<'a> {
     /// Single-shot fetch: returns all events the RPC has indexed for this
     /// contract since `start_ledger`, decoded.
     pub fn fetch(&self) -> Vec<DecodedEvent> {
-        let latest = rpc_latest_ledger(&self.ctx.rpc_url);
+        let latest = cli::rpc_latest_ledger(&self.ctx.rpc_url);
         let start = self
             .start_ledger
             .unwrap_or_else(|| latest.saturating_sub(200).max(1));
@@ -105,7 +105,7 @@ impl<'a> EventQuery<'a> {
             r#"{{"jsonrpc":"2.0","id":1,"method":"getEvents","params":{{"startLedger":{start},"filters":[{{"type":"contract","contractIds":["{cid}"]}}],"pagination":{{"limit":100}}}}}}"#,
             cid = self.contract_id,
         );
-        let resp = rpc_call(&self.ctx.rpc_url, &body);
+        let resp = cli::rpc_call(&self.ctx.rpc_url, &body);
         let arr = resp["result"]["events"]
             .as_array()
             .cloned()
@@ -157,38 +157,6 @@ fn decode_event(raw: &Value) -> Option<DecodedEvent> {
         tx_hash: raw["txHash"].as_str()?.to_string(),
         contract_id: raw["contractId"].as_str()?.to_string(),
     })
-}
-
-fn rpc_latest_ledger(rpc_url: &str) -> u32 {
-    let body =
-        r#"{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}"#;
-    let resp = rpc_call(rpc_url, body);
-    resp["result"]["sequence"]
-        .as_u64()
-        .expect("ledger sequence missing") as u32
-}
-
-fn rpc_call(rpc_url: &str, body: &str) -> Value {
-    let out = std::process::Command::new("curl")
-        .args([
-            "-s",
-            "-X",
-            "POST",
-            rpc_url,
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            body,
-        ])
-        .output()
-        .expect("failed to spawn curl");
-    if !out.status.success() {
-        panic!(
-            "curl failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    serde_json::from_slice(&out.stdout).expect("RPC response not JSON")
 }
 
 fn symbol_string(v: &ScVal) -> Option<String> {
