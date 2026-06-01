@@ -817,13 +817,12 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "hex",
- "secp256k1",
  "serde_json",
  "soroban-ntt-client",
  "soroban-sdk",
  "stellar-strkey 0.0.13",
  "stellar-xdr",
- "tiny-keccak",
+ "vaa-test-signing",
  "wormhole-soroban-client",
 ]
 
@@ -1754,6 +1753,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "vaa-test-signing"
+version = "0.1.0"
+dependencies = [
+ "secp256k1",
+ "tiny-keccak",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1920,7 +1927,7 @@ dependencies = [
 [[package]]
 name = "wormhole-soroban-client"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/wormhole?branch=stellar#9fb6586e8302f0e1a41b2d97d9764fd05d64e33c"
+source = "git+https://github.com/NethermindEth/wormhole?branch=stellar#f379981979269c7baae15b3b8df2f4c50d61cd91"
 dependencies = [
  "soroban-sdk",
 ]
