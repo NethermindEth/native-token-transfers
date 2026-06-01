@@ -3,13 +3,11 @@
 use std::time::Duration;
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::events::EventQuery;
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
 };
 use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -26,15 +24,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     stack.register_transceiver(&ctx);
     let transceiver_two = stack.deploy_extra_transceiver(&ctx);
     stack.register_transceiver_addr(&ctx, &transceiver_two);
@@ -85,7 +75,9 @@ fn raise_threshold_requires_quorum_before_execution() {
     let f = setup();
 
     f.stack.set_threshold(&f.ctx, 2);
-    let event = EventQuery::new(&f.ctx, &f.stack.manager)
+    let event = f
+        .stack
+        .manager_events(&f.ctx)
         .find_with_topic("threshold_changed", Duration::from_secs(10));
     assert!(event.is_some(), "set_threshold(2) must emit threshold_changed");
 

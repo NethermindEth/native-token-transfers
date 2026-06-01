@@ -5,7 +5,6 @@ use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{encode_ntt_manager_message, NttManagerMessageInputs};
 use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -19,15 +18,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     let rogue_addr = ctx.setup_identity("rogue_tcv");

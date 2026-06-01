@@ -2,9 +2,7 @@
 
 use std::time::Duration;
 
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::events::EventQuery;
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 
@@ -23,9 +21,7 @@ fn setup() -> Fixture {
         &ctx,
         &StackOptions {
             mode: Mode::Locking,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
+            ..Default::default()
         },
     );
     stack.register_transceiver(&ctx);
@@ -45,23 +41,7 @@ fn outbound_locking_debits_sender_credits_manager_contract() {
     let manager_before = f.stack.token_balance(&f.ctx, &f.stack.manager);
 
     let recipient = [0xbb; 32];
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--amount",
-            &TRANSFER_AMOUNT.to_string(),
-            "--recipient_chain",
-            &PEER_CHAIN.to_string(),
-            "--recipient",
-            &hex::encode(recipient),
-            "--should_queue",
-            "false",
-        ],
-    );
+    f.stack.transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &recipient, false);
 
     let sender_after = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     let manager_after = f.stack.token_balance(&f.ctx, &f.stack.manager);
@@ -79,7 +59,9 @@ fn outbound_locking_debits_sender_credits_manager_contract() {
         TRANSFER_AMOUNT
     );
 
-    let sent = EventQuery::new(&f.ctx, &f.stack.manager)
+    let sent = f
+        .stack
+        .manager_events(&f.ctx)
         .find_with_topic("transfer_sent", Duration::from_secs(15));
     assert!(sent.is_some(), "manager must emit transfer_sent within 15s");
 }

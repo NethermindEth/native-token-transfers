@@ -3,7 +3,6 @@
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -17,15 +16,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     Fixture { ctx, stack }
 }
 

@@ -2,7 +2,6 @@
 
 use std::{thread, time::Duration};
 
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, compute_message_digest, InboundVaaInputs,
@@ -10,7 +9,6 @@ use integration_tests::messages::{
 };
 use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -35,10 +33,8 @@ fn setup() -> Fixture {
     let stack = Stack::deploy(
         &ctx,
         &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
             rate_limit_duration: RATE_LIMIT_DURATION,
+            ..Default::default()
         },
     );
     stack.register_transceiver(&ctx);
@@ -104,12 +100,7 @@ fn queued_inbound_releases_after_window() {
     let digest = compute_message_digest(&queued_ntt, PEER_CHAIN as u16);
     let digest_hex = hex::encode(digest);
 
-    let queue_item = invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "get_inbound_queue_item",
-        &["--digest", &digest_hex],
-    );
+    let queue_item = f.stack.inbound_queue_item(&f.ctx, &digest_hex);
     assert!(
         !queue_item.is_null(),
         "second VAA must have created a queue entry: got {queue_item}"
@@ -117,12 +108,7 @@ fn queued_inbound_releases_after_window() {
 
     thread::sleep(Duration::from_secs(WAIT_SECONDS));
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "complete_inbound_transfer",
-        &["--digest", &digest_hex],
-    );
+    f.stack.complete_inbound_transfer(&f.ctx, &digest_hex);
 
     let final_balance = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
@@ -131,11 +117,6 @@ fn queued_inbound_releases_after_window() {
         "after window release, recipient must have both mints"
     );
 
-    let queue_after = invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "get_inbound_queue_item",
-        &["--digest", &digest_hex],
-    );
+    let queue_after = f.stack.inbound_queue_item(&f.ctx, &digest_hex);
     assert!(queue_after.is_null(), "queue entry must be removed");
 }

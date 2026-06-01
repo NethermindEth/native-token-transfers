@@ -1,6 +1,5 @@
 //! Round-trips one amount across the wire: outbound takes SAC custody, inbound (re-signed VAA from peer) releases it to a fresh recipient.
 
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
@@ -27,9 +26,7 @@ fn setup() -> Fixture {
         &ctx,
         &StackOptions {
             mode: Mode::Locking,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
+            ..Default::default()
         },
     );
     stack.register_transceiver(&ctx);
@@ -60,23 +57,8 @@ fn outbound_custody_then_inbound_release_round_trip() {
     let recipient_initial = f.stack.token_balance(&f.ctx, &f.recipient_addr);
 
     let peer_recipient = [0xbb; 32];
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--amount",
-            &ROUND_TRIP_AMOUNT.to_string(),
-            "--recipient_chain",
-            &PEER_CHAIN.to_string(),
-            "--recipient",
-            &hex::encode(peer_recipient),
-            "--should_queue",
-            "false",
-        ],
-    );
+    f.stack
+        .transfer(&f.ctx, ROUND_TRIP_AMOUNT, PEER_CHAIN, &peer_recipient, false);
 
     assert_eq!(
         f.stack.token_balance(&f.ctx, &f.stack.manager) - manager_initial,

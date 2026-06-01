@@ -2,11 +2,8 @@
 
 use std::time::Duration;
 
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::events::EventQuery;
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -21,15 +18,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     stack.mint_to(&ctx, &ctx.admin_address, SUPPLY);
@@ -45,25 +34,11 @@ fn transfer_sent_event_carries_typed_topics_and_data_fields() {
     let f = setup();
     let recipient = [0xbb; 32];
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--amount",
-            &TRANSFER_AMOUNT.to_string(),
-            "--recipient_chain",
-            &PEER_CHAIN.to_string(),
-            "--recipient",
-            &hex::encode(recipient),
-            "--should_queue",
-            "false",
-        ],
-    );
+    f.stack.transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &recipient, false);
 
-    let event = EventQuery::new(&f.ctx, &f.stack.manager)
+    let event = f
+        .stack
+        .manager_events(&f.ctx)
         .find_with_topic("transfer_sent", Duration::from_secs(15))
         .expect("transfer_sent must fire");
 

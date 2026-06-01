@@ -3,13 +3,11 @@
 use std::time::Duration;
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::events::EventQuery;
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
 };
 use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -22,15 +20,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     let recipient_addr = ctx.setup_identity("recipient_event");
@@ -71,7 +61,9 @@ fn inbound_emits_message_attested_to_and_transfer_redeemed() {
     });
     f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
 
-    let attested = EventQuery::new(&f.ctx, &f.stack.manager)
+    let attested = f
+        .stack
+        .manager_events(&f.ctx)
         .find_with_topic("message_attested_to", Duration::from_secs(15))
         .expect("message_attested_to must fire");
     assert_eq!(
@@ -80,7 +72,9 @@ fn inbound_emits_message_attested_to_and_transfer_redeemed() {
         "data.index must be the attesting transceiver's registry index (0 for the first)"
     );
 
-    let redeemed = EventQuery::new(&f.ctx, &f.stack.manager)
+    let redeemed = f
+        .stack
+        .manager_events(&f.ctx)
         .find_with_topic("transfer_redeemed", Duration::from_secs(15))
         .expect("transfer_redeemed must fire");
     assert!(

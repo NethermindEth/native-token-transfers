@@ -29,9 +29,7 @@ fn setup() -> Fixture {
         &ctx,
         &StackOptions {
             mode: Mode::Locking,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
+            ..Default::default()
         },
     );
     stack.register_transceiver(&ctx);

@@ -2,7 +2,6 @@
 
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 struct Fixture {
     ctx: TestContext,
@@ -12,15 +11,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     let new_owner_addr = ctx.setup_identity("owner_two");
     Fixture {
         ctx,

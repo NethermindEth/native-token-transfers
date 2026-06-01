@@ -1,9 +1,7 @@
 //! Asserts the Pausable split — pauser may pause; only owner may unpause — under signed auth.
 
-use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -17,15 +15,7 @@ struct Fixture {
 
 fn setup() -> Fixture {
     let ctx = TestContext::from_env();
-    let stack = Stack::deploy(
-        &ctx,
-        &StackOptions {
-            mode: Mode::Burning,
-            token_decimals: 7,
-            outbound_limit: u64::MAX,
-            rate_limit_duration: 1,
-        },
-    );
+    let stack = Stack::deploy(&ctx, &StackOptions::default());
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     stack.mint_to(&ctx, &ctx.admin_address, 1_000_000);
@@ -57,24 +47,10 @@ fn pause_blocks_transfer_unpause_is_owner_only() {
     f.stack.pause("pauser", &f.pauser_addr);
     assert!(f.stack.paused(&f.ctx));
 
-    let err = try_invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--amount",
-            "100",
-            "--recipient_chain",
-            &PEER_CHAIN.to_string(),
-            "--recipient",
-            &hex::encode(recipient),
-            "--should_queue",
-            "false",
-        ],
-    )
-    .expect_err("transfer must error while paused");
+    let err = f
+        .stack
+        .try_transfer(&f.ctx, 100, PEER_CHAIN, &recipient, false)
+        .expect_err("transfer must error while paused");
     assert_eq!(
         err.code,
         Some(1000),

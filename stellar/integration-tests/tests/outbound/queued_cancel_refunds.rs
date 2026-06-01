@@ -1,9 +1,7 @@
 //! Queued outbound transfer can be cancelled by the sender, fully refunding the queued amount.
 
-use integration_tests::cli::invoke;
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;
-use soroban_ntt_client::types::Mode;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_ADDR: [u8; 32] = [0xaa; 32];
@@ -21,10 +19,10 @@ fn setup() -> Fixture {
     let stack = Stack::deploy(
         &ctx,
         &StackOptions {
-            mode: Mode::Burning,
             token_decimals: 8,
             outbound_limit: OUTBOUND_LIMIT,
             rate_limit_duration: 300,
+            ..Default::default()
         },
     );
     stack.register_transceiver(&ctx);
@@ -42,23 +40,7 @@ fn cancel_queued_outbound_refunds_sender_in_full() {
     let f = setup();
 
     let recipient = [0xbb; 32];
-    let queued = invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--amount",
-            &QUEUED_AMOUNT.to_string(),
-            "--recipient_chain",
-            &PEER_CHAIN.to_string(),
-            "--recipient",
-            &hex::encode(recipient),
-            "--should_queue",
-            "true",
-        ],
-    );
+    let queued = f.stack.transfer(&f.ctx, QUEUED_AMOUNT, PEER_CHAIN, &recipient, true);
     let sequence = parse_i128(&queued["sequence"]) as u64;
     assert!(
         queued["queued"].as_bool().unwrap_or(false),
@@ -68,17 +50,7 @@ fn cancel_queued_outbound_refunds_sender_in_full() {
     let after_queue = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     assert_eq!(after_queue, SUPPLY - QUEUED_AMOUNT);
 
-    invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "cancel_queued_transfer",
-        &[
-            "--sender",
-            &f.ctx.admin_address,
-            "--sequence",
-            &sequence.to_string(),
-        ],
-    );
+    f.stack.cancel_queued_transfer(&f.ctx, sequence);
 
     let after_cancel = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     assert_eq!(
@@ -86,11 +58,6 @@ fn cancel_queued_outbound_refunds_sender_in_full() {
         "cancel must refund the full queued amount"
     );
 
-    let queue_item = invoke(
-        &f.ctx.admin_identity,
-        &f.stack.manager,
-        "get_outbound_queue_item",
-        &["--sequence", &sequence.to_string()],
-    );
+    let queue_item = f.stack.outbound_queue_item(&f.ctx, sequence);
     assert!(queue_item.is_null(), "cancelled entry must be removed");
 }

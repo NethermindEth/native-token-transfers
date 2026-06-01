@@ -16,6 +16,7 @@ use std::process::Command;
 /// Failed `stellar` invocation. `code` is the contract error number parsed
 /// from the CLI's stderr, when present; `raw` is the full stdout + stderr
 /// for diagnostic messages.
+#[derive(Debug)]
 pub struct CliError {
     pub code: Option<u32>,
     pub raw: String,

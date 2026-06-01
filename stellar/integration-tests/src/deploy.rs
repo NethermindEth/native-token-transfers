@@ -14,6 +14,7 @@ use wormhole_soroban_client::GOVERNANCE_EMITTER;
 
 use crate::cli;
 use crate::ctx::TestContext;
+use crate::events::EventQuery;
 use crate::vaa;
 
 /// Vendored NethermindEth Wormhole core.
@@ -143,6 +144,20 @@ pub struct StackOptions {
     pub token_decimals: u32,
     pub outbound_limit: u64,
     pub rate_limit_duration: u64,
+}
+
+impl Default for StackOptions {
+    /// Burning, 7-decimal mock token, no outbound rate limit, 1s window.
+    /// Tests with non-default needs use struct-update form:
+    /// `StackOptions { mode: Mode::Locking, ..Default::default() }`.
+    fn default() -> Self {
+        Self {
+            mode: Mode::Burning,
+            token_decimals: 7,
+            outbound_limit: u64::MAX,
+            rate_limit_duration: 1,
+        }
+    }
 }
 
 /// All four deployed contract ids for one test fixture, plus the mode the
@@ -288,14 +303,7 @@ impl Stack {
         chain_id: u32,
         peer_addr: &[u8; 32],
     ) {
-        let peer_hex = hex::encode(peer_addr);
-        let chain_id_s = chain_id.to_string();
-        cli::invoke(
-            &ctx.admin_identity,
-            &self.transceiver,
-            "set_peer",
-            &["--chain_id", &chain_id_s, "--emitter", &peer_hex],
-        );
+        self.set_transceiver_peer(ctx, &self.transceiver, chain_id, peer_addr);
     }
 
     /// Sets `peer_addr` as the peer emitter for `chain_id` on the given
@@ -354,6 +362,12 @@ impl Stack {
             .as_str()
             .expect("get_owner must return string")
             .to_string()
+    }
+
+    /// Builds an [`EventQuery`] scoped to this stack's manager — the common
+    /// case for tests asserting on manager-emitted events.
+    pub fn manager_events<'a>(&'a self, ctx: &'a TestContext) -> EventQuery<'a> {
+        EventQuery::new(ctx, &self.manager)
     }
 
     /// Initiates the OZ two-step ownership transfer. `source` is the
@@ -497,6 +511,98 @@ impl Stack {
         )
     }
 
+    /// Initiates an outbound transfer from `ctx.admin_address`, signed by
+    /// `ctx.admin_identity`. Returns the raw JSON response so callers can
+    /// read `queued` and `sequence`.
+    pub fn transfer(
+        &self,
+        ctx: &TestContext,
+        amount: i128,
+        recipient_chain: u32,
+        recipient: &[u8; 32],
+        should_queue: bool,
+    ) -> Value {
+        let amount_s = amount.to_string();
+        let chain_s = recipient_chain.to_string();
+        let recipient_hex = hex::encode(recipient);
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "transfer",
+            &[
+                "--sender", &ctx.admin_address,
+                "--amount", &amount_s,
+                "--recipient_chain", &chain_s,
+                "--recipient", &recipient_hex,
+                "--should_queue", if should_queue { "true" } else { "false" },
+            ],
+        )
+    }
+
+    /// `transfer` returning a `Result` for negative tests (rate-limit
+    /// rejection, pause enforcement, peer-not-found).
+    pub fn try_transfer(
+        &self,
+        ctx: &TestContext,
+        amount: i128,
+        recipient_chain: u32,
+        recipient: &[u8; 32],
+        should_queue: bool,
+    ) -> Result<Value, cli::CliError> {
+        let amount_s = amount.to_string();
+        let chain_s = recipient_chain.to_string();
+        let recipient_hex = hex::encode(recipient);
+        cli::try_invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "transfer",
+            &[
+                "--sender", &ctx.admin_address,
+                "--amount", &amount_s,
+                "--recipient_chain", &chain_s,
+                "--recipient", &recipient_hex,
+                "--should_queue", if should_queue { "true" } else { "false" },
+            ],
+        )
+    }
+
+    /// Reads the outbound queue entry for `sequence`. Returns
+    /// `Value::Null` if the slot is empty (released, cancelled, or never
+    /// queued).
+    pub fn outbound_queue_item(&self, ctx: &TestContext, sequence: u64) -> Value {
+        let s = sequence.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "get_outbound_queue_item",
+            &["--sequence", &s],
+        )
+    }
+
+    /// Cancels a queued outbound transfer for `ctx.admin_address`, refunding
+    /// the queued amount.
+    pub fn cancel_queued_transfer(&self, ctx: &TestContext, sequence: u64) {
+        let s = sequence.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "cancel_queued_transfer",
+            &["--sender", &ctx.admin_address, "--sequence", &s],
+        );
+    }
+
+    /// Releases a queued outbound transfer once its rate-limit window has
+    /// elapsed.
+    pub fn complete_queued_transfer(&self, ctx: &TestContext, sequence: u64) {
+        let s = sequence.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "complete_queued_transfer",
+            &["--sequence", &s],
+        );
+    }
+
     /// Submits a signed VAA to `transceiver_addr.receive_message`. Used for
     /// inbound flows after constructing the VAA via
     /// `messages::build_inbound_vaa_hex`.
@@ -528,6 +634,28 @@ impl Stack {
             "receive_message",
             &["--vaa_bytes", vaa_hex],
         )
+    }
+
+    /// Reads the inbound queue entry for `digest_hex`. Returns `Value::Null`
+    /// if the entry has been released or never queued.
+    pub fn inbound_queue_item(&self, ctx: &TestContext, digest_hex: &str) -> Value {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "get_inbound_queue_item",
+            &["--digest", digest_hex],
+        )
+    }
+
+    /// Releases a queued inbound transfer once its rate-limit window has
+    /// elapsed.
+    pub fn complete_inbound_transfer(&self, ctx: &TestContext, digest_hex: &str) {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "complete_inbound_transfer",
+            &["--digest", digest_hex],
+        );
     }
 }
 
