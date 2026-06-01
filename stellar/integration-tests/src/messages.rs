@@ -63,14 +63,27 @@ pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
 /// recipient managers, builds the VAA body via
 /// `wormhole_soroban_client::VAA::serialize_body`, signs it with the
 /// guardian secret, assembles the VAA, and hex-encodes it for the CLI.
+///
+/// All Soroban-side construction shares one `Env` so `Bytes` flows directly
+/// between the layers without round-tripping through `Vec<u8>`.
 pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
     let env = Env::default();
-    let manager_payload = encode_ntt_manager_message(&inputs.ntt);
-    let transceiver_payload = encode_transceiver_message(
-        inputs.source_manager,
-        inputs.recipient_manager,
-        &manager_payload,
-    );
+
+    let manager_message = build_ntt_message(&env, &inputs.ntt);
+    let manager_payload = manager_message
+        .to_bytes(&env)
+        .expect("encode NttManagerMessage");
+
+    let transceiver_message = TransceiverMessage {
+        source_manager: BytesN::from_array(&env, &inputs.source_manager),
+        recipient_manager: BytesN::from_array(&env, &inputs.recipient_manager),
+        manager_payload,
+        transceiver_payload: Bytes::new(&env),
+    };
+    let transceiver_payload = transceiver_message
+        .to_bytes(&env)
+        .expect("encode TransceiverMessage");
+
     let vaa_for_body = VAA {
         version: 1,
         guardian_set_index: 0,
@@ -81,7 +94,7 @@ pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
         emitter_address: BytesN::from_array(&env, &inputs.emitter_address),
         sequence: inputs.sequence,
         consistency_level: ConsistencyLevel::Confirmed,
-        payload: Bytes::from_slice(&env, &transceiver_payload),
+        payload: transceiver_payload,
     };
     let body: Vec<u8> = vaa_for_body.serialize_body(&env).iter().collect();
     let sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
