@@ -657,6 +657,181 @@ impl Stack {
             &["--digest", digest_hex],
         );
     }
+
+    /// Disables `transceiver` on the manager under admin auth. When this
+    /// drops the enabled count below the threshold, the manager auto-reduces
+    /// the threshold to the new enabled count.
+    pub fn remove_transceiver(&self, ctx: &TestContext, transceiver: &str) {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "remove_transceiver",
+            &["--transceiver", transceiver],
+        );
+    }
+
+    /// Enables or disables the peer for `chain_id` on `transceiver`. The
+    /// kill-switch: a disabled peer's inbound VAAs are rejected with
+    /// `PeerDisabled` even when verification passes and the emitter matches.
+    pub fn set_transceiver_peer_enabled(
+        &self,
+        ctx: &TestContext,
+        transceiver: &str,
+        chain_id: u32,
+        enabled: bool,
+    ) {
+        let chain_id_s = chain_id.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            transceiver,
+            "set_peer_enabled",
+            &[
+                "--chain_id",
+                &chain_id_s,
+                "--enabled",
+                if enabled { "true" } else { "false" },
+            ],
+        );
+    }
+
+    /// `set_peer` on `transceiver`, signed by `source`, returning a
+    /// `Result`. Serves both the owner-gate paths (new vs old owner) and the
+    /// invalid-argument CLI paths (chain 0, zero emitter, chain > u16::MAX,
+    /// re-registration of an existing chain).
+    pub fn try_set_transceiver_peer(
+        &self,
+        source: &str,
+        transceiver: &str,
+        chain_id: u32,
+        emitter: &[u8; 32],
+    ) -> Result<Value, cli::CliError> {
+        let emitter_hex = hex::encode(emitter);
+        let chain_id_s = chain_id.to_string();
+        cli::try_invoke(
+            source,
+            transceiver,
+            "set_peer",
+            &["--chain_id", &chain_id_s, "--emitter", &emitter_hex],
+        )
+    }
+
+    /// Reads the transceiver's own `paused` getter — independent of the
+    /// manager's pause state.
+    pub fn transceiver_paused(&self, ctx: &TestContext) -> bool {
+        cli::invoke(&ctx.admin_identity, &self.transceiver, "paused", &[])
+            .as_bool()
+            .expect("paused must return bool")
+    }
+
+    /// Pauses the transceiver (owner-only). `source` signs; `caller_addr` is
+    /// required by the CLI signature but ignored by the `#[only_owner]` gate.
+    pub fn transceiver_pause(&self, source: &str, caller_addr: &str) {
+        cli::invoke(
+            source,
+            &self.transceiver,
+            "pause",
+            &["--caller", caller_addr],
+        );
+    }
+
+    /// Unpauses the transceiver (owner-only).
+    pub fn transceiver_unpause(&self, source: &str, caller_addr: &str) {
+        cli::invoke(
+            source,
+            &self.transceiver,
+            "unpause",
+            &["--caller", caller_addr],
+        );
+    }
+
+    /// Initiates the transceiver's own OZ two-step ownership transfer —
+    /// separate from the manager's owner.
+    pub fn transceiver_transfer_ownership(
+        &self,
+        source: &str,
+        new_owner: &str,
+        live_until_ledger: u32,
+    ) {
+        let live_until_s = live_until_ledger.to_string();
+        cli::invoke(
+            source,
+            &self.transceiver,
+            "transfer_ownership",
+            &[
+                "--new_owner",
+                new_owner,
+                "--live_until_ledger",
+                &live_until_s,
+            ],
+        );
+    }
+
+    /// Completes the transceiver's two-step ownership transfer; `source` is
+    /// the pending new owner.
+    pub fn transceiver_accept_ownership(&self, source: &str) {
+        cli::invoke(source, &self.transceiver, "accept_ownership", &[]);
+    }
+
+    /// Reads the transceiver's current owner (G-address).
+    pub fn transceiver_owner(&self, ctx: &TestContext) -> String {
+        cli::invoke(&ctx.admin_identity, &self.transceiver, "get_owner", &[])
+            .as_str()
+            .expect("get_owner must return string")
+            .to_string()
+    }
+
+    /// Broadcasts this transceiver's `WormholeTransceiverInfo` to the
+    /// Wormhole core for off-chain Accountant discovery. Permissionless.
+    pub fn broadcast_id(&self, ctx: &TestContext) -> Value {
+        cli::invoke(&ctx.admin_identity, &self.transceiver, "broadcast_id", &[])
+    }
+
+    /// Broadcasts the `WormholeTransceiverRegistration` for `chain_id`.
+    pub fn broadcast_peer(&self, ctx: &TestContext, chain_id: u32) -> Value {
+        let chain_id_s = chain_id.to_string();
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.transceiver,
+            "broadcast_peer",
+            &["--chain_id", &chain_id_s],
+        )
+    }
+
+    /// `broadcast_peer` returning a `Result` — asserts `PeerNotFound` for a
+    /// chain with no registered peer.
+    pub fn try_broadcast_peer(
+        &self,
+        ctx: &TestContext,
+        chain_id: u32,
+    ) -> Result<Value, cli::CliError> {
+        let chain_id_s = chain_id.to_string();
+        cli::try_invoke(
+            &ctx.admin_identity,
+            &self.transceiver,
+            "broadcast_peer",
+            &["--chain_id", &chain_id_s],
+        )
+    }
+
+    /// Reads the transceiver's `quote_delivery_price` for `chain_id`,
+    /// cross-checked in tests against the live Wormhole core's message fee.
+    pub fn transceiver_quote_delivery_price(&self, ctx: &TestContext, chain_id: u32) -> i128 {
+        let chain_id_s = chain_id.to_string();
+        let v = cli::invoke(
+            &ctx.admin_identity,
+            &self.transceiver,
+            "quote_delivery_price",
+            &["--recipient_chain", &chain_id_s],
+        );
+        parse_i128(&v)
+    }
+
+    /// Builds an [`EventQuery`] scoped to the Wormhole core — used to read
+    /// the `MessagePublished` events that `broadcast_id` / `broadcast_peer`
+    /// post.
+    pub fn wormhole_core_events<'a>(&'a self, ctx: &'a TestContext) -> EventQuery<'a> {
+        EventQuery::new(ctx, &self.wormhole_core)
+    }
 }
 
 /// Parses a Soroban `i128` return value out of the CLI's JSON output, which
