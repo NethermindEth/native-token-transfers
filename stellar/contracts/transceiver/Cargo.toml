@@ -19,5 +19,3 @@ stellar-macros = { workspace = true }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 soroban-ntt-client = { workspace = true }
 wormhole-soroban-client = { workspace = true }
-wormhole-contract = { git = "https://github.com/NethermindEth/wormhole", branch = "stellar" }
-vaa-test-signing = { workspace = true }

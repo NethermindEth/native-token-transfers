@@ -2,11 +2,12 @@
 
 mod common;
 
-use common::setup_transceiver;
+use common::setup;
 use soroban_ntt_client::{PeerSet, TransceiverError};
 use soroban_sdk::{testutils::Events as _, BytesN, Env, Event};
 
-const DEST_CHAIN: u32 = 6;
+const PEER_CHAIN: u32 = 2;
+const PEER_EMITTER: [u8; 32] = [0xCC; 32];
 const TOO_LARGE: u32 = u16::MAX as u32 + 1;
 
 /// `set_peer` persists the peer (enabled) and emits `PeerSet { chain_id, peer }`.
@@ -16,18 +17,17 @@ const TOO_LARGE: u32 = u16::MAX as u32 + 1;
 fn set_peer_registers_and_emits() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, transceiver, _, _) = setup_transceiver(&env);
-    let emitter = BytesN::from_array(&env, &[0xAA; 32]);
+    let t = setup(&env);
+    let emitter = BytesN::from_array(&env, &PEER_EMITTER);
 
-    transceiver.set_peer(&DEST_CHAIN, &emitter);
+    t.set_peer(&PEER_CHAIN, &emitter);
     assert_eq!(
-        env.events().all().filter_by_contract(&transceiver.address),
-        std::vec![PeerSet { chain_id: DEST_CHAIN, peer_contract: emitter.clone() }
-            .to_xdr(&env, &transceiver.address)]
+        env.events().all().filter_by_contract(&t.address),
+        std::vec![PeerSet { chain_id: PEER_CHAIN, peer_contract: emitter.clone() }.to_xdr(&env, &t.address)]
     );
 
-    assert_eq!(transceiver.get_peer(&DEST_CHAIN), Some(emitter));
-    assert!(transceiver.is_peer_enabled(&DEST_CHAIN));
+    assert_eq!(t.get_peer(&PEER_CHAIN), Some(emitter));
+    assert!(t.is_peer_enabled(&PEER_CHAIN));
 }
 
 /// `set_peer` validates its arguments and is one-shot: chain 0, the zero emitter,
@@ -38,28 +38,16 @@ fn set_peer_registers_and_emits() {
 fn set_peer_rejects_invalid_params() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, transceiver, _, _) = setup_transceiver(&env);
-    let emitter = BytesN::from_array(&env, &[0xAA; 32]);
+    let t = setup(&env);
+    let emitter = BytesN::from_array(&env, &PEER_EMITTER);
     let zeros = BytesN::from_array(&env, &[0u8; 32]);
 
-    assert_eq!(
-        transceiver.try_set_peer(&0, &emitter),
-        Err(Ok(TransceiverError::InvalidPeerChainIdZero))
-    );
-    assert_eq!(
-        transceiver.try_set_peer(&DEST_CHAIN, &zeros),
-        Err(Ok(TransceiverError::InvalidPeerZeroAddress))
-    );
-    assert_eq!(
-        transceiver.try_set_peer(&TOO_LARGE, &emitter),
-        Err(Ok(TransceiverError::ChainIdTooLarge))
-    );
+    assert_eq!(t.try_set_peer(&0, &emitter), Err(Ok(TransceiverError::InvalidPeerChainIdZero)));
+    assert_eq!(t.try_set_peer(&PEER_CHAIN, &zeros), Err(Ok(TransceiverError::InvalidPeerZeroAddress)));
+    assert_eq!(t.try_set_peer(&TOO_LARGE, &emitter), Err(Ok(TransceiverError::ChainIdTooLarge)));
 
-    transceiver.set_peer(&DEST_CHAIN, &emitter);
-    assert_eq!(
-        transceiver.try_set_peer(&DEST_CHAIN, &emitter),
-        Err(Ok(TransceiverError::PeerAlreadySet))
-    );
+    t.set_peer(&PEER_CHAIN, &emitter);
+    assert_eq!(t.try_set_peer(&PEER_CHAIN, &emitter), Err(Ok(TransceiverError::PeerAlreadySet)));
 }
 
 /// `set_peer_enabled` flips the enabled flag without dropping the registration,
@@ -69,22 +57,19 @@ fn set_peer_rejects_invalid_params() {
 fn set_peer_enabled_flips_or_errors_on_missing() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, transceiver, _, _) = setup_transceiver(&env);
+    let t = setup(&env);
 
-    assert_eq!(
-        transceiver.try_set_peer_enabled(&DEST_CHAIN, &false),
-        Err(Ok(TransceiverError::PeerNotFound))
-    );
+    assert_eq!(t.try_set_peer_enabled(&PEER_CHAIN, &false), Err(Ok(TransceiverError::PeerNotFound)));
 
-    let emitter = BytesN::from_array(&env, &[0xAA; 32]);
-    transceiver.set_peer(&DEST_CHAIN, &emitter);
+    let emitter = BytesN::from_array(&env, &PEER_EMITTER);
+    t.set_peer(&PEER_CHAIN, &emitter);
 
-    transceiver.set_peer_enabled(&DEST_CHAIN, &false);
-    assert!(!transceiver.is_peer_enabled(&DEST_CHAIN));
-    assert_eq!(transceiver.get_peer(&DEST_CHAIN), Some(emitter)); // still registered, just disabled
+    t.set_peer_enabled(&PEER_CHAIN, &false);
+    assert!(!t.is_peer_enabled(&PEER_CHAIN));
+    assert_eq!(t.get_peer(&PEER_CHAIN), Some(emitter)); // still registered, just disabled
 
-    transceiver.set_peer_enabled(&DEST_CHAIN, &true);
-    assert!(transceiver.is_peer_enabled(&DEST_CHAIN));
+    t.set_peer_enabled(&PEER_CHAIN, &true);
+    assert!(t.is_peer_enabled(&PEER_CHAIN));
 }
 
 /// `set_peer_enabled` validates the chain id through its own `validate_chain_id`
@@ -94,10 +79,7 @@ fn set_peer_enabled_flips_or_errors_on_missing() {
 fn set_peer_enabled_rejects_chain_id_too_large() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, _, transceiver, _, _) = setup_transceiver(&env);
+    let t = setup(&env);
 
-    assert_eq!(
-        transceiver.try_set_peer_enabled(&TOO_LARGE, &true),
-        Err(Ok(TransceiverError::ChainIdTooLarge))
-    );
+    assert_eq!(t.try_set_peer_enabled(&TOO_LARGE, &true), Err(Ok(TransceiverError::ChainIdTooLarge)));
 }

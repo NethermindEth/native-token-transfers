@@ -1603,8 +1603,6 @@ dependencies = [
  "stellar-access",
  "stellar-contract-utils",
  "stellar-macros",
- "vaa-test-signing",
- "wormhole-contract",
  "wormhole-soroban-client",
 ]
 
@@ -1924,15 +1922,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
 dependencies = [
  "windows-link",
-]
-
-[[package]]
-name = "wormhole-contract"
-version = "0.1.0"
-source = "git+https://github.com/NethermindEth/wormhole?branch=stellar#f379981979269c7baae15b3b8df2f4c50d61cd91"
-dependencies = [
- "soroban-sdk",
- "wormhole-soroban-client",
 ]
 
 [[package]]

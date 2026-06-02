@@ -1,63 +1,21 @@
-pub mod guardian;
 pub mod manager;
+pub mod wormhole;
 
-use guardian::guardian_eth_address;
-use manager::{MockManagerConfig, MockNttManager, MockNttManagerClient};
+use manager::MockNttManager;
 use soroban_ntt_client::Mode;
-use soroban_sdk::{testutils::Address as _, vec, Address, BytesN, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 use stellar_ntt_transceiver::{TransceiverContract, TransceiverContractClient};
-use wormhole_contract::Wormhole;
-use wormhole_soroban_client::{WormholeClient, GOVERNANCE_EMITTER};
+use wormhole::MockWormholeCore;
 
-/// Deploys a transceiver over a mock NTT manager and the real in-process
-/// Wormhole core, seeded with the suite's test guardian. Returns the owner, the
-/// manager id the transceiver derived, and typed clients for the transceiver,
-/// the manager, and the core.
-///
-/// Inbound tests sign VAAs the real core verifies (see [`vaa`]); the manager is
-/// mocked because the transceiver's only job toward it is to forward the decoded
-/// payload, which the mock records, and because rejection / query-failure must
-/// be injected deterministically.
-pub fn setup_transceiver<'a>(
-    env: &Env,
-) -> (
-    Address,
-    BytesN<32>,
-    TransceiverContractClient<'a>,
-    MockNttManagerClient<'a>,
-    WormholeClient<'a>,
-) {
+/// Deploys a transceiver over a mock NTT manager and a mock wormhole core, both
+/// in their succeeding configuration. Returns the transceiver client; tests
+/// derive the manager and core mock clients from its `get_manager` /
+/// `get_wormhole_core` getters (via `MockNttManagerClient::new` etc.) and
+/// configure them where a path needs it.
+pub fn setup(env: &Env) -> TransceiverContractClient<'_> {
     let owner = Address::generate(env);
     let token = Address::generate(env);
-
-    let manager = env.register(
-        MockNttManager,
-        (MockManagerConfig {
-            token,
-            mode: Mode::Burning,
-            decimals: 7,
-            fail_attestation: false,
-            fail_query: false,
-        },),
-    );
-
-    let guardian = BytesN::from_array(env, &guardian_eth_address());
-    let core = env.register(
-        Wormhole,
-        (vec![env, guardian], BytesN::from_array(env, &GOVERNANCE_EMITTER)),
-    );
-
-    let transceiver = TransceiverContractClient::new(
-        env,
-        &env.register(TransceiverContract, (&owner, &manager, &core)),
-    );
-    let manager_id = transceiver.get_manager_id();
-
-    (
-        owner,
-        manager_id,
-        transceiver,
-        MockNttManagerClient::new(env, &manager),
-        WormholeClient::new(env, &core),
-    )
+    let manager = env.register(MockNttManager, (token, Mode::Burning, 7u32));
+    let core = env.register(MockWormholeCore, (0u64,));
+    TransceiverContractClient::new(env, &env.register(TransceiverContract, (&owner, &manager, &core)))
 }
