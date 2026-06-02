@@ -19,23 +19,10 @@ pub fn signed_inbound_vaa(
     Bytes::from_slice(env, &assemble(0, &[sign(&body, &GUARDIAN_SECRET, 0)], &body))
 }
 
-/// Same as [`signed_inbound_vaa`] but flips one signature byte so the core's
-/// `parse_and_verify_vaa` rejects it — the inbound path where verification
-/// itself is the active barrier.
-pub fn tampered_inbound_vaa(
-    env: &Env,
-    emitter_chain: u16,
-    emitter_address: &BytesN<32>,
-    sequence: u64,
-    payload: &Bytes,
-) -> Bytes {
-    let body = serialize_body(env, emitter_chain, emitter_address, sequence, payload);
-    let mut bad = sign(&body, &GUARDIAN_SECRET, 0);
-    bad.sig[0] ^= 0xFF;
-    Bytes::from_slice(env, &assemble(0, &[bad], &body))
-}
-
-fn serialize_body(
+/// Serializes a VAA body for `(emitter_chain, emitter_address, sequence)`
+/// wrapping `payload`, ready to be signed and assembled. Exposed so a test that
+/// needs to sign it differently (e.g. tamper with the signature) can reuse it.
+pub fn serialize_body(
     env: &Env,
     emitter_chain: u16,
     emitter_address: &BytesN<32>,

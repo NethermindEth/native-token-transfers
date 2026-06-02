@@ -6,13 +6,15 @@ mod messages;
 #[path = "common/vaa.rs"]
 mod vaa;
 
+use common::guardian::GUARDIAN_SECRET;
 use common::manager::MockNttManagerClient;
 use common::setup_transceiver;
 use messages::build_transceiver_payload;
 use soroban_ntt_client::{MessageReceived, TransceiverError};
 use soroban_sdk::{testutils::Events as _, Bytes, BytesN, Env, Event};
 use stellar_ntt_transceiver::TransceiverContractClient;
-use vaa::{signed_inbound_vaa, tampered_inbound_vaa};
+use vaa::{serialize_body, signed_inbound_vaa};
+use vaa_test_signing::{assemble, sign};
 
 const PEER_CHAIN: u32 = 2;
 const PEER_EMITTER: [u8; 32] = [0xCC; 32];
@@ -46,6 +48,21 @@ fn peer_vaa(env: &Env, recipient_manager: &BytesN<32>, sequence: u64, manager_pa
         sequence,
         &envelope(env, recipient_manager, manager_payload),
     )
+}
+
+/// A [`peer_vaa`] with one signature byte flipped, so the core's verification
+/// rejects it.
+fn tampered_peer_vaa(env: &Env, recipient_manager: &BytesN<32>, sequence: u64) -> Bytes {
+    let body = serialize_body(
+        env,
+        PEER_CHAIN as u16,
+        &BytesN::from_array(env, &PEER_EMITTER),
+        sequence,
+        &envelope(env, recipient_manager, &Bytes::new(env)),
+    );
+    let mut bad = sign(&body, &GUARDIAN_SECRET, 0);
+    bad.sig[0] ^= 0xFF;
+    Bytes::from_slice(env, &assemble(0, &[bad], &body))
 }
 
 /// The whole inbound pipeline: the real core verifies the VAA, the transceiver
@@ -84,11 +101,10 @@ fn receive_message_forwards_and_emits_and_marks_consumed() {
 #[test]
 fn receive_message_rejects_failed_verification() {
     let env = Env::default();
-    let (manager_id, transceiver, _, peer) = setup_with_peer(&env);
+    let (manager_id, transceiver, _, _) = setup_with_peer(&env);
 
-    let bad = tampered_inbound_vaa(&env, PEER_CHAIN as u16, &peer, 7, &envelope(&env, &manager_id, &Bytes::new(&env)));
     assert_eq!(
-        transceiver.try_receive_message(&bad),
+        transceiver.try_receive_message(&tampered_peer_vaa(&env, &manager_id, 7)),
         Err(Ok(TransceiverError::WormholeVerificationFailed))
     );
 }
