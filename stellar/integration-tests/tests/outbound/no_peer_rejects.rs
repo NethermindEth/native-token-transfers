@@ -3,6 +3,8 @@
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
+use crate::common::DUMMY_RECIPIENT;
+
 const UNREGISTERED_CHAIN: u32 = 99;
 const SUPPLY: i128 = 1_000;
 const TRANSFER_AMOUNT: i128 = 100;
@@ -27,10 +29,9 @@ fn setup() -> Fixture {
 fn transfer_to_unconfigured_chain_errors_50() {
     let f = setup();
 
-    let recipient = [0xbb; 32];
     let err = f
         .stack
-        .try_transfer(&f.ctx, TRANSFER_AMOUNT, UNREGISTERED_CHAIN, &recipient, false)
+        .try_transfer(&f.ctx, TRANSFER_AMOUNT, UNREGISTERED_CHAIN, &DUMMY_RECIPIENT, false)
         .expect_err("transfer to unconfigured chain must error");
     assert_eq!(
         err.code,

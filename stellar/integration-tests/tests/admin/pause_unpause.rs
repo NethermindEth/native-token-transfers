@@ -3,8 +3,7 @@
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
 
 struct Fixture {
     ctx: TestContext,
@@ -42,14 +41,13 @@ fn setup() -> Fixture {
 #[ignore]
 fn pause_blocks_transfer_unpause_is_owner_only() {
     let f = setup();
-    let recipient = [0xbb; 32];
 
     f.stack.pause("pauser", &f.pauser_addr);
     assert!(f.stack.paused(&f.ctx));
 
     let err = f
         .stack
-        .try_transfer(&f.ctx, 100, PEER_CHAIN, &recipient, false)
+        .try_transfer(&f.ctx, 100, PEER_CHAIN, &DUMMY_RECIPIENT, false)
         .expect_err("transfer must error while paused");
     assert_eq!(
         err.code,

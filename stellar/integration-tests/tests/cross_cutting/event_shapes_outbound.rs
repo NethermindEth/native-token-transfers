@@ -5,8 +5,8 @@ use std::time::Duration;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+
 const SUPPLY: i128 = 100_000_000;
 const TRANSFER_AMOUNT: i128 = 10_000_000;
 const TRIMMED_AMOUNT: u64 = 10_000_000;
@@ -32,9 +32,9 @@ fn setup() -> Fixture {
 #[ignore]
 fn transfer_sent_event_carries_typed_topics_and_data_fields() {
     let f = setup();
-    let recipient = [0xbb; 32];
 
-    f.stack.transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &recipient, false);
+    f.stack
+        .transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false);
 
     let event = f
         .stack

@@ -3,9 +3,8 @@
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const RECIPIENT: [u8; 32] = [0xbb; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+
 const SUPPLY: i128 = 1_000;
 const OUTBOUND_LIMIT: u64 = 100;
 const FIRST_AMOUNT: i128 = 50;
@@ -42,14 +41,14 @@ fn outbound_over_capacity_no_queue_refunds_and_errors_62() {
     let f = setup();
 
     f.stack
-        .try_transfer(&f.ctx, FIRST_AMOUNT, PEER_CHAIN, &RECIPIENT, false)
+        .try_transfer(&f.ctx, FIRST_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false)
         .expect("first transfer should succeed");
     let after_first = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     assert_eq!(after_first, SUPPLY - FIRST_AMOUNT);
 
     let err = f
         .stack
-        .try_transfer(&f.ctx, SECOND_AMOUNT, PEER_CHAIN, &RECIPIENT, false)
+        .try_transfer(&f.ctx, SECOND_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false)
         .expect_err("second transfer should fail with rate-limit reject");
     assert_eq!(
         err.code,

@@ -6,8 +6,7 @@ use integration_tests::messages::{encode_ntt_manager_message, NttManagerMessageI
 use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
 
 struct Fixture {
     ctx: TestContext,
@@ -48,7 +47,7 @@ fn rogue_caller_to_attestation_received_errors_40() {
         source_token: [0xa0; 32],
         recipient: f.recipient_bytes32,
         recipient_chain: f.ctx.stellar_chain_id,
-        trimmed_amount: 100_000_000,
+        trimmed_amount: STANDARD_TRIMMED_AMOUNT,
         trimmed_decimals: 8,
     });
     let payload_hex = hex::encode(&payload);

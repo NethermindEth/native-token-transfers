@@ -1,16 +1,12 @@
 //! Post-execution replay via a second transceiver is idempotent — no double-mint.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
-};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const TRIMMED_AMOUNT: u64 = 100_000_000;
-const EXPECTED_MINT: i128 = 10_000_000;
+use crate::common::{
+    peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_RECEIVED, STANDARD_TRIMMED_AMOUNT,
+};
 
 struct Fixture {
     ctx: TestContext,
@@ -43,24 +39,13 @@ fn setup() -> Fixture {
 }
 
 fn build_vaa(f: &Fixture, sequence: u64) -> String {
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
-    build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0xc0; 32],
-            sender: [0xc1; 32],
-            source_token: [0xc2; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: TRIMMED_AMOUNT,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
+    build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
         sequence,
-        guardian_secret: &f.ctx.guardian_secret,
-    })
+    ))
 }
 
 /// Catches: an executed inbound message being replayed via a second
@@ -79,7 +64,7 @@ fn second_transceiver_replay_after_execution_is_idempotent() {
 
     let after_first = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
-        after_first, EXPECTED_MINT,
+        after_first, STANDARD_RECEIVED,
         "threshold=1: first attestation must execute the mint"
     );
 
@@ -87,7 +72,7 @@ fn second_transceiver_replay_after_execution_is_idempotent() {
 
     let after_second = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
-        after_second, EXPECTED_MINT,
+        after_second, STANDARD_RECEIVED,
         "second VAA via a different transceiver must NOT mint again"
     );
 }

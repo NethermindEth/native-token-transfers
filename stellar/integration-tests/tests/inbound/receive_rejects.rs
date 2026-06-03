@@ -6,17 +6,17 @@
 
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
-    build_inbound_vaa_hex, build_inbound_vaa_hex_tampered_signature, stellar_addr_to_bytes32,
-    InboundVaaInputs, NttManagerMessageInputs,
+    build_inbound_vaa_hex, build_inbound_vaa_hex_tampered_signature, InboundVaaInputs,
 };
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{
+    peer_inbound_vaa, DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS,
+    STANDARD_TRIMMED_AMOUNT,
+};
+
 const ROGUE_EMITTER: [u8; 32] = [0xbb; 32];
 const WRONG_MANAGER: [u8; 32] = [0xcc; 32];
-const PEER_DECIMALS: u32 = 8;
-const RECIPIENT: [u8; 32] = [0x40; 32];
 
 struct Fixture {
     ctx: TestContext,
@@ -31,27 +31,11 @@ fn setup() -> Fixture {
     Fixture { ctx, stack }
 }
 
-/// A valid inbound VAA from the registered peer. Each test perturbs exactly
+/// A valid inbound VAA from the standard peer. Each test perturbs exactly
 /// one aspect of this baseline (the signature, the emitter, the recipient
 /// manager, or the peer's enabled state) via struct-update syntax.
 fn valid_inputs(f: &Fixture) -> InboundVaaInputs<'_> {
-    InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0x10; 32],
-            sender: [0x20; 32],
-            source_token: [0x30; 32],
-            recipient: RECIPIENT,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: 100_000_000,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: stellar_addr_to_bytes32(&f.stack.manager),
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
-        sequence: 0,
-        guardian_secret: &f.ctx.guardian_secret,
-    }
+    peer_inbound_vaa(&f.ctx, &f.stack.manager, DUMMY_RECIPIENT, STANDARD_TRIMMED_AMOUNT, 0)
 }
 
 fn assert_receive_rejects(f: &Fixture, vaa_hex: &str, code: u32) {

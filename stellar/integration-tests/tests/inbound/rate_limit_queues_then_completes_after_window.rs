@@ -4,15 +4,13 @@ use std::{thread, time::Duration};
 
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
-    build_inbound_vaa_hex, compute_message_digest, InboundVaaInputs,
+    build_inbound_vaa_hex, compute_message_digest, stellar_addr_to_bytes32,
     NttManagerMessageInputs,
 };
-use integration_tests::messages::stellar_addr_to_bytes32;
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const PEER_DECIMALS: u32 = 8;
+use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
+
 const INBOUND_LIMIT: u64 = 150_000_000;
 const RATE_LIMIT_DURATION: u64 = 60;
 const PRIMER_TRIMMED: u64 = 100_000_000;
@@ -49,33 +47,11 @@ fn setup() -> Fixture {
     }
 }
 
-fn send_vaa(
-    f: &Fixture,
-    id: [u8; 32],
-    trimmed: u64,
-    sequence: u64,
-) -> NttManagerMessageInputs {
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
-    let ntt = NttManagerMessageInputs {
-        id,
-        sender: [0x22; 32],
-        source_token: [0x33; 32],
-        recipient: f.recipient_bytes32,
-        recipient_chain: f.ctx.stellar_chain_id,
-        trimmed_amount: trimmed,
-        trimmed_decimals: 8,
-    };
-    let vaa_hex = build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt,
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
-        sequence,
-        guardian_secret: &f.ctx.guardian_secret,
-    });
-    f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
-    ntt
+fn send_vaa(f: &Fixture, trimmed: u64, sequence: u64) -> NttManagerMessageInputs {
+    let inputs = peer_inbound_vaa(&f.ctx, &f.stack.manager, f.recipient_bytes32, trimmed, sequence);
+    f.stack
+        .receive_message(&f.ctx, &f.stack.transceiver, &build_inbound_vaa_hex(&inputs));
+    inputs.ntt
 }
 
 /// Catches: queued inbound transfers that never release after their window —
@@ -86,11 +62,11 @@ fn send_vaa(
 fn queued_inbound_releases_after_window() {
     let f = setup();
 
-    send_vaa(&f, [0x40; 32], PRIMER_TRIMMED, 0);
+    send_vaa(&f, PRIMER_TRIMMED, 0);
     let after_primer = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(after_primer, PRIMER_MINT);
 
-    let queued_ntt = send_vaa(&f, [0x41; 32], QUEUED_TRIMMED, 1);
+    let queued_ntt = send_vaa(&f, QUEUED_TRIMMED, 1);
     let after_queue = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
         after_queue, PRIMER_MINT,

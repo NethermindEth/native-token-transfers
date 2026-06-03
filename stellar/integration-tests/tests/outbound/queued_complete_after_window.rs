@@ -5,9 +5,8 @@ use std::{thread, time::Duration};
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const RECIPIENT: [u8; 32] = [0xbb; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+
 const SUPPLY: i128 = 1_000;
 const OUTBOUND_LIMIT: u64 = 100;
 const RATE_LIMIT_DURATION: u64 = 60;
@@ -45,11 +44,11 @@ fn setup() -> Fixture {
 fn queued_outbound_releases_after_window() {
     let f = setup();
 
-    f.stack.transfer(&f.ctx, PRIMER_AMOUNT, PEER_CHAIN, &RECIPIENT, false);
+    f.stack.transfer(&f.ctx, PRIMER_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false);
 
     let queued = f
         .stack
-        .transfer(&f.ctx, QUEUED_AMOUNT, PEER_CHAIN, &RECIPIENT, true);
+        .transfer(&f.ctx, QUEUED_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, true);
     let sequence = parse_i128(&queued["sequence"]) as u64;
     assert!(
         queued["queued"].as_bool().unwrap_or(false),

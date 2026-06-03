@@ -2,15 +2,12 @@
 
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, stellar_addr_to_bytes32, InboundVaaInputs, NttManagerMessageInputs,
-};
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const TRIMMED_AMOUNT: u64 = 100_000_000;
-const EXPECTED_MINT: i128 = 10_000_000;
+use crate::common::{
+    peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_RECEIVED, STANDARD_TRIMMED_AMOUNT,
+};
 
 struct Fixture {
     ctx: TestContext,
@@ -62,28 +59,18 @@ fn disabling_transceiver_drops_threshold_and_executes_single_attestation() {
         "disabling one of two transceivers under threshold=2 must auto-drop threshold to 1"
     );
 
-    let vaa = build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0xe0; 32],
-            sender: [0xe1; 32],
-            source_token: [0xe2; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: TRIMMED_AMOUNT,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: stellar_addr_to_bytes32(&f.stack.manager),
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
-        sequence: 0,
-        guardian_secret: &f.ctx.guardian_secret,
-    });
+    let vaa = build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
+        0,
+    ));
     f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa);
 
     assert_eq!(
         f.stack.token_balance(&f.ctx, &f.recipient_addr),
-        EXPECTED_MINT,
+        STANDARD_RECEIVED,
         "after the threshold auto-drop, a single attestation must execute"
     );
 }

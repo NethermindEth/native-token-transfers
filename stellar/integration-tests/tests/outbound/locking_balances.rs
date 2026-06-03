@@ -6,8 +6,8 @@ use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+
 const TRANSFER_AMOUNT: i128 = 100_000_000;
 
 struct Fixture {
@@ -40,8 +40,8 @@ fn outbound_locking_debits_sender_credits_manager_contract() {
     let sender_before = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     let manager_before = f.stack.token_balance(&f.ctx, &f.stack.manager);
 
-    let recipient = [0xbb; 32];
-    f.stack.transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &recipient, false);
+    f.stack
+        .transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false);
 
     let sender_after = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     let manager_after = f.stack.token_balance(&f.ctx, &f.stack.manager);

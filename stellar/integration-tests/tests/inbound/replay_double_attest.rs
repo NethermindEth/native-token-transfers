@@ -1,14 +1,10 @@
 //! Manager-side bitmap collision fires when the same transceiver attests the same digest twice.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
-};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
 
 struct Fixture {
     ctx: TestContext,
@@ -40,24 +36,13 @@ fn setup() -> Fixture {
 }
 
 fn build_vaa(f: &Fixture, sequence: u64) -> String {
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
-    build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0xb0; 32],
-            sender: [0xb1; 32],
-            source_token: [0xb2; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: 100_000_000,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
+    build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
         sequence,
-        guardian_secret: &f.ctx.guardian_secret,
-    })
+    ))
 }
 
 /// Catches: a single transceiver being able to double-attest the same

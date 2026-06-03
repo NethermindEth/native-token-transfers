@@ -1,17 +1,13 @@
 //! End-to-end inbound burning happy path: signed VAA → Wormhole verify → transceiver decode → manager mint to recipient.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
-};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const PEER_DECIMALS: u32 = 8;
-const TRIMMED_AMOUNT: u64 = 100_000_000;
-const EXPECTED_MINT: i128 = 10_000_000;
+use crate::common::{
+    peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS, STANDARD_RECEIVED,
+    STANDARD_TRIMMED_AMOUNT,
+};
 
 struct Fixture {
     ctx: TestContext,
@@ -44,31 +40,20 @@ fn setup() -> Fixture {
 #[ignore]
 fn inbound_burning_mints_recipient() {
     let f = setup();
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
 
-    let vaa_hex = build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0x10; 32],
-            sender: [0x20; 32],
-            source_token: [0x30; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: TRIMMED_AMOUNT,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
-        sequence: 0,
-        guardian_secret: &f.ctx.guardian_secret,
-    });
+    let vaa_hex = build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
+        0,
+    ));
 
     f.stack.receive_message(&f.ctx, &f.stack.transceiver, &vaa_hex);
 
     let recipient_balance = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
-        recipient_balance, EXPECTED_MINT,
+        recipient_balance, STANDARD_RECEIVED,
         "recipient must hold the untrimmed mint amount"
     );
 }
