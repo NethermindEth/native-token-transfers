@@ -5,7 +5,8 @@ use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32
 use integration_tests::TestContext;
 
 use crate::common::{
-    peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_RECEIVED, STANDARD_TRIMMED_AMOUNT,
+    peer_inbound_vaa, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN, STANDARD_RECEIVED,
+    STANDARD_TRIMMED_AMOUNT,
 };
 
 struct Fixture {
@@ -74,5 +75,15 @@ fn second_transceiver_replay_after_execution_is_idempotent() {
     assert_eq!(
         after_second, STANDARD_RECEIVED,
         "second VAA via a different transceiver must NOT mint again"
+    );
+
+    let replayed = f
+        .stack
+        .manager_events(&f.ctx)
+        .find_with_topic("message_already_executed", EVENT_TIMEOUT);
+    assert!(
+        replayed.is_some(),
+        "replaying an executed digest must emit message_already_executed, \
+         confirming the idempotency path ran"
     );
 }

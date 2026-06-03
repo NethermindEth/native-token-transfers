@@ -3,7 +3,7 @@
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;
 
-use crate::common::{complete_after_window, DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+use crate::common::{complete_after_window, DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const SUPPLY: i128 = 1_000;
 const OUTBOUND_LIMIT: u64 = 100;
@@ -65,5 +65,17 @@ fn queued_outbound_releases_after_window() {
     assert!(
         queue_item.is_null(),
         "queue entry must be removed after release"
+    );
+
+    // The primer transfer also emits `transfer_sent`, so match on the queued
+    // amount to confirm the *released* transfer actually went out, not just that
+    // the queue entry vanished.
+    let released = f.stack.manager_events(&f.ctx).find(EVENT_TIMEOUT, |ev| {
+        ev.topic_symbol(0).as_deref() == Some("transfer_sent")
+            && ev.data_u64("amount") == Some(QUEUED_AMOUNT as u64)
+    });
+    assert!(
+        released.is_some(),
+        "releasing the queued transfer must emit transfer_sent for the queued amount"
     );
 }

@@ -7,6 +7,11 @@ use soroban_ntt_client::types::Mode;
 use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const TRANSFER_AMOUNT: i128 = 100_000_000;
+/// Upper bound on the transaction fee charged on top of the locked amount. The
+/// token is native XLM, so the sender's drop is `TRANSFER_AMOUNT + fee`; real
+/// Soroban invoke fees are far below 1 XLM, but a double-debit would land an
+/// order of magnitude above it.
+const MAX_FEE: i128 = 10_000_000;
 
 struct Fixture {
     ctx: TestContext,
@@ -49,12 +54,11 @@ fn outbound_locking_debits_sender_credits_manager_contract() {
         TRANSFER_AMOUNT,
         "manager XLM must rise by exactly the transfer amount"
     );
+    let sender_drop = sender_before - sender_after;
     assert!(
-        sender_before - sender_after >= TRANSFER_AMOUNT,
-        "sender XLM must drop by at least the transfer amount (extra = gas); \
-         got drop = {} for transfer = {}",
-        sender_before - sender_after,
-        TRANSFER_AMOUNT
+        (TRANSFER_AMOUNT..=TRANSFER_AMOUNT + MAX_FEE).contains(&sender_drop),
+        "sender XLM must drop by exactly the transfer amount plus gas; \
+         got drop = {sender_drop} for transfer = {TRANSFER_AMOUNT}"
     );
 
     let sent = f
