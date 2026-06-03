@@ -10,6 +10,7 @@
 
 use std::env;
 use std::process::Command;
+use std::{thread, time::Duration};
 
 use crate::cli;
 
@@ -124,21 +125,27 @@ impl TestContext {
         .to_string()
     }
 
-    /// Hits friendbot for `addr`. Panics if the request fails — the caller
-    /// is still responsible for waiting until the funding tx is visible on
-    /// Horizon.
+    /// Funds `addr` via friendbot and blocks until the account is visible on
+    /// Horizon, so callers can use it immediately without racing the indexer.
+    /// Re-requests funding periodically because the first request can be
+    /// dropped while friendbot is still warming up right after localnet start.
+    /// Panics if the account is not visible within the budget.
     pub fn friendbot(&self, addr: &str) {
-        let url = format!("{}?addr={}", self.friendbot_url, addr);
-        let out = Command::new("curl")
-            .args(["-s", &url])
-            .output()
-            .expect("failed to spawn curl");
-        if !out.status.success() {
-            panic!(
-                "friendbot failed for {addr}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
+        let request_url = format!("{}?addr={}", self.friendbot_url, addr);
+        let account_url = format!(
+            "{}/accounts/{addr}",
+            self.friendbot_url.trim_end_matches("/friendbot")
+        );
+        for attempt in 0..60 {
+            if attempt % 20 == 0 {
+                let _ = Command::new("curl").args(["-s", &request_url]).output();
+            }
+            if account_visible(&account_url) {
+                return;
+            }
+            thread::sleep(Duration::from_secs(1));
         }
+        panic!("friendbot funded {addr} but account not visible after 60s");
     }
 
     /// Returns the latest ledger sequence reported by Soroban RPC. Used to
@@ -147,6 +154,15 @@ impl TestContext {
     pub fn current_ledger(&self) -> u32 {
         cli::rpc_latest_ledger(&self.rpc_url)
     }
+}
+
+/// Returns whether Horizon already serves the account at `account_url`
+/// (curl `-f` fails on any non-2xx response).
+fn account_visible(account_url: &str) -> bool {
+    Command::new("curl")
+        .args(["-sf", account_url])
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 fn decode_guardian_secret() -> [u8; 32] {

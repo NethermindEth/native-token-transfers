@@ -23,10 +23,14 @@ if ! stellar keys address "$STELLAR_IDENTITY" >/dev/null 2>&1; then
 fi
 
 IDENTITY_ADDR=$(stellar keys address "$STELLAR_IDENTITY")
-curl -s "$STELLAR_FRIENDBOT_URL?addr=$IDENTITY_ADDR" > /dev/null
 
 HORIZON_URL="${STELLAR_FRIENDBOT_URL%/friendbot}"
 for i in $(seq 1 90); do
+  # Re-request funding periodically: the first hit can be dropped while
+  # friendbot is still warming up right after localnet start.
+  if (( (i - 1) % 15 == 0 )); then
+    curl -s "$STELLAR_FRIENDBOT_URL?addr=$IDENTITY_ADDR" > /dev/null
+  fi
   if curl -sf "$HORIZON_URL/accounts/$IDENTITY_ADDR" >/dev/null 2>&1; then
     echo "Identity $STELLAR_IDENTITY ($IDENTITY_ADDR) funded."
     exit 0
