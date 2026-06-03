@@ -779,59 +779,6 @@ impl Stack {
             .expect("get_owner must return string")
             .to_string()
     }
-
-    /// Broadcasts this transceiver's `WormholeTransceiverInfo` to the
-    /// Wormhole core for off-chain Accountant discovery. Permissionless.
-    pub fn broadcast_id(&self, ctx: &TestContext) -> Value {
-        cli::invoke(&ctx.admin_identity, &self.transceiver, "broadcast_id", &[])
-    }
-
-    /// Broadcasts the `WormholeTransceiverRegistration` for `chain_id`.
-    pub fn broadcast_peer(&self, ctx: &TestContext, chain_id: u32) -> Value {
-        let chain_id_s = chain_id.to_string();
-        cli::invoke(
-            &ctx.admin_identity,
-            &self.transceiver,
-            "broadcast_peer",
-            &["--chain_id", &chain_id_s],
-        )
-    }
-
-    /// `broadcast_peer` returning a `Result` — asserts `PeerNotFound` for a
-    /// chain with no registered peer.
-    pub fn try_broadcast_peer(
-        &self,
-        ctx: &TestContext,
-        chain_id: u32,
-    ) -> Result<Value, cli::CliError> {
-        let chain_id_s = chain_id.to_string();
-        cli::try_invoke(
-            &ctx.admin_identity,
-            &self.transceiver,
-            "broadcast_peer",
-            &["--chain_id", &chain_id_s],
-        )
-    }
-
-    /// Reads the transceiver's `quote_delivery_price` for `chain_id`,
-    /// cross-checked in tests against the live Wormhole core's message fee.
-    pub fn transceiver_quote_delivery_price(&self, ctx: &TestContext, chain_id: u32) -> i128 {
-        let chain_id_s = chain_id.to_string();
-        let v = cli::invoke(
-            &ctx.admin_identity,
-            &self.transceiver,
-            "quote_delivery_price",
-            &["--recipient_chain", &chain_id_s],
-        );
-        parse_i128(&v)
-    }
-
-    /// Builds an [`EventQuery`] scoped to the Wormhole core — used to read
-    /// the `MessagePublished` events that `broadcast_id` / `broadcast_peer`
-    /// post.
-    pub fn wormhole_core_events<'a>(&'a self, ctx: &'a TestContext) -> EventQuery<'a> {
-        EventQuery::new(ctx, &self.wormhole_core)
-    }
 }
 
 /// Parses a Soroban `i128` return value out of the CLI's JSON output, which
