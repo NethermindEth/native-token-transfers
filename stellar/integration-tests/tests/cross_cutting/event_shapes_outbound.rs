@@ -1,11 +1,9 @@
 //! Asserts the typed shape of the `transfer_sent` event — topic order and data field names.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const SUPPLY: i128 = 100_000_000;
 const TRANSFER_AMOUNT: i128 = 10_000_000;
@@ -39,7 +37,7 @@ fn transfer_sent_event_carries_typed_topics_and_data_fields() {
     let event = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_sent", Duration::from_secs(15))
+        .find_with_topic("transfer_sent", EVENT_TIMEOUT)
         .expect("transfer_sent must fire");
 
     assert_eq!(

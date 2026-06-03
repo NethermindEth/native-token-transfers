@@ -1,12 +1,10 @@
 //! Asserts the typed shape of `message_attested_to` and `transfer_redeemed` events.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
+use crate::common::{peer_inbound_vaa, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
 
 struct Fixture {
     ctx: TestContext,
@@ -49,7 +47,7 @@ fn inbound_emits_message_attested_to_and_transfer_redeemed() {
     let attested = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("message_attested_to", Duration::from_secs(15))
+        .find_with_topic("message_attested_to", EVENT_TIMEOUT)
         .expect("message_attested_to must fire");
     assert_eq!(
         attested.data_u32("index"),
@@ -60,7 +58,7 @@ fn inbound_emits_message_attested_to_and_transfer_redeemed() {
     let redeemed = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_redeemed", Duration::from_secs(15))
+        .find_with_topic("transfer_redeemed", EVENT_TIMEOUT)
         .expect("transfer_redeemed must fire");
     assert!(
         redeemed.topics.get(1).is_some(),

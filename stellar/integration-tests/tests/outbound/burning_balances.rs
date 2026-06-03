@@ -1,11 +1,9 @@
 //! End-to-end outbound burning happy path: sender burns, manager balance stays zero, `transfer_sent` fires.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const SUPPLY: i128 = 100_000_000;
 const TRANSFER_AMOUNT: i128 = 60_000_000;
@@ -54,6 +52,6 @@ fn outbound_burning_burns_sender_keeps_manager_at_zero() {
     let sent = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_sent", Duration::from_secs(15));
+        .find_with_topic("transfer_sent", EVENT_TIMEOUT);
     assert!(sent.is_some(), "manager must emit transfer_sent within 15s");
 }

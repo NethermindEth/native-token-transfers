@@ -1,12 +1,10 @@
 //! End-to-end outbound locking happy path: sender debits to manager SAC custody, `transfer_sent` fires.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 
-use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const TRANSFER_AMOUNT: i128 = 100_000_000;
 
@@ -62,6 +60,6 @@ fn outbound_locking_debits_sender_credits_manager_contract() {
     let sent = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_sent", Duration::from_secs(15));
+        .find_with_topic("transfer_sent", EVENT_TIMEOUT);
     assert!(sent.is_some(), "manager must emit transfer_sent within 15s");
 }

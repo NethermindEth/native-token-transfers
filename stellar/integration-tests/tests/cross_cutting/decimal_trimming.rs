@@ -1,11 +1,9 @@
 //! Asserts the manager trims sub-canonical-decimal dust on outbound and emits the trimmed amount in the `transfer_sent` event.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
+use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
 
 const SOURCE_DECIMALS: u32 = 9;
 const SUPPLY: i128 = 1_000_000_003;
@@ -55,7 +53,7 @@ fn outbound_trims_to_canonical_decimals_keeps_dust_on_sender() {
     let event = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_sent", Duration::from_secs(15))
+        .find_with_topic("transfer_sent", EVENT_TIMEOUT)
         .expect("transfer_sent must fire");
     assert_eq!(
         event.data_u64("amount"),

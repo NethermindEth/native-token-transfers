@@ -2,6 +2,8 @@
 //! that nearly every scenario registers, and a builder for a valid inbound
 //! VAA from that peer which tests perturb via struct-update syntax.
 
+use std::time::Duration;
+
 use integration_tests::messages::{
     stellar_addr_to_bytes32, InboundVaaInputs, NttManagerMessageInputs,
 };
@@ -29,6 +31,12 @@ pub const STANDARD_RECEIVED: i128 = 10_000_000;
 /// balance (outbound transfers, inbound rejections). Tests that assert a
 /// minted or unlocked balance use a funded `setup_identity` instead.
 pub const DUMMY_RECIPIENT: [u8; 32] = [0x40; 32];
+
+/// How long event-shape assertions poll the RPC indexer for an event before
+/// giving up. The indexer lags ledger close and occasionally stalls for tens
+/// of seconds under load, so this is generous; it only bounds the
+/// genuine-failure path, since a present event returns on the first poll.
+pub const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A valid inbound VAA from the standard peer ([`PEER_ADDR`] on
 /// [`PEER_CHAIN`]) addressed to `manager`, sending `trimmed_amount` 8-decimal
