@@ -13,7 +13,7 @@ use soroban_ntt_client::{
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
-    Address, BytesN, Env, Event,
+    Address, Bytes, BytesN, Env, Event,
 };
 use stellar_ntt_manager::ManagerContractClient;
 use transceiver::{add_transceiver, MockTransceiver, MockTransceiverClient};
@@ -80,6 +80,24 @@ fn transfer_locks_tokens_and_dispatches() {
     let mock = TokenClient::new(&env, &token);
     assert_eq!(mock.balance(&sender), 900);
     assert_eq!(mock.balance(&client.address), 100);
+}
+
+/// `transfer_with_payload` threads the caller's additional payload into the
+/// dispatched NTT message. A dropped or unserialized payload would silently
+/// deliver the transfer without the data the destination contract expects.
+#[test]
+fn transfer_with_payload_dispatches_additional_payload() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, transceiver, sender) = outbound_setup(&env, Mode::Locking, u64::MAX);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+    let payload = Bytes::from_array(&env, &[0xDE, 0xAD, 0xBE, 0xEF]);
+
+    client.transfer_with_payload(&sender, &100, &DEST_CHAIN, &recipient, &false, &payload);
+
+    let sent = MockTransceiverClient::new(&env, &transceiver).last_sent().unwrap();
+    let decoded = NttManagerMessage::from_bytes(&env, &sent.manager_payload).unwrap();
+    assert_eq!(decoded.payload.additional_payload, Some(payload));
 }
 
 /// A burning transfer reduces the sender's balance without the manager holding
