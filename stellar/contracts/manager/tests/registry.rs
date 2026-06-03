@@ -139,6 +139,21 @@ fn threshold_transitions() {
     );
 }
 
+/// `validate_invariants` is a permissionless health check that must pass for any
+/// state reachable through the public API. Mis-wiring it so it errors or panics
+/// on a healthy registry would break off-chain monitors that poll it.
+#[test]
+fn validate_invariants_holds_for_healthy_registry() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, client) = setup_manager(&env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600);
+    add_transceiver(&env, &client, 0, false);
+    add_transceiver(&env, &client, 0, false);
+    client.set_threshold(&2);
+
+    assert_eq!(client.try_validate_invariants(), Ok(Ok(())));
+}
+
 /// Disabling a transceiver retroactively drops its attestation from the quorum
 /// count, though the raw historical bit persists. The threshold auto-lowers to
 /// the remaining enabled count (Soroban/Sui behavior).
