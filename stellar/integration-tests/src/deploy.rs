@@ -603,6 +603,23 @@ impl Stack {
         );
     }
 
+    /// `complete_queued_transfer` returning a `Result` so callers can poll the
+    /// rate-limit release gate (which rejects with `TransferNotReleasable`
+    /// until ledger time reaches the queued `release_timestamp`).
+    pub fn try_complete_queued_transfer(
+        &self,
+        ctx: &TestContext,
+        sequence: u64,
+    ) -> Result<Value, cli::CliError> {
+        let s = sequence.to_string();
+        cli::try_invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "complete_queued_transfer",
+            &["--sequence", &s],
+        )
+    }
+
     /// Submits a signed VAA to `transceiver_addr.receive_message`. Used for
     /// inbound flows after constructing the VAA via
     /// `messages::build_inbound_vaa_hex`.
@@ -656,6 +673,22 @@ impl Stack {
             "complete_inbound_transfer",
             &["--digest", digest_hex],
         );
+    }
+
+    /// `complete_inbound_transfer` returning a `Result` so callers can poll the
+    /// rate-limit release gate (which rejects with `TransferNotReleasable`
+    /// until ledger time reaches the queued `release_timestamp`).
+    pub fn try_complete_inbound_transfer(
+        &self,
+        ctx: &TestContext,
+        digest_hex: &str,
+    ) -> Result<Value, cli::CliError> {
+        cli::try_invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "complete_inbound_transfer",
+            &["--digest", digest_hex],
+        )
     }
 
     /// Disables `transceiver` on the manager under admin auth. When this

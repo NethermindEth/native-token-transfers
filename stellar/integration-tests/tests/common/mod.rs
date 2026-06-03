@@ -2,12 +2,15 @@
 //! that nearly every scenario registers, and a builder for a valid inbound
 //! VAA from that peer which tests perturb via struct-update syntax.
 
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
+use integration_tests::cli::CliError;
 use integration_tests::messages::{
     stellar_addr_to_bytes32, InboundVaaInputs, NttManagerMessageInputs,
 };
 use integration_tests::TestContext;
+use serde_json::Value;
 
 /// Wormhole chain id of the standard test peer.
 pub const PEER_CHAIN: u32 = 2;
@@ -65,5 +68,44 @@ pub fn peer_inbound_vaa<'a>(
         emitter_address: PEER_ADDR,
         sequence,
         guardian_secret: &ctx.guardian_secret,
+    }
+}
+
+/// `NttManagerError::TransferNotReleasable` — completion attempted before the
+/// queued transfer's `release_timestamp` is reached in ledger time.
+const TRANSFER_NOT_RELEASABLE: u32 = 64;
+
+/// How long [`complete_after_window`] polls the release gate before giving up.
+/// Generous because the gate advances with ledger close, which can lag
+/// wall-clock under load; a stalled ledger fails loudly rather than hanging.
+const WINDOW_POLL_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Delay between release-gate poll attempts.
+const WINDOW_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Completes a rate-limit-queued transfer once its window has elapsed in
+/// *ledger* time, by polling `attempt` until it succeeds.
+///
+/// The release gate is `now >= release_timestamp` on the ledger clock, which
+/// advances only as ledgers close — so a fixed wall-clock sleep can under- or
+/// over-shoot on a slow CI. We instead retry the real completion call, treating
+/// `TransferNotReleasable` as "not yet" and surfacing any other error
+/// immediately.
+pub fn complete_after_window(mut attempt: impl FnMut() -> Result<Value, CliError>) {
+    let deadline = Instant::now() + WINDOW_POLL_TIMEOUT;
+    loop {
+        match attempt() {
+            Ok(_) => return,
+            Err(e) if e.code == Some(TRANSFER_NOT_RELEASABLE) => {
+                if Instant::now() >= deadline {
+                    panic!(
+                        "queued transfer still not releasable after {:?}",
+                        WINDOW_POLL_TIMEOUT
+                    );
+                }
+                thread::sleep(WINDOW_POLL_INTERVAL);
+            }
+            Err(e) => panic!("completion failed (code {:?}): {}", e.code, e.raw),
+        }
     }
 }

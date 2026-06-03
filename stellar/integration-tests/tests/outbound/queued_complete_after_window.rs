@@ -1,18 +1,15 @@
 //! Queued outbound transfer completes after its rate-limit window elapses.
 
-use std::{thread, time::Duration};
-
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;
 
-use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+use crate::common::{complete_after_window, DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
 
 const SUPPLY: i128 = 1_000;
 const OUTBOUND_LIMIT: u64 = 100;
 const RATE_LIMIT_DURATION: u64 = 60;
 const PRIMER_AMOUNT: i128 = 50;
 const QUEUED_AMOUNT: i128 = 75;
-const WAIT_SECONDS: u64 = 18;
 
 struct Fixture {
     ctx: TestContext,
@@ -62,9 +59,7 @@ fn queued_outbound_releases_after_window() {
         "queued transfer must debit sender at queue time"
     );
 
-    thread::sleep(Duration::from_secs(WAIT_SECONDS));
-
-    f.stack.complete_queued_transfer(&f.ctx, sequence);
+    complete_after_window(|| f.stack.try_complete_queued_transfer(&f.ctx, sequence));
 
     let queue_item = f.stack.outbound_queue_item(&f.ctx, sequence);
     assert!(

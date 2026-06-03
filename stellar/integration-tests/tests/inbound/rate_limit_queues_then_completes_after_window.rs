@@ -1,7 +1,5 @@
 //! Inbound queue + window release: an over-limit VAA queues, then completes after the wall-clock window elapses.
 
-use std::{thread, time::Duration};
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, compute_message_digest, stellar_addr_to_bytes32,
@@ -9,7 +7,7 @@ use integration_tests::messages::{
 };
 use integration_tests::TestContext;
 
-use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
+use crate::common::{complete_after_window, peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
 
 const INBOUND_LIMIT: u64 = 150_000_000;
 const RATE_LIMIT_DURATION: u64 = 60;
@@ -17,7 +15,6 @@ const PRIMER_TRIMMED: u64 = 100_000_000;
 const QUEUED_TRIMMED: u64 = 75_000_000;
 const PRIMER_MINT: i128 = 10_000_000;
 const QUEUED_MINT: i128 = 7_500_000;
-const WAIT_SECONDS: u64 = 18;
 
 struct Fixture {
     ctx: TestContext,
@@ -82,9 +79,7 @@ fn queued_inbound_releases_after_window() {
         "second VAA must have created a queue entry: got {queue_item}"
     );
 
-    thread::sleep(Duration::from_secs(WAIT_SECONDS));
-
-    f.stack.complete_inbound_transfer(&f.ctx, &digest_hex);
+    complete_after_window(|| f.stack.try_complete_inbound_transfer(&f.ctx, &digest_hex));
 
     let final_balance = f.stack.token_balance(&f.ctx, &f.recipient_addr);
     assert_eq!(
