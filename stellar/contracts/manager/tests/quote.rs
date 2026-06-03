@@ -26,6 +26,25 @@ fn quote_transfer_rejects_bad_inputs() {
     );
 }
 
+/// `quote_transfer` validates its amount like `transfer` does, so a quote can
+/// never accept an amount the transfer would reject: zero and a negative amount
+/// (which would wrap through the `i128 as u128` cast into a bogus large value)
+/// both fail with `ZeroAmount` before any trimming.
+#[test]
+fn quote_transfer_rejects_non_positive_amount() {
+    let env = Env::default();
+    let (_, _, client) = setup_manager(&env, Mode::Locking, 1, 1000, 3600);
+
+    assert_eq!(
+        client.try_quote_transfer(&0, &2),
+        Err(Ok(NttManagerError::ZeroAmount))
+    );
+    assert_eq!(
+        client.try_quote_transfer(&-1, &2),
+        Err(Ok(NttManagerError::ZeroAmount))
+    );
+}
+
 /// `quote_transfer` normalizes an amount to the lesser of local/peer decimals,
 /// returning `(trimmed, dust)`: trimming down sheds dust (7->6), equal decimals
 /// pass through, and a wider peer is capped at the local precision (7->9).
