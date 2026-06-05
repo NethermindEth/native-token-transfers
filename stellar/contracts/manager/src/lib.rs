@@ -145,6 +145,10 @@ impl ManagerContract {
     ) -> Result<(u64, u64), NttManagerError> {
         validate_chain_id(recipient_chain).ok_or(NttManagerError::ChainIdTooLarge)?;
 
+        if amount <= 0 {
+            return Err(NttManagerError::ZeroAmount);
+        }
+
         let storage = InstanceStorage::new(&env);
 
         let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;

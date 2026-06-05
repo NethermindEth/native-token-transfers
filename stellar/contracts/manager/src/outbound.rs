@@ -22,22 +22,26 @@ use crate::{
     transceivers::{get_enabled_bitmap, get_enabled_transceivers},
 };
 
+/// The message-shaping parameters for an outbound transfer, bundled so
+/// [`send_transfer`] takes one cohesive argument rather than a long list.
+struct OutboundMessage {
+    amount: TrimmedAmount,
+    recipient_chain: u32,
+    recipient_ntt_manager: BytesN<32>,
+    recipient: BytesN<32>,
+    source_token: BytesN<32>,
+    additional_payload: Option<Bytes>,
+}
+
 /// Sends a transfer message to all enabled transceivers.
 ///
 /// Creates an NTT message, computes its digest, and dispatches it to each
-/// enabled transceiver for cross-chain delivery. Uses `use_message_sequence`
-/// to assign a unique sequence number. Returns the sequence and digest for
-/// tracking and verification.
-#[allow(clippy::too_many_arguments)]
-pub fn send_transfer(
+/// enabled transceiver for cross-chain delivery. Assigns a unique sequence
+/// number, and returns the sequence and digest for tracking and verification.
+fn send_transfer(
     env: &Env,
     sender: &Address,
-    amount: &TrimmedAmount,
-    recipient_chain: u32,
-    recipient_ntt_manager: &BytesN<32>,
-    recipient: &BytesN<32>,
-    source_token: &BytesN<32>,
-    additional_payload: &Option<Bytes>,
+    msg: &OutboundMessage,
 ) -> Result<(u64, BytesN<32>), NttManagerError> {
     let storage = InstanceStorage::new(env);
     let sequence = storage.use_sequence();
@@ -48,11 +52,11 @@ pub fn send_transfer(
         id: message_id,
         sender: sender_bytes,
         payload: NativeTokenTransfer {
-            amount: *amount,
-            source_token: source_token.clone(),
-            to: recipient.clone(),
-            to_chain: recipient_chain,
-            additional_payload: additional_payload.clone(),
+            amount: msg.amount,
+            source_token: msg.source_token.clone(),
+            to: msg.recipient.clone(),
+            to_chain: msg.recipient_chain,
+            additional_payload: msg.additional_payload.clone(),
         },
     };
 
@@ -69,15 +73,23 @@ pub fn send_transfer(
     for transceiver in transceivers.iter() {
         flatten_call(
             TransceiverClient::new(env, &transceiver).try_send_message(
-                &recipient_chain,
-                recipient_ntt_manager,
+                &msg.recipient_chain,
+                &msg.recipient_ntt_manager,
                 &payload,
             ),
             NttManagerError::TransceiverCallFailed,
         )?;
     }
 
-    emit_transfer_sent(env, recipient, amount.amount, 0, recipient_chain, sequence, &digest);
+    emit_transfer_sent(
+        env,
+        &msg.recipient,
+        msg.amount.amount,
+        0,
+        msg.recipient_chain,
+        sequence,
+        &digest,
+    );
 
     Ok((sequence, digest))
 }
@@ -137,16 +149,15 @@ pub fn transfer_internal(
 
     match rate_result {
         RateLimitResult::Consumed => {
-            let (sequence, digest) = send_transfer(
-                env,
-                sender,
-                &trimmed,
+            let message = OutboundMessage {
+                amount: trimmed,
                 recipient_chain,
-                &peer.address,
-                recipient,
-                &source_token,
-                &additional_payload,
-            )?;
+                recipient_ntt_manager: peer.address.clone(),
+                recipient: recipient.clone(),
+                source_token: source_token.clone(),
+                additional_payload: additional_payload.clone(),
+            };
+            let (sequence, digest) = send_transfer(env, sender, &message)?;
 
             refill_inbound(env, recipient_chain, trimmed.amount);
 
@@ -234,16 +245,15 @@ pub fn complete_outbound_queued_transfer(
     // The user already served their delay in the queue, so we proceed directly.
     // This matches EVM behavior in NttManager.sol:completeOutboundQueuedTransfer
 
-    let (new_sequence, digest) = send_transfer(
-        env,
-        &queued.sender,
-        &queued.amount,
-        queued.recipient_chain,
-        &queued.recipient_ntt_manager,
-        &queued.recipient,
-        &queued.source_token,
-        &queued.additional_payload,
-    )?;
+    let message = OutboundMessage {
+        amount: queued.amount,
+        recipient_chain: queued.recipient_chain,
+        recipient_ntt_manager: queued.recipient_ntt_manager.clone(),
+        recipient: queued.recipient.clone(),
+        source_token: queued.source_token.clone(),
+        additional_payload: queued.additional_payload.clone(),
+    };
+    let (new_sequence, digest) = send_transfer(env, &queued.sender, &message)?;
 
     refill_inbound(env, queued.recipient_chain, queued.amount.amount);
 
