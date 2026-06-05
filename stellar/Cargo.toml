@@ -5,6 +5,7 @@ members = [
   "contracts/soroban-ntt-client",
   "contracts/mock-token",
   "integration-tests",
+  "vaa-test-signing",
 ]
 
 resolver = "3"
@@ -19,6 +20,7 @@ soroban-sdk = { version = "=25.3.0", features = ["hazmat-address"] }
 stellar-xdr = "25"
 wormhole-soroban-client = { git = "https://github.com/NethermindEth/wormhole", branch = "stellar" }
 soroban-ntt-client = { path = "contracts/soroban-ntt-client" }
+vaa-test-signing = { path = "vaa-test-signing" }
 stellar-access = "=0.7.1"
 stellar-contract-utils = "=0.7.1"
 stellar-macros = "=0.7.1"
