@@ -4,9 +4,8 @@ use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const PEER_DECIMALS: u32 = 8;
+use crate::common::{PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
+
 const PEER_INBOUND_LIMIT: u64 = 1_000_000_000;
 
 struct Fixture {

@@ -113,23 +113,30 @@ impl<'a> EventQuery<'a> {
         arr.iter().filter_map(decode_event).collect()
     }
 
-    /// Polls [`fetch`] every second until an event whose first topic is
-    /// `symbol` shows up, or `timeout` elapses. Required because RPC
-    /// indexing lags ledger close — a single fetch right after a tx will
-    /// often miss the event the tx emitted.
-    pub fn find_with_topic(&self, symbol: &str, timeout: Duration) -> Option<DecodedEvent> {
+    /// Polls [`fetch`] every second until an event satisfying `pred` shows up,
+    /// or `timeout` elapses. Required because RPC indexing lags ledger close —
+    /// a single fetch right after a tx will often miss the event it emitted.
+    pub fn find(
+        &self,
+        timeout: Duration,
+        pred: impl Fn(&DecodedEvent) -> bool,
+    ) -> Option<DecodedEvent> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
-            for ev in self.fetch() {
-                if ev.topic_symbol(0).as_deref() == Some(symbol) {
-                    return Some(ev);
-                }
+            if let Some(ev) = self.fetch().into_iter().find(&pred) {
+                return Some(ev);
             }
             if std::time::Instant::now() >= deadline {
                 return None;
             }
             thread::sleep(Duration::from_secs(1));
         }
+    }
+
+    /// Polls until an event whose first topic is `symbol` shows up, or
+    /// `timeout` elapses. Topic 0 is conventionally the event-name symbol.
+    pub fn find_with_topic(&self, symbol: &str, timeout: Duration) -> Option<DecodedEvent> {
+        self.find(timeout, |ev| ev.topic_symbol(0).as_deref() == Some(symbol))
     }
 }
 

@@ -3,8 +3,8 @@
 use integration_tests::deploy::{parse_i128, Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{DUMMY_RECIPIENT, PEER_ADDR, PEER_CHAIN};
+
 const SUPPLY: i128 = 1_000;
 const OUTBOUND_LIMIT: u64 = 100;
 const QUEUED_AMOUNT: i128 = 150;
@@ -39,8 +39,9 @@ fn setup() -> Fixture {
 fn cancel_queued_outbound_refunds_sender_in_full() {
     let f = setup();
 
-    let recipient = [0xbb; 32];
-    let queued = f.stack.transfer(&f.ctx, QUEUED_AMOUNT, PEER_CHAIN, &recipient, true);
+    let queued = f
+        .stack
+        .transfer(&f.ctx, QUEUED_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, true);
     let sequence = parse_i128(&queued["sequence"]) as u64;
     assert!(
         queued["queued"].as_bool().unwrap_or(false),

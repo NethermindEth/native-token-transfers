@@ -4,6 +4,7 @@
 //! and run by `scripts/run-tests.sh`.
 
 mod admin;
+mod common;
 mod cross_cutting;
 mod inbound;
 mod outbound;

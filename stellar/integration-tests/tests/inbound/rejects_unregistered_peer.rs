@@ -1,14 +1,10 @@
 //! Manager-side peer check fires on inbound from a chain whose peer was never registered (surfaces as #36 through the transceiver wrapper).
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
-};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
 
 struct Fixture {
     ctx: TestContext,
@@ -39,25 +35,14 @@ fn setup() -> Fixture {
 #[ignore]
 fn inbound_from_unregistered_manager_peer_errors_36() {
     let f = setup();
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
 
-    let vaa_hex = build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0x50; 32],
-            sender: [0x60; 32],
-            source_token: [0x70; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: 100_000_000,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
-        sequence: 0,
-        guardian_secret: &f.ctx.guardian_secret,
-    });
+    let vaa_hex = build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
+        0,
+    ));
 
     let err = f
         .stack

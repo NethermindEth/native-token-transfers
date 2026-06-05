@@ -1,18 +1,13 @@
 //! Asserts that raising the attestation threshold enforces N-of-M quorum on inbound execution.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{
-    build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
-};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
-const TRIMMED_AMOUNT: u64 = 100_000_000;
-const EXPECTED_MINT: i128 = 10_000_000;
+use crate::common::{
+    peer_inbound_vaa, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN, STANDARD_RECEIVED,
+    STANDARD_TRIMMED_AMOUNT,
+};
 
 struct Fixture {
     ctx: TestContext,
@@ -44,24 +39,13 @@ fn setup() -> Fixture {
 }
 
 fn build_vaa(f: &Fixture, sequence: u64) -> String {
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
-    build_inbound_vaa_hex(&InboundVaaInputs {
-        ntt: NttManagerMessageInputs {
-            id: [0xd0; 32],
-            sender: [0xd1; 32],
-            source_token: [0xd2; 32],
-            recipient: f.recipient_bytes32,
-            recipient_chain: f.ctx.stellar_chain_id,
-            trimmed_amount: TRIMMED_AMOUNT,
-            trimmed_decimals: 8,
-        },
-        source_manager: PEER_ADDR,
-        recipient_manager: manager_bytes32,
-        emitter_chain: PEER_CHAIN as u16,
-        emitter_address: PEER_ADDR,
+    build_inbound_vaa_hex(&peer_inbound_vaa(
+        &f.ctx,
+        &f.stack.manager,
+        f.recipient_bytes32,
+        STANDARD_TRIMMED_AMOUNT,
         sequence,
-        guardian_secret: &f.ctx.guardian_secret,
-    })
+    ))
 }
 
 /// Catches: a regression in threshold enforcement — either a single
@@ -78,7 +62,7 @@ fn raise_threshold_requires_quorum_before_execution() {
     let event = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("threshold_changed", Duration::from_secs(10));
+        .find_with_topic("threshold_changed", EVENT_TIMEOUT);
     assert!(event.is_some(), "set_threshold(2) must emit threshold_changed");
 
     f.stack.receive_message(&f.ctx, &f.stack.transceiver, &build_vaa(&f, 0));
@@ -91,7 +75,7 @@ fn raise_threshold_requires_quorum_before_execution() {
     f.stack.receive_message(&f.ctx, &f.transceiver_two, &build_vaa(&f, 1));
     assert_eq!(
         f.stack.token_balance(&f.ctx, &f.recipient_addr),
-        EXPECTED_MINT,
+        STANDARD_RECEIVED,
         "quorum met, recipient must be minted"
     );
 }

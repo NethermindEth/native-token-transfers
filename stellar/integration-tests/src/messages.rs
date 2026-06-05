@@ -58,15 +58,35 @@ pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
     }
 }
 
-/// Composes the full inbound flow end-to-end: encodes the NTT manager
-/// message, wraps it in a transceiver message with the given source +
-/// recipient managers, builds the VAA body via
-/// `wormhole_soroban_client::VAA::serialize_body`, signs it with the
-/// guardian secret, assembles the VAA, and hex-encodes it for the CLI.
-///
-/// All Soroban-side construction shares one `Env` so `Bytes` flows directly
-/// between the layers without round-tripping through `Vec<u8>`.
+/// Composes the full inbound flow end-to-end: serializes the VAA body
+/// (NTT manager message → transceiver message → VAA envelope), signs it
+/// with the guardian secret, assembles the VAA, and hex-encodes it for the
+/// CLI.
 pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
+    let body = serialize_inbound_vaa_body(inputs);
+    let sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
+    let assembled = vaa::assemble(0, std::slice::from_ref(&sig), &body);
+    hex::encode(assembled)
+}
+
+/// Same as [`build_inbound_vaa_hex`] but flips one byte of the guardian
+/// signature so the real Wormhole core's verification rejects it. The only
+/// way to exercise `WormholeVerificationFailed` at IT level — every other
+/// inbound scenario submits a correctly-signed VAA.
+pub fn build_inbound_vaa_hex_tampered_signature(inputs: &InboundVaaInputs<'_>) -> String {
+    let body = serialize_inbound_vaa_body(inputs);
+    let mut sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
+    sig.sig[0] ^= 0x01;
+    let assembled = vaa::assemble(0, std::slice::from_ref(&sig), &body);
+    hex::encode(assembled)
+}
+
+/// Serializes the VAA body shared by the signed and tampered builders:
+/// the NTT manager message wrapped in a transceiver message, wrapped in the
+/// VAA envelope, via `wormhole_soroban_client::VAA::serialize_body`. All
+/// Soroban-side construction shares one `Env` so `Bytes` flows directly
+/// between the layers without round-tripping through `Vec<u8>`.
+fn serialize_inbound_vaa_body(inputs: &InboundVaaInputs<'_>) -> Vec<u8> {
     let env = Env::default();
 
     let manager_message = build_ntt_message(&env, &inputs.ntt);
@@ -96,10 +116,7 @@ pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
         consistency_level: ConsistencyLevel::Confirmed,
         payload: transceiver_payload,
     };
-    let body: Vec<u8> = vaa_for_body.serialize_body(&env).iter().collect();
-    let sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
-    let assembled = vaa::assemble(0, std::slice::from_ref(&sig), &body);
-    hex::encode(assembled)
+    vaa_for_body.serialize_body(&env).iter().collect()
 }
 
 /// Returns the keccak-256 digest the manager computes on inbound for

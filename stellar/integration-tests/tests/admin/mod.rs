@@ -2,4 +2,7 @@ mod disable_last_transceiver_rejects;
 mod ownership_two_step;
 mod pause_unpause;
 mod register_peer_and_transceiver;
+mod transceiver_disable_adjusts_threshold;
+mod transceiver_ownership_two_step;
+mod transceiver_paused_blocks_io;
 mod transceiver_threshold_changes;

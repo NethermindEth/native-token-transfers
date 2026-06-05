@@ -1,12 +1,10 @@
 //! End-to-end outbound burning happy path: sender burns, manager balance stays zero, `transfer_sent` fires.
 
-use std::time::Duration;
-
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
 
-const PEER_CHAIN: u32 = 2;
-const PEER_ADDR: [u8; 32] = [0xaa; 32];
+use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
+
 const SUPPLY: i128 = 100_000_000;
 const TRANSFER_AMOUNT: i128 = 60_000_000;
 
@@ -35,8 +33,8 @@ fn outbound_burning_burns_sender_keeps_manager_at_zero() {
     let manager_before = f.stack.token_balance(&f.ctx, &f.stack.manager);
     assert_eq!(manager_before, 0, "manager must hold no tokens in burning mode");
 
-    let recipient = [0xbb; 32];
-    f.stack.transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &recipient, false);
+    f.stack
+        .transfer(&f.ctx, TRANSFER_AMOUNT, PEER_CHAIN, &DUMMY_RECIPIENT, false);
 
     let sender_after = f.stack.token_balance(&f.ctx, &f.ctx.admin_address);
     let manager_after = f.stack.token_balance(&f.ctx, &f.stack.manager);
@@ -54,6 +52,6 @@ fn outbound_burning_burns_sender_keeps_manager_at_zero() {
     let sent = f
         .stack
         .manager_events(&f.ctx)
-        .find_with_topic("transfer_sent", Duration::from_secs(15));
+        .find_with_topic("transfer_sent", EVENT_TIMEOUT);
     assert!(sent.is_some(), "manager must emit transfer_sent within 15s");
 }
