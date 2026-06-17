@@ -1,9 +1,9 @@
 use soroban_ntt_client::{
-    address_to_bytes32, emit_message_sent, flatten_call, validate_chain_id, NttManagerClient,
-    TransceiverError, TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+    emit_message_sent, flatten_call, validate_chain_id, NttManagerClient, TransceiverError,
+    TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{Bytes, BytesN, Env};
-use wormhole_soroban_client::{ConsistencyLevel, WormholeClient};
+use wormhole_soroban_client::{hash_address, ConsistencyLevel, WormholeClient};
 
 use crate::peers::{get_peer_info, load_enabled_peer};
 use crate::storage::InstanceStorage;
@@ -49,9 +49,9 @@ pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
     let token_decimals = flatten_call(manager_client.try_token_decimals(), err)?;
 
     let payload = WormholeTransceiverInfo {
-        manager_address: address_to_bytes32(&manager),
+        manager_address: hash_address(env, &manager),
         manager_mode,
-        token_address: address_to_bytes32(&token),
+        token_address: hash_address(env, &token),
         token_decimals: token_decimals as u8,
     }
     .to_bytes(env);

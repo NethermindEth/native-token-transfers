@@ -7,8 +7,9 @@ mod wormhole;
 
 use manager::MockNttManager;
 use wormhole::MockWormholeCore;
-use soroban_ntt_client::{address_to_bytes32, Mode};
+use soroban_ntt_client::Mode;
 use soroban_sdk::{testutils::Address as _, Address, Bytes, Env};
+use wormhole_soroban_client::hash_address;
 use stellar_ntt_transceiver::{TransceiverContract, TransceiverContractClient};
 
 /// The constructor persists owner, manager, the manager id derived from it,
@@ -26,7 +27,7 @@ fn constructor_stores_config_and_constants() {
 
     assert_eq!(t.get_owner(), Some(owner));
     assert_eq!(t.get_manager(), manager);
-    assert_eq!(t.get_manager_id(), address_to_bytes32(&manager));
+    assert_eq!(t.get_manager_id(), hash_address(&env, &manager));
     assert_eq!(t.get_wormhole_core(), core);
     assert_eq!(t.get_version(), 1);
     assert_eq!(t.get_transceiver_type(), Bytes::from_array(&env, b"wormhole"));

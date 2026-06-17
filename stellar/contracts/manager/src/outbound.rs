@@ -6,12 +6,13 @@
 //! - Queue completion and cancellation (implemented in tasks 7.4)
 
 use soroban_ntt_client::{
-    address_to_bytes32, emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
+    emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
     emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, is_zero_bytes32,
     sequence_to_message_id, NativeTokenTransfer, NttManagerError, NttManagerMessage,
     TransceiverClient, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
+use wormhole_soroban_client::hash_address;
 
 use crate::{
     peers::{get_peer, refill_inbound},
@@ -46,7 +47,7 @@ fn send_transfer(
     let storage = InstanceStorage::new(env);
     let sequence = storage.use_sequence();
     let message_id = sequence_to_message_id(env, sequence);
-    let sender_bytes = address_to_bytes32(sender);
+    let sender_bytes = hash_address(env, sender);
 
     let ntt_message = NttManagerMessage {
         id: message_id,
@@ -145,7 +146,7 @@ pub fn transfer_internal(
 
     let rate_result = consume_or_delay_outbound(env, trimmed.amount);
 
-    let source_token = address_to_bytes32(&token);
+    let source_token = hash_address(env, &token);
 
     match rate_result {
         RateLimitResult::Consumed => {
@@ -196,7 +197,7 @@ pub fn transfer_internal(
             emit_outbound_transfer_queued(env, sequence);
 
             let message_id = sequence_to_message_id(env, sequence);
-            let sender_bytes = address_to_bytes32(sender);
+            let sender_bytes = hash_address(env, sender);
             let ntt_message = NttManagerMessage {
                 id: message_id,
                 sender: sender_bytes,

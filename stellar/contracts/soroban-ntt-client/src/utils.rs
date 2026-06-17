@@ -1,32 +1,6 @@
 //! Cross-contract conversion and validation helpers.
 
-use soroban_sdk::{address_payload::AddressPayload, Address, BytesN, Env};
-
-/// Converts a Soroban [`Address`] to its 32-byte cross-chain representation.
-///
-/// Extracts the underlying bytes from either an Ed25519 account public key
-/// or a contract ID hash — both already 32 bytes wide.
-///
-/// # Panics
-/// Panics only if the address has no payload, which the SDK does not
-/// produce for valid addresses.
-pub fn address_to_bytes32(address: &Address) -> BytesN<32> {
-    match address.to_payload().expect("address has no payload") {
-        AddressPayload::AccountIdPublicKeyEd25519(bytes) => bytes,
-        AddressPayload::ContractIdHash(bytes) => bytes,
-    }
-}
-
-/// Reconstructs a Soroban [`Address`] from its 32-byte cross-chain form.
-///
-/// Treats the bytes as an Ed25519 account public key, matching how
-/// inbound NTT messages encode recipients.
-pub fn bytes32_to_address(env: &Env, bytes: &BytesN<32>) -> Address {
-    Address::from_payload(
-        env,
-        AddressPayload::AccountIdPublicKeyEd25519(bytes.clone()),
-    )
-}
+use soroban_sdk::{BytesN, Env};
 
 /// Encodes a manager sequence number as the canonical 32-byte message ID.
 ///

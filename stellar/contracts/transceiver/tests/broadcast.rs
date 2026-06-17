@@ -6,9 +6,10 @@ use common::manager::MockNttManagerClient;
 use common::setup;
 use common::wormhole::MockWormholeCoreClient;
 use soroban_ntt_client::{
-    address_to_bytes32, TransceiverError, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+    TransceiverError, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{BytesN, Env};
+use wormhole_soroban_client::hash_address;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_EMITTER: [u8; 32] = [0xCC; 32];
@@ -28,9 +29,9 @@ fn broadcast_id_posts_typed_envelope() {
     t.broadcast_id();
 
     let expected = WormholeTransceiverInfo {
-        manager_address: address_to_bytes32(&t.get_manager()),
+        manager_address: hash_address(&env, &t.get_manager()),
         manager_mode: manager.get_mode(),
-        token_address: address_to_bytes32(&manager.get_token()),
+        token_address: hash_address(&env, &manager.get_token()),
         token_decimals: manager.token_decimals() as u8,
     }
     .to_bytes(&env);
