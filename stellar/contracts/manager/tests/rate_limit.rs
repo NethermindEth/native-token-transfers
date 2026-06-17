@@ -18,6 +18,7 @@ use soroban_sdk::{
 };
 use token::{MockToken, MockTokenClient};
 use transceiver::add_transceiver;
+use wormhole_soroban_client::hash_address;
 
 const OUR_CHAIN: u32 = 2;
 const PEER_CHAIN: u32 = 6;
@@ -47,8 +48,10 @@ fn circular_rate_limit_backflow() {
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(1000));
 
     // Inbound release consumes inbound capacity and refills outbound (backflow).
-    let inbound_recipient = BytesN::from_array(&env, &[0x33; 32]);
-    let (payload, _) = ntt_message(&env, 300, 7, &inbound_recipient, OUR_CHAIN, PEER_CHAIN);
+    let inbound_recipient = Address::generate(&env);
+    client.record_address(&inbound_recipient);
+    let inbound_recipient_hash = hash_address(&env, &inbound_recipient);
+    let (payload, _) = ntt_message(&env, 300, 7, &inbound_recipient_hash, OUR_CHAIN, PEER_CHAIN);
     client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(700));
     assert_eq!(client.get_outbound_capacity(), 900); // 600 + 300 backflow

@@ -8,13 +8,13 @@
 //! - Manual execution of approved but unexecuted messages
 
 use soroban_ntt_client::{
-    bytes32_to_address, emit_inbound_transfer_queued, emit_message_already_executed,
-    emit_message_attested_to, emit_transfer_redeemed, AttestationInfo, NttManagerError,
-    NttManagerMessage,
+    emit_inbound_transfer_queued, emit_message_already_executed, emit_message_attested_to,
+    emit_transfer_redeemed, AttestationInfo, NttManagerError, NttManagerMessage,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::{
+    address_registry::resolve_address,
     peers::{consume_or_delay_inbound, verify_peer},
     rate_limit::{refill_outbound, RateLimitResult},
     state::{AttestationResult, InboundQueuedTransfer},
@@ -116,7 +116,7 @@ fn execute_inbound_transfer(
         return Err(NttManagerError::InvalidTargetChain);
     }
 
-    let recipient = bytes32_to_address(env, &transfer.to);
+    let recipient = resolve_address(env, &transfer.to)?;
 
     let our_decimals = get_token_decimals(env)?;
     let release_amount = transfer.amount.untrim(our_decimals as u8) as i128;
