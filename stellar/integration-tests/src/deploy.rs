@@ -282,6 +282,18 @@ impl Stack {
         );
     }
 
+    /// Records `addr` in the manager's address registry so an inbound transfer
+    /// to its canonical hash resolves to it. Permissionless; any funded source
+    /// works, so this uses the admin identity for convenience.
+    pub fn record_address(&self, ctx: &TestContext, addr: &str) {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.manager,
+            "record_address",
+            &["--address", addr],
+        );
+    }
+
     /// Registers `transceiver` (any address) on the manager. Used to wire a
     /// second or third transceiver returned by [`deploy_extra_transceiver`].
     pub fn register_transceiver_addr(&self, ctx: &TestContext, transceiver: &str) {

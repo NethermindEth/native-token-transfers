@@ -1,7 +1,7 @@
 //! Asserts that raising the attestation threshold enforces N-of-M quorum on inbound execution.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_hash};
 use integration_tests::TestContext;
 
 use crate::common::{
@@ -27,7 +27,8 @@ fn setup() -> Fixture {
     stack.set_transceiver_peer(&ctx, &transceiver_two, PEER_CHAIN, &PEER_ADDR);
 
     let recipient_addr = ctx.setup_identity("recipient_thresh");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
+    stack.record_address(&ctx, &recipient_addr);
 
     Fixture {
         ctx,

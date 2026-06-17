@@ -14,6 +14,7 @@ The NTT (Native Token Transfers) Manager is a Soroban smart contract that enable
     - [Peers](#peers)
     - [Rate Limiting](#rate-limiting)
     - [Attestation Threshold](#attestation-threshold)
+    - [Address Registry](#address-registry)
   - [Transfer Flows](#transfer-flows)
     - [Outbound Transfer](#outbound-transfer)
     - [Inbound Transfer](#inbound-transfer)
@@ -186,6 +187,29 @@ transfer_approved = attestation_count >= threshold
 - INV-023: `threshold <= enabled_transceiver_count`
 - INV-024: `threshold > 0` when transceivers exist
 
+### Address Registry
+
+Wormhole carries every address as 32 raw bytes, but a Soroban `Address` is
+either a `G…` account or a `C…` contract and the raw bytes don't say which. The
+manager identifies a Stellar address by its **canonical hash**,
+`hash_address(addr) = keccak256(strkey)` — defined once in
+`wormhole-soroban-client` and shared with the off-chain SDK — and keeps a
+persistent `hash → Address` registry so an inbound recipient can be
+reconstructed exactly.
+
+- **`record_address(addr) -> hash`** stores the mapping and returns the hash. It
+  is **permissionless and idempotent**: the key is derived from the value, so
+  the entry is self-consistent and cannot be poisoned by another caller.
+- **Recipients must be registered before redeem.** A recipient — or the relayer
+  / SDK on its behalf — calls `record_address` so the inbound `to` hash
+  resolves. If it hasn't, redeem fails with `RecipientNotRegistered`: a safe,
+  **retryable** failure. The transaction reverts without marking the message
+  executed, so the recipient can register and redeem again — no funds are lost.
+
+Only the inbound recipient is resolved this way; the outbound `sender` /
+`source_token` and advertised manager / token identities are hashed but never
+reconstructed.
+
 ---
 
 ## Transfer Flows
@@ -345,6 +369,7 @@ Transceiver         NTT Manager                  Token Contract
 | `Attestation(digest)` | `AttestationInfo` | Attestation state by message digest |
 | `OutboundQueue(sequence)` | `OutboundQueuedTransfer` | Queued outbound transfers |
 | `InboundQueue(digest)` | `InboundQueuedTransfer` | Queued inbound transfers |
+| `AddressTable(hash)` | `Address` | Recorded recipient address by canonical hash |
 
 ### TTL Configuration
 
@@ -368,7 +393,7 @@ pub const TTL_EXTEND:    u32 = 17280 * 30;   // ~30 days
 | 30-39 | Initialization | `NotInitialized` |
 | 40-49 | Transceivers | `TransceiverNotRegistered`, `MaxTransceiversReached`, `ZeroThreshold` |
 | 50-59 | Peers | `PeerNotFound`, `InvalidPeerChainIdZero`, `InvalidPeer` |
-| 60-69 | Transfers | `ZeroAmount`, `InvalidRecipient`, `TransferExceedsRateLimit` |
+| 60-69 | Transfers | `ZeroAmount`, `InvalidRecipient`, `TransferExceedsRateLimit`, `RecipientNotRegistered` |
 | 70-79 | Reentrancy | `Reentering` |
 | 80-89 | Attestation | `TransceiverNotEnabled`, `TransferAlreadyRedeemed` |
 
@@ -398,6 +423,7 @@ All state-modifying operations use `with_transfer_guard()` which:
 | Pause/Unpause | Admin or Pauser |
 | Cancel queued transfer | Original sender |
 | Complete queued transfer | Permissionless |
+| Register recipient address | Permissionless |
 | Attest message | Transceiver contract |
 
 
@@ -478,6 +504,16 @@ attestation_received(
     source_ntt_manager: BytesN<32>,
     payload: Bytes,             // Encoded NttManagerMessage
 ) -> Result<AttestationResult, Error>
+```
+
+The recipient must be registered first so its on-wire hash resolves (see
+[Address Registry](#address-registry)):
+```rust
+// Permissionless, idempotent; returns the canonical hash used as the wire `to`
+record_address(env, address: Address) -> BytesN<32>
+
+// View the address recorded for a hash, or RecipientNotRegistered
+get_address_from_hash(env, hash: BytesN<32>) -> Result<Address, Error>
 ```
 
 ### Queue Management

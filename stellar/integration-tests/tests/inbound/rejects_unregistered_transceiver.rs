@@ -3,7 +3,7 @@
 use integration_tests::cli::try_invoke;
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{encode_ntt_manager_message, NttManagerMessageInputs};
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::stellar_addr_to_hash;
 use integration_tests::TestContext;
 
 use crate::common::{PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
@@ -22,7 +22,7 @@ fn setup() -> Fixture {
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     let rogue_addr = ctx.setup_identity("rogue_tcv");
     let recipient_addr = ctx.setup_identity("recipient_ut");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
     Fixture {
         ctx,
         stack,
