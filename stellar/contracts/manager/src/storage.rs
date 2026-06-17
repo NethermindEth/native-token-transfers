@@ -277,6 +277,7 @@ pub type OutboundQueueEntry<'a> = PersistentEntry<'a, OutboundQueuedTransfer>;
 pub type InboundQueueEntry<'a> = PersistentEntry<'a, InboundQueuedTransfer>;
 pub type TransceiverEntry<'a> = PersistentEntry<'a, TransceiverInfo>;
 pub type TransceiverIndexEntry<'a> = PersistentEntry<'a, u32>;
+pub type AddressEntry<'a> = PersistentEntry<'a, Address>;
 
 // --- Typed constructors and specialized methods ---
 
@@ -346,5 +347,18 @@ impl<'a> PersistentEntry<'a, u32> {
     #[inline]
     pub fn new(env: &'a Env, address: Address) -> Self {
         Self::from_key(env, DataKey::TransceiverIndex(address))
+    }
+}
+
+impl<'a> PersistentEntry<'a, Address> {
+    #[inline]
+    pub fn new(env: &'a Env, hash: BytesN<32>) -> Self {
+        Self::from_key(env, DataKey::AddressTable(hash))
+    }
+
+    /// Returns `RecipientNotRegistered` if the hash has no recorded address.
+    #[inline]
+    pub fn get_or_err(&self) -> Result<Address, NttManagerError> {
+        self.get().ok_or(NttManagerError::RecipientNotRegistered)
     }
 }

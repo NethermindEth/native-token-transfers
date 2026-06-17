@@ -1,5 +1,6 @@
 #![no_std]
 
+mod address_registry;
 mod inbound;
 mod outbound;
 mod peers;
@@ -225,6 +226,22 @@ impl ManagerContract {
     /// - `ZeroThreshold` if transceivers exist but threshold is 0
     pub fn validate_invariants(env: Env) -> Result<(), NttManagerError> {
         check_threshold_invariants(&env)
+    }
+
+    /// Records a Soroban address under its canonical `hash_address` and returns
+    /// the hash. Permissionless and idempotent — the key is derived from the
+    /// value, so the mapping cannot be poisoned. A recipient must call this
+    /// before an inbound transfer addressed to it can be redeemed.
+    pub fn record_address(env: Env, address: Address) -> BytesN<32> {
+        address_registry::record_address(&env, &address)
+    }
+
+    /// Resolves a recorded address hash, or `RecipientNotRegistered` if unknown.
+    pub fn get_address_from_hash(
+        env: Env,
+        hash: BytesN<32>,
+    ) -> Result<Address, NttManagerError> {
+        address_registry::resolve_address(&env, &hash)
     }
 }
 

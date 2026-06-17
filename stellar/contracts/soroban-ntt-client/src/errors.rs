@@ -15,7 +15,7 @@ use wormhole_soroban_client::WormholeError;
 /// - `20`, `30`: uninitialized storage or components
 /// - `40..=49`: transceiver registry, threshold management, and transceiver-call failures
 /// - `50..=55`: peer registration and validation
-/// - `60..=65`: outbound/inbound transfer flow
+/// - `60..=66`: outbound/inbound transfer flow
 /// - `80..=84`: attestation processing and redemption
 ///
 /// Owner auth failures surface as OZ `OwnableError` (2100..=2102) and
@@ -89,6 +89,9 @@ pub enum NttManagerError {
     TransferNotReleasable = 64,
     /// The caller is not the original sender of the queued outbound transfer.
     CancellerNotSender = 65,
+    /// Inbound recipient hash has no entry in the address registry; the
+    /// recipient must `record_address` before the transfer can be redeemed.
+    RecipientNotRegistered = 66,
     /// Attestation received from a transceiver that is not enabled.
     TransceiverNotEnabled = 80,
     /// This transceiver has already attested to the given message.

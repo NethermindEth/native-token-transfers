@@ -44,4 +44,6 @@ pub enum DataKey {
     OutboundQueue(u64),
     /// Queued inbound transfer by message digest.
     InboundQueue(BytesN<32>),
+    /// Registered Soroban address keyed by its canonical `hash_address`.
+    AddressTable(BytesN<32>),
 }
