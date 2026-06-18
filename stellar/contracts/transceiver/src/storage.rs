@@ -1,7 +1,8 @@
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use soroban_ntt_client::{address_to_bytes32, PeerInfo, TransceiverError, TTL_EXTEND, TTL_THRESHOLD};
+use soroban_ntt_client::{PeerInfo, TransceiverError, TTL_EXTEND, TTL_THRESHOLD};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, TryFromVal, Val};
+use wormhole_soroban_client::hash_address;
 
 use crate::state::{ConsumedKey, DataKey};
 
@@ -42,7 +43,7 @@ impl<'a> InstanceStorage<'a> {
     }
 
     pub fn manager_id(&self) -> Result<BytesN<32>, TransceiverError> {
-        Ok(address_to_bytes32(&self.manager()?))
+        Ok(hash_address(self.env, &self.manager()?))
     }
 
     pub fn wormhole_core(&self) -> Result<Address, TransceiverError> {

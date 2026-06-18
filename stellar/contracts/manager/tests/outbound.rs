@@ -6,9 +6,8 @@ mod transceiver;
 
 use common::setup_manager;
 use soroban_ntt_client::{
-    address_to_bytes32, sequence_to_message_id, Mode, NttManagerError, NttManagerMessage,
-    OutboundTransferCancelled, OutboundTransferQueued, OutboundTransferRateLimited, TransferSent,
-    TrimmedAmount,
+    sequence_to_message_id, Mode, NttManagerError, NttManagerMessage, OutboundTransferCancelled,
+    OutboundTransferQueued, OutboundTransferRateLimited, TransferSent, TrimmedAmount,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
@@ -17,6 +16,7 @@ use soroban_sdk::{
 };
 use stellar_ntt_manager::ManagerContractClient;
 use transceiver::{add_transceiver, MockTransceiver, MockTransceiverClient};
+use wormhole_soroban_client::hash_address;
 
 const OUR_CHAIN: u32 = 2;
 const DEST_CHAIN: u32 = 6;
@@ -71,11 +71,11 @@ fn transfer_locks_tokens_and_dispatches() {
     assert_eq!(sent.recipient_manager, BytesN::from_array(&env, &PEER_MANAGER));
     let decoded = NttManagerMessage::from_bytes(&env, &sent.manager_payload).unwrap();
     assert_eq!(decoded.id, sequence_to_message_id(&env, 1));
-    assert_eq!(decoded.sender, address_to_bytes32(&sender));
+    assert_eq!(decoded.sender, hash_address(&env, &sender));
     assert_eq!(decoded.payload.to, recipient);
     assert_eq!(decoded.payload.to_chain, DEST_CHAIN);
     assert_eq!(decoded.payload.amount, TrimmedAmount::new(100, 7).unwrap());
-    assert_eq!(decoded.payload.source_token, address_to_bytes32(&token));
+    assert_eq!(decoded.payload.source_token, hash_address(&env, &token));
 
     let mock = TokenClient::new(&env, &token);
     assert_eq!(mock.balance(&sender), 900);
