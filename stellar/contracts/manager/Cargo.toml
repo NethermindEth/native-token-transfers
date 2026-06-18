@@ -18,3 +18,4 @@ stellar-macros = { workspace = true }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 soroban-ntt-client = { workspace = true }
+wormhole-soroban-client = { workspace = true }

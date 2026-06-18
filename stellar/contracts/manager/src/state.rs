@@ -30,6 +30,8 @@ pub enum DataKey {
     OutboundRateLimit,
     /// Rate limit refill duration in seconds.
     RateLimitDuration,
+    /// Wormhole core contract, queried to resolve inbound recipient addresses.
+    WormholeCore,
 
     // Persistent storage - per-chain/message data
     /// Peer NTT Manager address for a given chain ID.

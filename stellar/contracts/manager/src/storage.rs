@@ -80,6 +80,11 @@ impl<'a> InstanceStorage<'a> {
         self.read_key(&DataKey::ChainId)
     }
 
+    #[inline]
+    pub fn wormhole_core(&self) -> Result<Address, NttManagerError> {
+        self.read_key(&DataKey::WormholeCore)
+    }
+
     // --- Optional getters ---
 
     #[inline]
@@ -130,6 +135,11 @@ impl<'a> InstanceStorage<'a> {
     #[inline]
     pub fn set_token_decimals(&self, decimals: u32) {
         self.write_key(&DataKey::TokenDecimals, &decimals);
+    }
+
+    #[inline]
+    pub fn set_wormhole_core(&self, core: &Address) {
+        self.write_key(&DataKey::WormholeCore, core);
     }
 
     #[inline]

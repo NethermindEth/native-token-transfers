@@ -57,6 +57,7 @@ impl ManagerContract {
     /// - Initial sequence number and counters
     ///
     /// The token's decimal precision is queried and stored for amount normalization.
+    #[allow(clippy::too_many_arguments)]
     pub fn __constructor(
         env: Env,
         owner: Address,
@@ -65,6 +66,7 @@ impl ManagerContract {
         chain_id: u32,
         outbound_limit: u64,
         rate_limit_duration: u64,
+        wormhole_core: Address,
     ) {
         let token_decimals = query_token_decimals(&env, &token);
         let storage = InstanceStorage::new(&env);
@@ -75,6 +77,7 @@ impl ManagerContract {
 
         ownable::set_owner(&env, &owner);
         storage.set_token(&token);
+        storage.set_wormhole_core(&wormhole_core);
         storage.set_token_decimals(token_decimals);
         storage.set_mode(&mode);
         storage.set_chain_id(chain_id);
@@ -110,6 +113,11 @@ impl ManagerContract {
     /// if no pauser has been configured.
     pub fn get_pauser(env: Env) -> Option<Address> {
         InstanceStorage::new(&env).pauser()
+    }
+
+    /// Returns the Wormhole core contract used to resolve inbound recipients.
+    pub fn get_wormhole_core(env: Env) -> Result<Address, NttManagerError> {
+        InstanceStorage::new(&env).wormhole_core()
     }
 
     /// Returns the total number of registered transceivers (enabled or disabled).
