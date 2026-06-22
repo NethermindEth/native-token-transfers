@@ -2,7 +2,7 @@
 
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
-    build_inbound_vaa_hex, compute_message_digest, stellar_addr_to_bytes32,
+    build_inbound_vaa_hex, compute_message_digest, stellar_addr_to_hash,
     NttManagerMessageInputs,
 };
 use integration_tests::TestContext;
@@ -35,7 +35,8 @@ fn setup() -> Fixture {
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, PEER_DECIMALS, INBOUND_LIMIT);
     let recipient_addr = ctx.setup_identity("recipient_rl");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
+    stack.record_address(&ctx, &recipient_addr);
     Fixture {
         ctx,
         stack,

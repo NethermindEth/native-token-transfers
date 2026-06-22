@@ -820,7 +820,6 @@ dependencies = [
  "serde_json",
  "soroban-ntt-client",
  "soroban-sdk",
- "stellar-strkey 0.0.13",
  "stellar-xdr",
  "vaa-test-signing",
  "wormhole-soroban-client",

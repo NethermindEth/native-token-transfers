@@ -1,7 +1,7 @@
 //! Manager-side bitmap collision fires when the same transceiver attests the same digest twice.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_hash};
 use integration_tests::TestContext;
 
 use crate::common::{peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, STANDARD_TRIMMED_AMOUNT};
@@ -25,7 +25,7 @@ fn setup() -> Fixture {
     stack.set_transceiver_peer(&ctx, &tcv2, PEER_CHAIN, &PEER_ADDR);
 
     let recipient_addr = ctx.setup_identity("recipient_dbl");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
 
     Fixture {
         ctx,

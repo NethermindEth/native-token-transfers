@@ -4,7 +4,7 @@ use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::messages::{
     build_inbound_vaa_hex, InboundVaaInputs, NttManagerMessageInputs,
 };
-use integration_tests::messages::stellar_addr_to_bytes32;
+use integration_tests::messages::stellar_addr_to_hash;
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 
@@ -32,7 +32,8 @@ fn setup() -> Fixture {
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, 8, u64::MAX);
     let recipient_addr = ctx.setup_identity("c2c_recipient");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
+    stack.record_address(&ctx, &recipient_addr);
     Fixture {
         ctx,
         stack,
@@ -52,7 +53,7 @@ fn setup() -> Fixture {
 #[ignore]
 fn outbound_custody_then_inbound_release_round_trip() {
     let f = setup();
-    let manager_bytes32 = stellar_addr_to_bytes32(&f.stack.manager);
+    let manager_bytes32 = stellar_addr_to_hash(&f.stack.manager);
     let manager_initial = f.stack.token_balance(&f.ctx, &f.stack.manager);
     let recipient_initial = f.stack.token_balance(&f.ctx, &f.recipient_addr);
 

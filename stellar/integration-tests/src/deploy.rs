@@ -74,6 +74,7 @@ impl Manager {
     /// Deploys the manager bound to `token`. `mode` is passed as the integer
     /// discriminant because the CLI's JSON deserializer doesn't yet support
     /// unit-variant enums.
+    #[allow(clippy::too_many_arguments)]
     pub fn deploy(
         ctx: &TestContext,
         owner: &str,
@@ -82,6 +83,7 @@ impl Manager {
         chain_id: u32,
         outbound_limit: u64,
         rate_limit_duration: u64,
+        wormhole_core: &str,
     ) -> String {
         let mode_str = match mode {
             Mode::Locking => "0",
@@ -106,6 +108,8 @@ impl Manager {
                 &outbound_s,
                 "--rate_limit_duration",
                 &rate_s,
+                "--wormhole_core",
+                wormhole_core,
             ],
         )
     }
@@ -190,6 +194,7 @@ impl Stack {
             ctx.stellar_chain_id,
             opts.outbound_limit,
             opts.rate_limit_duration,
+            &wormhole_core,
         );
         let transceiver = Transceiver::deploy(
             ctx,
@@ -253,6 +258,18 @@ impl Stack {
             &self.transceiver,
             "set_peer",
             &["--chain_id", &chain_id_s, "--emitter", &peer_hex],
+        );
+    }
+
+    /// Registers `addr` on the Wormhole core address registry so an inbound
+    /// transfer can resolve its hashed `to`. Permissionless; submitted under
+    /// admin auth. Recipients must be registered before they can receive.
+    pub fn record_address(&self, ctx: &TestContext, addr: &str) {
+        cli::invoke(
+            &ctx.admin_identity,
+            &self.wormhole_core,
+            "record_address",
+            &["--address", addr],
         );
     }
 
