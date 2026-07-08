@@ -1,6 +1,6 @@
 //! Host-side encoders for the NTT manager + transceiver wire messages, plus
 //! [`build_inbound_vaa_hex`] which composes the full inbound VAA a test
-//! wants to submit, and [`stellar_addr_to_bytes32`] for cross-chain
+//! wants to submit, and [`stellar_addr_to_hash`] for cross-chain
 //! recipient encoding.
 //!
 //! The contract-side encoders in `soroban-ntt-client` and the VAA body
@@ -12,9 +12,8 @@
 use soroban_ntt_client::messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
 };
-use soroban_sdk::{Bytes, BytesN, Env, Vec as SorobanVec};
-use stellar_strkey::Strkey;
-use wormhole_soroban_client::{ConsistencyLevel, VAA};
+use soroban_sdk::{Address, Bytes, BytesN, Env, Vec as SorobanVec};
+use wormhole_soroban_client::{hash_address, ConsistencyLevel, VAA};
 
 use crate::vaa::{self, GuardianSignature};
 
@@ -46,16 +45,14 @@ pub struct InboundVaaInputs<'a> {
     pub guardian_secret: &'a [u8; 32],
 }
 
-/// Decodes `addr` (a Stellar strkey) into its raw 32-byte payload — the
-/// representation NTT messages use for cross-chain addresses. Accepts both
-/// G-account public keys and C-contract hashes; panics for other strkey
-/// types (muxed accounts, secret seeds, etc.).
-pub fn stellar_addr_to_bytes32(addr: &str) -> [u8; 32] {
-    match Strkey::from_string(addr).expect("invalid Stellar strkey") {
-        Strkey::PublicKeyEd25519(pk) => pk.0,
-        Strkey::Contract(c) => c.0,
-        other => panic!("unsupported Stellar address type: {other:?}"),
-    }
+/// Computes the canonical `hash_address` of a Stellar address (`keccak256` of
+/// its StrKey text) — the identity NTT messages carry on the wire and the key
+/// recipients register on the Wormhole core registry. Mirrors the contract-side
+/// `hash_address`, so it works for both `G…` accounts and `C…` contracts.
+pub fn stellar_addr_to_hash(addr: &str) -> [u8; 32] {
+    let env = Env::default();
+    let address = Address::from_string(&soroban_sdk::String::from_str(&env, addr));
+    hash_address(&env, &address).to_array()
 }
 
 /// Composes the full inbound flow end-to-end: serializes the VAA body

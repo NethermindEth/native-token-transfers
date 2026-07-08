@@ -3,24 +3,29 @@
 mod common;
 #[path = "common/messages.rs"]
 mod messages;
+#[path = "common/recipient.rs"]
+mod recipient;
 #[path = "common/token.rs"]
 mod token;
 #[path = "common/transceiver.rs"]
 mod transceiver;
 
+use common::wormhole::FaultyWormholeCore;
 use common::{setup_manager, setup_manager_with_token};
+use recipient::record_recipient;
 use messages::ntt_message;
 use soroban_ntt_client::{
-    bytes32_to_address, InboundTransferQueued, MessageAlreadyExecuted, MessageAttestedTo, Mode,
-    NttManagerError, TransferRedeemed,
+    InboundTransferQueued, MessageAlreadyExecuted, MessageAttestedTo, Mode, NttManagerError,
+    TransferRedeemed,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     Address, Bytes, BytesN, Env, Event,
 };
-use stellar_ntt_manager::ManagerContractClient;
+use stellar_ntt_manager::{ManagerContract, ManagerContractClient};
 use token::{MockToken, MockTokenClient};
 use transceiver::add_transceiver;
+use wormhole_soroban_client::hash_address;
 
 const OUR_CHAIN: u32 = 2;
 const SRC_CHAIN: u32 = 6;
@@ -179,9 +184,9 @@ fn attestation_received_executes_at_quorum() {
     let second = add_transceiver(&env, &client, 0, false);
     client.set_threshold(&2);
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     let pending = client.attestation_received(&first, &SRC_CHAIN, &source_manager, &payload);
     assert!(!pending.approved);
@@ -225,9 +230,9 @@ fn attestation_releases_via_unlock_in_locking_mode() {
     // The manager must hold tokens to unlock, as if locked by a prior outbound.
     MockTokenClient::new(&env, &token).mint(&client.address, &1000);
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     assert!(client
         .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
@@ -248,9 +253,9 @@ fn attestation_received_queues_when_rate_limited() {
     // Inbound capacity below the transfer amount forces queuing.
     let (client, token, transceiver, source_manager) = burning_inbound(&env, 50);
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     let result = client.attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload);
     assert!(result.approved && !result.executed && result.queued);
@@ -332,9 +337,9 @@ fn complete_inbound_transfer_lifecycle() {
     // Low inbound limit forces queuing.
     let (client, token, transceiver, source_manager) = burning_inbound(&env, 50);
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     assert!(client
         .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
@@ -371,9 +376,9 @@ fn attestation_on_executed_digest_is_idempotent() {
     let (client, token, first, source_manager) = burning_inbound(&env, u64::MAX);
     let second = add_transceiver(&env, &client, 0, false); // threshold stays 1
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     assert!(client
         .attestation_received(&first, &SRC_CHAIN, &source_manager, &payload)
@@ -428,9 +433,9 @@ fn execute_msg_on_executed_digest_is_idempotent() {
     env.mock_all_auths();
     let (client, token, transceiver, source_manager) = burning_inbound(&env, u64::MAX); // threshold 1
 
-    let recipient_bytes = BytesN::from_array(&env, &[0x22; 32]);
-    let recipient = bytes32_to_address(&env, &recipient_bytes);
-    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_bytes, OUR_CHAIN, SRC_CHAIN);
+    let recipient = Address::generate(&env);
+    let recipient_hash = record_recipient(&env, &client, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
 
     assert!(client
         .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
@@ -447,4 +452,71 @@ fn execute_msg_on_executed_digest_is_idempotent() {
         .to_xdr(&env, &client.address)]
     );
     assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100); // not re-minted
+}
+
+/// A recipient that never registered on the core registry cannot be resolved:
+/// the redeem fails with `RecipientNotRegistered` and the digest is left
+/// unexecuted, so registering and redeeming again succeeds (no funds lost).
+#[test]
+fn redeem_unregistered_recipient_is_retryable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, token, transceiver, source_manager) = burning_inbound(&env, u64::MAX); // threshold 1
+
+    let recipient = Address::generate(&env);
+    let recipient_hash = hash_address(&env, &recipient); // intentionally not recorded
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
+
+    assert_eq!(
+        client.try_attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload),
+        Err(Ok(NttManagerError::RecipientNotRegistered))
+    );
+    assert!(!client.is_message_executed(&digest));
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 0);
+
+    record_recipient(&env, &client, &recipient);
+    assert!(client
+        .attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload)
+        .executed);
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100);
+}
+
+/// A core that fails the lookup for any reason other than an unregistered address
+/// surfaces as `WormholeCoreCallFailed`, not `RecipientNotRegistered` — no tokens
+/// move and the digest stays unexecuted.
+#[test]
+fn redeem_with_failing_core_reports_call_failed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let faulty_core = env.register(FaultyWormholeCore, ());
+    let token = env.register(MockToken, (7u32,));
+    let manager = env.register(
+        ManagerContract,
+        (
+            &owner,
+            &token,
+            &Mode::Burning,
+            &OUR_CHAIN,
+            &u64::MAX,
+            &3600u64,
+            &faulty_core,
+        ),
+    );
+    let client = ManagerContractClient::new(&env, &manager);
+    let transceiver = add_transceiver(&env, &client, 0, false);
+    let source_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&SRC_CHAIN, &source_manager, &7, &u64::MAX);
+
+    let recipient = Address::generate(&env);
+    let recipient_hash = hash_address(&env, &recipient);
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
+
+    assert_eq!(
+        client.try_attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &payload),
+        Err(Ok(NttManagerError::WormholeCoreCallFailed))
+    );
+    assert!(!client.is_message_executed(&digest));
+    assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 0);
 }

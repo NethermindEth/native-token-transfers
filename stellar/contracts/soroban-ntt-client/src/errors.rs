@@ -10,12 +10,12 @@ use wormhole_soroban_client::WormholeError;
 ///
 /// Variants are grouped by numeric range so clients can classify failures
 /// without string matching:
-/// - `1..=7`: message encoding, decoding, or amount normalization
+/// - `1..=8`: message encoding, decoding, amount normalization, and chain-id validation
 /// - `13`: pauser dispatch
 /// - `20`, `30`: uninitialized storage or components
 /// - `40..=49`: transceiver registry, threshold management, and transceiver-call failures
 /// - `50..=55`: peer registration and validation
-/// - `60..=65`: outbound/inbound transfer flow
+/// - `60..=67`: outbound/inbound transfer flow
 /// - `80..=84`: attestation processing and redemption
 ///
 /// Owner auth failures surface as OZ `OwnableError` (2100..=2102) and
@@ -39,6 +39,8 @@ pub enum NttManagerError {
     DecimalMismatch = 6,
     /// Arithmetic overflow while normalizing or summing a transfer amount.
     AmountOverflow = 7,
+    /// Manager's own chain ID cannot be zero.
+    InvalidChainIdZero = 8,
     /// Caller is neither the contract owner nor the designated pauser.
     NotAdminOrPauser = 13,
     /// Rate limit parameters have not been initialized for this context.
@@ -89,6 +91,12 @@ pub enum NttManagerError {
     TransferNotReleasable = 64,
     /// The caller is not the original sender of the queued outbound transfer.
     CancellerNotSender = 65,
+    /// Inbound recipient has not registered its address on the Wormhole core
+    /// registry, so the hashed `to` cannot be resolved. Retryable: register and redeem again.
+    RecipientNotRegistered = 66,
+    /// Resolving the inbound recipient through the Wormhole core registry failed:
+    /// the core is unreachable, misconfigured, or returned an unexpected error.
+    WormholeCoreCallFailed = 67,
     /// Attestation received from a transceiver that is not enabled.
     TransceiverNotEnabled = 80,
     /// This transceiver has already attested to the given message.

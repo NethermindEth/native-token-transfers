@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use integration_tests::cli::CliError;
 use integration_tests::messages::{
-    stellar_addr_to_bytes32, InboundVaaInputs, NttManagerMessageInputs,
+    stellar_addr_to_hash, InboundVaaInputs, NttManagerMessageInputs,
 };
 use integration_tests::TestContext;
 use serde_json::Value;
@@ -63,7 +63,7 @@ pub fn peer_inbound_vaa<'a>(
             trimmed_decimals: 8,
         },
         source_manager: PEER_ADDR,
-        recipient_manager: stellar_addr_to_bytes32(manager),
+        recipient_manager: stellar_addr_to_hash(manager),
         emitter_chain: PEER_CHAIN as u16,
         emitter_address: PEER_ADDR,
         sequence,

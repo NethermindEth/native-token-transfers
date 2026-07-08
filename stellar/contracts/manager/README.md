@@ -49,6 +49,30 @@ The NTT Manager handles the complete lifecycle of cross-chain token transfers:
 
 ---
 
+## Address Resolution
+
+Wormhole carries every address as 32 raw bytes, but a Soroban `Address` is either
+a `G…` account or a `C…` contract — the raw bytes alone don't say which. The
+manager therefore identifies Stellar addresses by `hash_address = keccak256(StrKey)`
+and resolves the inbound recipient through a shared registry on the **Wormhole
+core** contract, not locally.
+
+- **Register once (per recipient).** Before receiving, a recipient calls
+  `record_address` on the Wormhole core, which stores `hash_address(addr) → addr`.
+  It is permissionless and idempotent.
+- **Outbound.** `sender`, `source_token`, and the advertised manager id are
+  encoded with `hash_address` — one canonical, collision-free identity per address.
+- **Inbound.** The manager resolves the message's `to` (a `hash_address`) back to
+  the real `Address` via `get_address_from_hash` on the core. An unregistered
+  recipient fails with `RecipientNotRegistered` (66) **before** the message is
+  marked executed, so the transfer reverts and is safely retryable once the
+  recipient registers — no funds are lost.
+
+The manager learns the core address at construction
+(`__constructor(…, wormhole_core)`), exposed via `get_wormhole_core`.
+
+---
+
 ## Architecture
 
 ```
@@ -368,7 +392,7 @@ pub const TTL_EXTEND:    u32 = 17280 * 30;   // ~30 days
 | 30-39 | Initialization | `NotInitialized` |
 | 40-49 | Transceivers | `TransceiverNotRegistered`, `MaxTransceiversReached`, `ZeroThreshold` |
 | 50-59 | Peers | `PeerNotFound`, `InvalidPeerChainIdZero`, `InvalidPeer` |
-| 60-69 | Transfers | `ZeroAmount`, `InvalidRecipient`, `TransferExceedsRateLimit` |
+| 60-69 | Transfers | `ZeroAmount`, `InvalidRecipient`, `TransferExceedsRateLimit`, `RecipientNotRegistered` |
 | 70-79 | Reentrancy | `Reentering` |
 | 80-89 | Attestation | `TransceiverNotEnabled`, `TransferAlreadyRedeemed` |
 

@@ -1,7 +1,7 @@
 //! End-to-end inbound burning happy path: signed VAA → Wormhole verify → transceiver decode → manager mint to recipient.
 
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_hash};
 use integration_tests::TestContext;
 
 use crate::common::{
@@ -22,7 +22,8 @@ fn setup() -> Fixture {
     stack.register_transceiver(&ctx);
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, PEER_DECIMALS, u64::MAX);
     let recipient_addr = ctx.setup_identity("recipient");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
+    stack.record_address(&ctx, &recipient_addr);
     Fixture {
         ctx,
         stack,

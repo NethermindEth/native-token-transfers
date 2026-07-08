@@ -36,6 +36,16 @@ fn constructor_stores_config() {
     assert_eq!(params.current_capacity, 1000);
 }
 
+/// A zero chain id is never a valid Wormhole identity; the constructor rejects it
+/// up front rather than persisting a manager whose own chain can never match an
+/// inbound message's `to_chain`.
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn constructor_rejects_zero_chain_id() {
+    let env = Env::default();
+    setup_manager(&env, Mode::Locking, 0, 1000, 3600);
+}
+
 /// The constructor reads decimals from the token contract rather than assuming
 /// the SAC's 7, caching whatever the token reports (18 here).
 #[test]

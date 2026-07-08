@@ -2,7 +2,7 @@
 
 use integration_tests::cli::invoke;
 use integration_tests::deploy::{Stack, StackOptions};
-use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_bytes32};
+use integration_tests::messages::{build_inbound_vaa_hex, stellar_addr_to_hash};
 use integration_tests::TestContext;
 use soroban_ntt_client::types::Mode;
 
@@ -33,7 +33,8 @@ fn setup() -> Fixture {
     stack.register_peer(&ctx, PEER_CHAIN, &PEER_ADDR, PEER_DECIMALS, u64::MAX);
 
     let recipient_addr = ctx.setup_identity("recipient_unlock");
-    let recipient_bytes32 = stellar_addr_to_bytes32(&recipient_addr);
+    let recipient_bytes32 = stellar_addr_to_hash(&recipient_addr);
+    stack.record_address(&ctx, &recipient_addr);
 
     invoke(
         &ctx.admin_identity,

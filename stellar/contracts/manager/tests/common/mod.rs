@@ -1,6 +1,9 @@
+pub mod wormhole;
+
 use soroban_ntt_client::Mode;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 use stellar_ntt_manager::{ManagerContract, ManagerContractClient};
+use wormhole::MockWormholeCore;
 
 /// Deploys a manager over an arbitrary token. Returns the owner and a typed client.
 pub fn setup_manager_with_token<'a>(
@@ -12,6 +15,7 @@ pub fn setup_manager_with_token<'a>(
     token: &Address,
 ) -> (Address, ManagerContractClient<'a>) {
     let owner = Address::generate(env);
+    let wormhole_core = env.register(MockWormholeCore, ());
     let manager = env.register(
         ManagerContract,
         (
@@ -21,6 +25,7 @@ pub fn setup_manager_with_token<'a>(
             &chain_id,
             &outbound_limit,
             &rate_limit_duration,
+            &wormhole_core,
         ),
     );
     (owner, ManagerContractClient::new(env, &manager))
