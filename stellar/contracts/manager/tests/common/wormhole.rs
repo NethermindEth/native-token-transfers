@@ -22,3 +22,16 @@ impl MockWormholeCore {
             .ok_or(WormholeError::AddressNotFound)
     }
 }
+
+/// Wormhole core whose lookup always fails with a non-`AddressNotFound` error,
+/// standing in for an unreachable or misconfigured core — exercises the inbound
+/// resolution path that must surface as `WormholeCoreCallFailed`.
+#[contract]
+pub struct FaultyWormholeCore;
+
+#[contractimpl]
+impl FaultyWormholeCore {
+    pub fn get_address_from_hash(_env: Env, _hash: BytesN<32>) -> Result<Address, WormholeError> {
+        Err(WormholeError::StorageError)
+    }
+}

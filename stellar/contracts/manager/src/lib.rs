@@ -71,6 +71,9 @@ impl ManagerContract {
         let token_decimals = query_token_decimals(&env, &token);
         let storage = InstanceStorage::new(&env);
 
+        if chain_id == 0 {
+            panic_with_error!(&env, NttManagerError::InvalidChainIdZero);
+        }
         if validate_chain_id(chain_id).is_none() {
             panic_with_error!(&env, NttManagerError::ChainIdTooLarge);
         }

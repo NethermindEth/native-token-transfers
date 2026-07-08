@@ -9,10 +9,10 @@
 
 use soroban_ntt_client::{
     emit_inbound_transfer_queued, emit_message_already_executed, emit_message_attested_to,
-    emit_transfer_redeemed, flatten_call, AttestationInfo, NttManagerError, NttManagerMessage,
+    emit_transfer_redeemed, AttestationInfo, NttManagerError, NttManagerMessage,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env};
-use wormhole_soroban_client::WormholeClient;
+use wormhole_soroban_client::{WormholeClient, WormholeError};
 
 use crate::{
     peers::{consume_or_delay_inbound, verify_peer},
@@ -116,10 +116,15 @@ fn execute_inbound_transfer(
         return Err(NttManagerError::InvalidTargetChain);
     }
 
-    let recipient = flatten_call(
-        WormholeClient::new(env, &storage.wormhole_core()?).try_get_address_from_hash(&transfer.to),
-        NttManagerError::RecipientNotRegistered,
-    )?;
+    let recipient = match WormholeClient::new(env, &storage.wormhole_core()?)
+        .try_get_address_from_hash(&transfer.to)
+    {
+        Ok(Ok(recipient)) => recipient,
+        Err(Ok(WormholeError::AddressNotFound)) => {
+            return Err(NttManagerError::RecipientNotRegistered)
+        }
+        _ => return Err(NttManagerError::WormholeCoreCallFailed),
+    };
 
     let our_decimals = get_token_decimals(env)?;
     let release_amount = transfer.amount.untrim(our_decimals as u8) as i128;
