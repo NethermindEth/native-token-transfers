@@ -1,534 +1,291 @@
-# NTT Manager Contract
+# NTT manager
 
-The NTT (Native Token Transfers) Manager is a Soroban smart contract that enables secure cross-chain token transfers between Stellar and other Wormhole-supported blockchains. It serves as the central orchestrator for token custody, message sequencing, and multi-transceiver attestation.
+The NTT manager is the Soroban contract that moves a native token across chains through Wormhole. It holds one token and does four things with it:
 
-## Table of Contents
+- **custody** the token on send (lock or burn) and release it on receive (unlock or mint),
+- **sequence and dispatch** outbound messages to the registered transceivers,
+- **collect attestations** on inbound messages and execute once a threshold of transceivers agree, and
+- **rate-limit** both directions, with a queue for transfers that exceed the limit.
 
-- [NTT Manager Contract](#ntt-manager-contract)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Architecture](#architecture)
-  - [Key Concepts](#key-concepts)
-    - [Operating Modes](#operating-modes)
-    - [Transceivers](#transceivers)
-    - [Peers](#peers)
-    - [Rate Limiting](#rate-limiting)
-    - [Attestation Threshold](#attestation-threshold)
-  - [Transfer Flows](#transfer-flows)
-    - [Outbound Transfer](#outbound-transfer)
-    - [Inbound Transfer](#inbound-transfer)
-  - [Module Reference](#module-reference)
-  - [Storage Model](#storage-model)
-    - [Instance Storage (loaded every invocation)](#instance-storage-loaded-every-invocation)
-    - [Persistent Storage (per-entity data)](#persistent-storage-per-entity-data)
-    - [TTL Configuration](#ttl-configuration)
-  - [Error Codes](#error-codes)
-  - [Security Considerations](#security-considerations)
-    - [Reentrancy Protection](#reentrancy-protection)
-    - [Replay Protection](#replay-protection)
-    - [Authorization Model](#authorization-model)
-  - [Integration Guide](#integration-guide)
-    - [Deploying the Contract](#deploying-the-contract)
-    - [Setting Up Transceivers](#setting-up-transceivers)
-    - [Configuring Peers](#configuring-peers)
-    - [Initiating Transfers](#initiating-transfers)
-    - [Processing Inbound Transfers](#processing-inbound-transfers)
-    - [Queue Management](#queue-management)
-    - [Query Functions](#query-functions)
+One manager corresponds to one token but can drive up to 64 transceivers. It is the policy layer; the [transceiver](../transceiver) is the transport layer. Shared types, wire codecs, errors, and events come from [`soroban-ntt-client`](../soroban-ntt-client); the source files in [`src/`](src) hold only the manager's own logic.
 
----
+Package `stellar-ntt-manager`, `#![no_std]`. This is a Stellar/Soroban port of Wormhole [Native Token Transfers](https://wormhole.com/docs/products/token-transfers/native-token-transfers/); the [workspace README](../../README.md) covers how the pieces fit together.
 
-## Overview
+## Operating modes
 
-The NTT Manager handles the complete lifecycle of cross-chain token transfers:
+The mode is fixed at deployment and decides how custody works.
 
-- **Outbound**: Takes custody of tokens (lock or burn), creates NTT messages, and dispatches them to transceivers for cross-chain delivery
-- **Inbound**: Collects attestations from transceivers, verifies threshold requirements, and releases tokens to recipients (unlock or mint)
-- **Rate Limiting**: Implements token bucket rate limiting for both outbound and per-chain inbound transfers
-- **Queue Management**: Supports queueing transfers that exceed rate limits for later completion
-
----
-
-## Address Resolution
-
-Wormhole carries every address as 32 raw bytes, but a Soroban `Address` is either
-a `G…` account or a `C…` contract — the raw bytes alone don't say which. The
-manager therefore identifies Stellar addresses by `hash_address = keccak256(StrKey)`
-and resolves the inbound recipient through a shared registry on the **Wormhole
-core** contract, not locally.
-
-- **Register once (per recipient).** Before receiving, a recipient calls
-  `record_address` on the Wormhole core, which stores `hash_address(addr) → addr`.
-  It is permissionless and idempotent.
-- **Outbound.** `sender`, `source_token`, and the advertised manager id are
-  encoded with `hash_address` — one canonical, collision-free identity per address.
-- **Inbound.** The manager resolves the message's `to` (a `hash_address`) back to
-  the real `Address` via `get_address_from_hash` on the core. An unregistered
-  recipient fails with `RecipientNotRegistered` (66) **before** the message is
-  marked executed, so the transfer reverts and is safely retryable once the
-  recipient registers — no funds are lost.
-
-The manager learns the core address at construction
-(`__constructor(…, wormhole_core)`), exposed via `get_wormhole_core`.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          NTT Manager                                │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐   │
-│  │   Outbound   │    │   Inbound    │    │    Transceivers      │   │
-│  │   Module     │    │   Module     │    │    Registry          │   │
-│  │              │    │              │    │                      │   │
-│  │ • transfer() │    │ • attest()   │    │ • set_transceiver()  │   │
-│  │ • queue()    │    │ • execute()  │    │ • remove_transceiver │   │
-│  │ • cancel()   │    │ • complete() │    │ • set_threshold()    │   │
-│  └──────┬───────┘    └──────┬───────┘    └──────────────────────┘   │
-│         │                   │                                       │
-│         ▼                   ▼                                       │
-│  ┌──────────────────────────────────────-┐                          │
-│  │           Token Operations            │                          │
-│  │                                       │                          │
-│  │  LOCKING MODE    │   BURNING MODE     │                          │
-│  │  • lock()        │   • burn()         │                          │
-│  │  • unlock()      │   • mint()         │                          │
-│  └───────────────────────────────────────┘                          │
-│                                                                     │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐   │
-│  │ Rate Limiter │    │    Peers     │    │      Messages        │   │
-│  │              │    │   Registry   │    │                      │   │
-│  │ • outbound   │    │              │    │ • NttManagerMessage  │   │
-│  │ • inbound    │    │ • per-chain  │    │ • NativeTokenTransfer│   │
-│  │ • backflow   │    │ • decimals   │    │ • TrimmedAmount      │   │
-│  └──────────────┘    └──────────────┘    └──────────────────────┘   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-         │                                              │
-         ▼                                              ▼
-┌─────────────────┐                          ┌─────────────────┐
-│  Transceiver 1  │         ...              │  Transceiver N  │
-│  (Wormhole)     │                          │  (Other)        │
-└─────────────────┘                          └─────────────────┘
-         │                                              │
-         └──────────────────┬───────────────────────────┘
-                            ▼
-                   Cross-Chain Messages
-                   (via Wormhole VAAs)
-```
-
----
-
-## Key Concepts
-
-### Operating Modes
-
-The NTT Manager operates in one of two modes, determined at deployment:
-
-| Mode | Outbound Action | Inbound Action | Use Case |
-|------|-----------------|----------------|----------|
-| **Locking** | Lock tokens in contract | Unlock tokens from contract | Canonical chain (holds real tokens) |
-| **Burning** | Burn tokens | Mint tokens | Non-canonical chains (wrapped/synthetic tokens) |
+| Mode | On send | On receive | Where |
+|------|---------|------------|-------|
+| `Locking` | lock (transfer in) | unlock (transfer out) | the canonical chain that holds the real supply |
+| `Burning` | burn | mint | spoke chains holding synthetic supply |
 
 ```rust
-pub enum Mode {
-    Locking = 0,  // Token custody via lock/unlock
-    Burning = 1,  // Token supply via burn/mint
-}
+pub enum Mode { Locking = 0, Burning = 1 }
 ```
 
-**Important**: Burning mode requires a custom token contract with `burn(from, amount)` and `mint(to, amount)` functions that authorize the NTT Manager.
+The rule that conserves supply: if the source manager locks, the destination manager must burn-and-mint, and vice versa. Both sides locking, or both minting, breaks the accounting. Locking mode works with any existing token because it only calls `transfer`. Burning mode calls `burn` and `mint`, so the token must let the manager mint. See [`token_ops.rs`](src/token_ops.rs) for the exact calls; on a stock Stellar Asset Contract, burning mode requires the manager to be the token administrator.
 
-### Transceivers
+## Address resolution
 
-Transceivers are external contracts responsible for cross-chain message delivery. The NTT Manager supports up to **64 transceivers** tracked via a bitmap.
+Wormhole carries every address as 32 raw bytes, but a Soroban `Address` is either a `G…` account or a `C…` contract, and the raw bytes alone do not say which. The manager therefore identifies Stellar addresses by `hash_address = keccak256(StrKey)` and resolves the inbound recipient through a shared registry on the **Wormhole core** contract, not locally.
+
+- **Register once (per recipient):** before receiving, a recipient calls `record_address` on the Wormhole core, which stores `hash_address(addr) → addr`. It is permissionless and idempotent.
+- **Outbound:** `sender`, `source_token`, and the advertised manager id are encoded with `hash_address`, one canonical, collision-free identity per address.
+- **Inbound:** the manager resolves the message's `to` (a `hash_address`) back to the real `Address` via `get_address_from_hash` on the core. An unregistered recipient fails with `RecipientNotRegistered` (66) **before** the message is marked executed, so the transfer reverts and is safely retryable once the recipient registers. No funds are lost.
+
+The manager learns the core address at construction (`__constructor(…, wormhole_core)`) and exposes it through `get_wormhole_core`.
+
+## Transceivers, threshold, and peers
+
+### Transceiver registry
+
+Transceivers are tracked in a `u64` bitmap, so up to `MAX_TRANSCEIVERS = 64` can be registered. Each holds a permanent index:
 
 ```rust
-pub struct TransceiverInfo {
-    pub address: Address,   // Contract address
-    pub enabled: bool,      // Currently active for attestations
-    pub index: u32,         // Permanent index (0-63), never reused
-}
+pub struct TransceiverInfo { pub address: Address, pub enabled: bool, pub index: u32 }
 ```
 
-Key properties:
-- Indices are **permanent** - disabling a transceiver doesn't free its index
-- The **enabled bitmap** (`u64`) tracks which transceivers are active
-- The first transceiver registration automatically sets threshold to 1
+- An index is assigned once and never reused; disabling a transceiver frees its bit in the enabled bitmap but keeps its index.
+- The first registration sets the threshold to 1 automatically.
+- Removing the only enabled transceiver is rejected (`CannotDisableLastTransceiver`), and removing one that would leave the threshold above the enabled count lowers the threshold to match.
+
+### Attestation threshold
+
+An inbound message executes once enough enabled transceivers have attested:
+
+```
+attested_count = popcount(attested_bitmap & enabled_bitmap)
+approved       = attested_count >= threshold
+```
+
+Masking by the enabled bitmap means disabling a transceiver retroactively drops its vote. Two invariants are enforced, named in the source and checkable permissionlessly through `validate_invariants`:
+
+- **INV-023**: `threshold <= enabled_transceiver_count`
+- **INV-024**: `threshold > 0` whenever any transceiver is enabled
 
 ### Peers
 
-Peers represent NTT Managers on other chains. Each peer maintains:
+A peer is the NTT manager on another chain. Each peer carries its own inbound rate limit, so different source chains throttle independently.
 
 ```rust
 pub struct NttManagerPeer {
-    pub address: BytesN<32>,           // 32-byte address on remote chain
-    pub token_decimals: u32,           // Token decimals on that chain (1-18)
-    pub inbound_rate_limit: RateLimitParams,  // Per-chain rate limit
+    pub address: BytesN<32>,
+    pub token_decimals: u32,          // 1..=18, used for amount normalization
+    pub inbound_rate_limit: RateLimitParams,
 }
 ```
 
-Peer validation ensures:
-- Chain ID is not zero
-- Chain ID is different from this contract's chain
-- Address is not all zeros
-- Decimals are between 1 and 18
+`set_peer` rejects a zero chain id, this manager's own chain id, a zero address, and decimals outside 1 to 18. Re-registering a peer emits `PeerUpdated` with the old and new values.
 
-### Rate Limiting
+## Rate limiting and backflow
 
-The contract implements a **token bucket** rate limiter for both directions:
+Each direction is a token bucket:
 
 ```rust
-pub struct RateLimitParams {
-    pub limit: u64,              // Maximum bucket capacity
-    pub current_capacity: u64,   // Current available capacity
-    pub last_tx_timestamp: u64,  // Last update timestamp
-}
+pub struct RateLimitParams { pub limit: u64, pub current_capacity: u64, pub last_tx_timestamp: u64 }
 ```
 
-**How it works**:
-1. Capacity starts at `limit` (full bucket)
-2. Each transfer consumes capacity equal to the trimmed amount
-3. Capacity refills linearly over `RATE_LIMIT_DURATION` (default: 24 hours)
-4. If capacity is insufficient, transfers can be queued (if `should_queue=true`)
+Capacity starts full, is consumed by the trimmed transfer amount, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
 
-**Backflow mechanism**: Inbound transfers refill outbound capacity and vice versa, maintaining bidirectional balance.
+**Backflow** couples them. A completed outbound transfer refills that peer's inbound bucket, and a completed inbound transfer refills the outbound bucket. This keeps ordinary bidirectional traffic from draining one direction and deadlocking users. Setting a new limit preserves the amount already consumed, so a limit change never mints or destroys capacity instantly.
 
-### Attestation Threshold
+## Outbound transfer flow
 
-For inbound transfers to execute, they must receive attestations from at least `threshold` enabled transceivers:
+`transfer` (and `transfer_with_payload`) in [`outbound.rs`](src/outbound.rs), after `sender.require_auth()`:
 
-```
-attestation_count = popcount(attested_bitmap & enabled_bitmap)
-transfer_approved = attestation_count >= threshold
-```
-
-**Invariants enforced**:
-- INV-023: `threshold <= enabled_transceiver_count`
-- INV-024: `threshold > 0` when transceivers exist
-
----
-
-## Transfer Flows
-
-### Outbound Transfer
+1. **Validate:** amount must be positive, recipient non-zero, a peer must exist for the destination chain, and at least one transceiver must be enabled.
+2. **Trim:** the amount is normalized to `min(8, local_decimals, peer_decimals)` decimals. The dust below that precision stays with the sender; only the trimmed-back amount is custodied.
+3. **Custody:** lock (transfer in) or burn the trimmed amount, before the rate-limit check.
+4. **Rate-limit check:** consume outbound capacity for the trimmed amount.
+   - **Within capacity**: assign a sequence, build the `NttManagerMessage`, dispatch `send_message` to every enabled transceiver, refill the peer's inbound bucket (backflow), and return `TransferResult::immediate`.
+   - **Over capacity, `should_queue = false`**: refund the custodied amount and return `TransferExceedsRateLimit`.
+   - **Over capacity, `should_queue = true`**: store the queued transfer with a release timestamp, emit the queue events, and return `TransferResult::queued`. No dispatch and no backflow until it completes.
 
 ```
-User                    NTT Manager                Transceiver(s)
-  │                          │                          │
-  │  transfer(amount, ...)   │                          │
-  │─────────────────────────>│                          │
-  │                          │                          │
-  │                    ┌─────┴─────-┐                   │
-  │                    │ Validate:  │                   │
-  │                    │ • amount>0 │                   │
-  │                    │ • recipient│                   │
-  │                    │ • peer     │                   │
-  │                    └─────┬─────-┘                   │
-  │                          │                          │
-  │                    ┌─────┴─────┐                    │
-  │                    │ Trim amt  │                    │
-  │                    │ to 8 dec  │                    │
-  │                    └─────┬─────┘                    │
-  │                          │                          │
-  │                    ┌─────┴─────┐                    │
-  │                    │ Custody   │                    │
-  │                    │ tokens    │                    │
-  │                    │(lock/burn)│                    │
-  │                    └─────┬─────┘                    │
-  │                          │                          │
-  │                    ┌─────┴─────┐                    │
-  │                    │ Check rate│                    │
-  │                    │  limit    │                    │
-  │                    └─────┬─────┘                    │
-  │                          │                          │
-  │              ┌───────────┴───────────┐              │
-  │              │                       │              │
-  │         [Consumed]              [Delayed]           │
-  │              │                       │              │
-  │              ▼                       ▼              │
-  │       ┌──────────┐           ┌──────────┐           │
-  │       │ Send to  │           │ Queue    │           │
-  │       │ all      │           │ transfer │           │
-  │       │ enabled  │           │ for later│           │
-  │       │ xceivers │           └──────────┘           │
-  │       └────┬─────┘                                  │
-  │            │          send_message()                │
-  │            │─────────────────────────────────────>  │
-  │            │                                        │
-  │<───────────┴─────────────────────────────────────── │
-  │     TransferResult{sequence, queued, digest}        │
+transfer ─▶ validate ─▶ trim (dust to sender) ─▶ custody (lock/burn)
+                                                      │
+                                            rate-limit check
+                                        ┌─────────────┴─────────────┐
+                                    within cap                 over cap
+                                        │                ┌──────────┴──────────┐
+                                 dispatch to all      queue?              queue?
+                                 transceivers +       no ─▶ refund +      yes ─▶ store +
+                                 backflow refill      TransferExceeds…    release_timestamp
 ```
 
-### Inbound Transfer
+A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, and works even while the contract is paused.
 
-```
-Transceiver         NTT Manager                  Token Contract
-     │                   │                             │
-     │ attestation_      │                             │
-     │ received(payload) │                             │
-     │──────────────────>│                             │
-     │                   │                             │
-     │             ┌─────┴─────┐                       │
-     │             │ Verify:   │                       │
-     │             │ • xceiver │                       │
-     │             │ • peer    │                       │
-     │             │ • not dup │                       │
-     │             └─────┬─────┘                       │
-     │                   │                             │
-     │             ┌─────┴─────┐                       │
-     │             │ Record    │                       │
-     │             │ attestation│                      │
-     │             │ in bitmap │                       │
-     │             └─────┬─────┘                       │
-     │                   │                             │
-     │             ┌─────┴─────┐                       │
-     │             │ Check     │                       │
-     │             │ threshold │                       │
-     │             └─────┬─────┘                       │
-     │                   │                             │
-     │       ┌───────────┴───────────┐                 │
-     │       │                       │                 │
-     │  [Below threshold]    [Threshold met]           │
-     │       │                       │                 │
-     │       ▼                       ▼                 │
-     │  Return early         ┌──────────┐             │
-     │  (wait for more)      │ Check    │             │
-     │                       │ inbound  │             │
-     │                       │ rate lim │             │
-     │                       └────┬─────┘             │
-     │                            │                    │
-     │              ┌─────────────┴─────────────┐     │
-     │              │                           │     │
-     │         [Consumed]                  [Delayed]  │
-     │              │                           │     │
-     │              ▼                           ▼     │
-     │       ┌──────────┐              ┌──────────┐   │
-     │       │ Release  │              │ Queue    │   │
-     │       │ tokens   │              │ transfer │   │
-     │       │──────────────────────────────────>│   │
-     │       └──────────┘              └──────────┘   │
-     │                                                 │
-     │<────────────────────────────────────────────────│
-     │     AttestationResult{approved, executed, queued}
-```
+The message id is the sequence number placed in the low 8 bytes of a 32-byte field. The digest is `keccak256(source_chain || message)` (see the [wire formats](../soroban-ntt-client/README.md#message-digest)).
 
----
+## Inbound / attestation flow
 
-## Module Reference
+`attestation_received` in [`inbound.rs`](src/inbound.rs) requires `transceiver.require_auth()`, then:
 
-| Module | File | Purpose |
-|--------|------|---------|
-| **lib.rs** | [lib.rs](src/lib.rs) | Contract entry points and public API |
-| **state.rs** | [state.rs](src/state.rs) | Core types (`Mode`, `DataKey`, queue structs) |
-| **storage.rs** | [storage.rs](src/storage.rs) | Type-safe storage wrappers with TTL extension |
-| **constants.rs** | [constants.rs](src/constants.rs) | TTL values, rate limit duration, max transceivers |
-| **errors.rs** | [errors.rs](src/errors.rs) | Error enum with categorized codes |
-| **messages.rs** | [messages.rs](src/messages.rs) | `TrimmedAmount`, `NativeTokenTransfer`, `NttManagerMessage` |
-| **rate_limit.rs** | [rate_limit.rs](src/rate_limit.rs) | Token bucket rate limiter implementation |
-| **token_ops.rs** | [token_ops.rs](src/token_ops.rs) | Lock/unlock/burn/mint operations |
-| **peers.rs** | [peers.rs](src/peers.rs) | Peer registry and inbound rate limiting |
-| **transceivers.rs** | [transceivers.rs](src/transceivers.rs) | Transceiver registry and bitmap operations |
-| **outbound.rs** | [outbound.rs](src/outbound.rs) | Outbound transfer logic and queue management |
-| **inbound.rs** | [inbound.rs](src/inbound.rs) | Attestation processing and inbound execution |
+1. **Authenticate the transceiver:** it must be registered and enabled, else `TransceiverNotRegistered` or `TransceiverNotEnabled`.
+2. **Verify the peer:** the source chain and source manager must match a registered peer, else the attestation is rejected as spoofed.
+3. **Record the vote:** parse the message, compute the digest, and set this transceiver's bit in the attestation bitmap. A repeat from the same transceiver is `TransceiverAlreadyAttested`. If the digest is already executed, emit `MessageAlreadyExecuted` and return, which makes late attestations idempotent.
+4. **Check the threshold:** if `popcount(attested & enabled) < threshold`, return not-approved and wait for more.
+5. **Execute:** at or above threshold:
+   - target chain must match this manager's chain (`InvalidTargetChain`),
+   - resolve the recipient hash to a real address through the Wormhole core (`RecipientNotRegistered` or `WormholeCoreCallFailed` on failure, both *before* marking executed),
+   - untrim the amount to local decimals,
+   - consume inbound capacity for the source chain.
 
----
+The message is marked executed in **both** the released and the queued branches, which is what prevents a replay from pushing a queued transfer's release timestamp forward. If capacity allows, release the tokens (unlock or mint), refill the outbound bucket (backflow), and emit `TransferRedeemed`. Otherwise store an inbound queued transfer for completion after the window.
 
-## Storage Model
+Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they `record_address`, since an unregistered recipient failed *before* the executed flag was set.
 
-### Instance Storage (loaded every invocation)
+## Public API
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `Admin` | `Address` | Contract administrator |
-| `PendingAdmin` | `Address` | Pending admin for 2-step transfer |
-| `Pauser` | `Address` | Optional pause-capable address |
-| `Token` | `Address` | Managed token contract |
-| `TokenDecimals` | `u32` | Cached token decimals |
-| `Mode` | `Mode` | Locking or Burning |
-| `ChainId` | `u32` | This chain's Wormhole chain ID |
-| `Paused` | `bool` | Contract pause state |
-| `Threshold` | `u32` | Required attestation count |
-| `NextSequence` | `u64` | Next outbound sequence number |
-| `Version` | `u32` | Contract version |
-| `TransceiverCount` | `u32` | Total registered transceivers |
-| `EnabledBitmap` | `u64` | Bitmap of enabled transceivers |
-| `OutboundRateLimit` | `RateLimitParams` | Global outbound rate limit |
-| `RateLimitDuration` | `u64` | Rate limit refill period (seconds) |
+Signatures are exact. Owner-gated methods carry `#[only_owner]` and take no explicit caller argument; auth comes from the OpenZeppelin `Ownable` trait.
 
-### Persistent Storage (per-entity data)
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `Peer(chain_id)` | `NttManagerPeer` | Peer config by chain ID |
-| `Transceiver(index)` | `TransceiverInfo` | Transceiver by index |
-| `TransceiverIndex(address)` | `u32` | Reverse lookup: address → index |
-| `Attestation(digest)` | `AttestationInfo` | Attestation state by message digest |
-| `OutboundQueue(sequence)` | `OutboundQueuedTransfer` | Queued outbound transfers |
-| `InboundQueue(digest)` | `InboundQueuedTransfer` | Queued inbound transfers |
-
-### TTL Configuration
-
-Defined in [`soroban_ntt_client::constants`](../soroban-ntt-client/src/constants.rs)
-and shared with every contract in the workspace:
+**Constructor**
 
 ```rust
-pub const TTL_THRESHOLD: u32 = 17280;        // ~1 day
-pub const TTL_EXTEND:    u32 = 17280 * 30;   // ~30 days
-```
-
----
-
-## Error Codes
-
-| Range | Category | Examples |
-|-------|----------|----------|
-| 1-9 | Message parsing | `MessageTooShort`, `InvalidPrefix`, `InvalidDecimals` |
-| 10-19 | Authorization | `Unauthorized`, `InvalidPendingAdmin`, `ContractPaused` |
-| 20-29 | Rate limiting | `RateLimitNotInitialized` |
-| 30-39 | Initialization | `NotInitialized` |
-| 40-49 | Transceivers | `TransceiverNotRegistered`, `MaxTransceiversReached`, `ZeroThreshold` |
-| 50-59 | Peers | `PeerNotFound`, `InvalidPeerChainIdZero`, `InvalidPeer` |
-| 60-69 | Transfers | `ZeroAmount`, `InvalidRecipient`, `TransferExceedsRateLimit`, `RecipientNotRegistered` |
-| 70-79 | Reentrancy | `Reentering` |
-| 80-89 | Attestation | `TransceiverNotEnabled`, `TransferAlreadyRedeemed` |
-
----
-
-## Security Considerations
-
-### Reentrancy Protection
-
-All state-modifying operations use `with_transfer_guard()` which:
-1. Checks contract is not paused
-2. Sets a reentrancy flag in temporary storage
-3. Clears the flag after execution (even on error)
-
-### Replay Protection
-
-- Each message has a unique digest computed from `source_chain + message_content`
-- Attestations are tracked per-transceiver per-digest
-- Executed transfers are marked to prevent double redemption
-
-### Authorization Model
-
-| Operation | Required Auth |
-|-----------|---------------|
-| Transfer tokens | Sender (via `require_auth`) |
-| Admin functions | Admin address |
-| Pause/Unpause | Admin or Pauser |
-| Cancel queued transfer | Original sender |
-| Complete queued transfer | Permissionless |
-| Attest message | Transceiver contract |
-
-
-## Integration Guide
-
-### Deploying the Contract
-
-```rust
-// Constructor parameters
 __constructor(
-    env: Env,
-    admin: Address,           // Contract administrator
-    token: Address,           // Token to manage
-    mode: Mode,               // Locking or Burning
-    chain_id: u32,            // Wormhole chain ID (61 for Stellar)
-    outbound_limit: u64,      // Max outbound per rate limit period
-    rate_limit_duration: u64, // Period in seconds (e.g., 86400 for 24h)
+    owner: Address,
+    token: Address,
+    mode: Mode,
+    chain_id: u32,            // Wormhole chain id; 61 for Stellar
+    outbound_limit: u64,
+    rate_limit_duration: u64, // seconds, e.g. 86400
+    wormhole_core: Address,   // used to resolve inbound recipients
 )
 ```
 
-### Setting Up Transceivers
+**Ownership and pause**
+
+| Method | Auth | Notes |
+|--------|------|-------|
+| `transfer_ownership` / `accept_ownership` / `renounce_ownership` / `get_owner` | OZ `Ownable` | two-step transfer |
+| `pause(caller)` | owner or pauser | emergency stop |
+| `unpause(caller)` | owner only | a compromised pauser can halt but not resume |
+| `transfer_pauser(caller, new_pauser: Option<Address>)` | owner or pauser | `None` clears the role |
+| `get_pauser() -> Option<Address>` | anyone | |
+| `upgrade(new_wasm_hash)` | owner | |
+
+**Transceivers and threshold** (owner-gated setters)
+
+`set_transceiver(transceiver) -> Result<u32>` (returns the assigned index), `remove_transceiver(transceiver)`, `set_threshold(threshold)`, plus views `get_transceiver_count`, `get_enabled_bitmap`, `get_transceiver_info(index)`, `get_threshold`, `validate_invariants`.
+
+**Peers and rate limits** (owner-gated setters)
+
+`set_peer(chain_id, peer_address, token_decimals, inbound_limit)`, `set_outbound_limit(limit)`, `set_inbound_limit(chain_id, limit)`, plus views `get_peer`, `get_outbound_limit_params`, `get_outbound_capacity`, `get_inbound_capacity(chain_id)`, `get_inbound_limit_params(chain_id)`, `get_rate_limit_duration`.
+
+**Transfers**
 
 ```rust
-// Register a transceiver (admin only)
-set_transceiver(env, admin, transceiver_address) -> Result<u32, Error>
-
-// Set attestation threshold
-set_threshold(env, admin, threshold) -> Result<(), Error>
+transfer(sender, amount: i128, recipient_chain: u32, recipient: BytesN<32>, should_queue: bool)
+    -> Result<TransferResult>
+transfer_with_payload(sender, amount, recipient_chain, recipient, should_queue, additional_payload: Bytes)
+    -> Result<TransferResult>
+complete_queued_transfer(sequence: u64) -> Result<TransferResult>   // permissionless
+cancel_queued_transfer(sender, sequence: u64) -> Result<()>          // original sender
 ```
 
-### Configuring Peers
+**Inbound**
 
 ```rust
-// Register a peer NTT Manager on another chain
-set_peer(
-    env,
-    admin,
-    chain_id: u32,           // Remote Wormhole chain ID
-    peer_address: BytesN<32>, // Remote manager address
-    token_decimals: u32,      // Token decimals on remote chain
-    inbound_limit: u64,       // Inbound rate limit for this chain
-) -> Result<(), Error>
+attestation_received(transceiver, source_chain: u32, source_ntt_manager: BytesN<32>, payload: Bytes)
+    -> Result<AttestationResult>                                    // transceiver-authorized
+execute_msg(source_chain, source_ntt_manager, payload) -> Result<AttestationResult>  // permissionless
+complete_inbound_transfer(digest: BytesN<32>) -> Result<()>          // permissionless
 ```
 
-### Initiating Transfers
+**Queries** (all permissionless)
 
-```rust
-// Basic transfer
-transfer(
-    env,
-    sender: Address,
-    amount: i128,            // In local token decimals
-    recipient_chain: u32,    // Destination chain ID
-    recipient: BytesN<32>,   // Recipient address (32 bytes)
-    should_queue: bool,      // Queue if rate limited?
-) -> Result<TransferResult, Error>
+`quote_transfer(amount, recipient_chain) -> (trimmed, dust)`, `quote_delivery_price(recipient_chain) -> Vec<TransceiverFee>`, `is_message_executed`, `is_message_approved`, `message_attestations`, `transceiver_attested_to_message`, `get_attestation_info`, `get_next_sequence`, `get_mode`, `get_token`, `get_chain_id`, `token_decimals`, `get_version`, `get_wormhole_core`, and the queue views `get_outbound_queue_item` / `get_inbound_queue_item`.
 
-// Transfer with custom payload
-transfer_with_payload(
-    env,
-    sender,
-    amount,
-    recipient_chain,
-    recipient,
-    should_queue,
-    additional_payload: Bytes,
-) -> Result<TransferResult, Error>
-```
+`quote_delivery_price` makes one cross-contract call per enabled transceiver and reports each fee as `Option`, so one failing transceiver shows as `None` instead of failing the whole query.
 
-### Processing Inbound Transfers
+## Storage model
 
-Transceivers call:
-```rust
-attestation_received(
-    env,
-    transceiver: Address,       // Must be registered & enabled
-    source_chain: u32,
-    source_ntt_manager: BytesN<32>,
-    payload: Bytes,             // Encoded NttManagerMessage
-) -> Result<AttestationResult, Error>
-```
+`DataKey` is defined in [`state.rs`](src/state.rs). There is no `Admin`, `PendingAdmin`, or `Paused` key: ownership and pause state belong to the OpenZeppelin libraries under their own keys.
 
-### Queue Management
+**Instance storage** (config and counters, TTL extended on every access)
 
-```rust
-// Complete a queued outbound transfer (permissionless)
-complete_queued_transfer(env, sequence) -> Result<TransferResult, Error>
+| Key | Type | Default |
+|-----|------|---------|
+| `Pauser` | `Option<Address>` | none |
+| `Token` | `Address` | required |
+| `TokenDecimals` | `u32` | required (cached at construction) |
+| `Mode` | `Mode` | required |
+| `ChainId` | `u32` | required |
+| `WormholeCore` | `Address` | required |
+| `Threshold` | `u32` | 0 |
+| `NextSequence` | `u64` | 1 |
+| `Version` | `u32` | 1 |
+| `TransceiverCount` | `u32` | 0 |
+| `EnabledBitmap` | `u64` | 0 |
+| `OutboundRateLimit` | `RateLimitParams` | unlimited if unset |
+| `RateLimitDuration` | `u64` | 86400 |
 
-// Cancel and refund a queued transfer (sender only)
-cancel_queued_transfer(env, sender, sequence) -> Result<(), Error>
+**Persistent storage** (per-entity, TTL extended on read and write)
 
-// Complete a queued inbound transfer (permissionless)
-complete_inbound_transfer(env, digest) -> Result<(), Error>
-```
+| Key | Value |
+|-----|-------|
+| `Peer(chain_id)` | `NttManagerPeer` |
+| `Transceiver(index)` | `TransceiverInfo` |
+| `TransceiverIndex(address)` | `u32` (reverse lookup) |
+| `Attestation(digest)` | `AttestationInfo` |
+| `OutboundQueue(sequence)` | `OutboundQueuedTransfer` |
+| `InboundQueue(digest)` | `InboundQueuedTransfer` |
 
-### Query Functions
+TTL values are the shared `TTL_THRESHOLD` (about 1 day) and `TTL_EXTEND` (about 30 days) from [`soroban-ntt-client`](../soroban-ntt-client/src/constants.rs). The manager uses no temporary storage.
 
-```rust
-get_token(env) -> Address
-get_mode(env) -> Mode
-get_chain_id(env) -> u32
-get_threshold(env) -> u32
-get_peer(env, chain_id) -> Option<NttManagerPeer>
-get_outbound_capacity(env) -> u64
-get_inbound_limit_params(env, chain_id) -> Option<RateLimitParams>
-is_message_executed(env, digest) -> bool
-quote_transfer(env, amount, recipient_chain) -> (trimmed_amount, dust)
-```
+## Error codes
 
----
+The `NttManagerError` enum lives in [`soroban-ntt-client`](../soroban-ntt-client/src/errors.rs), not in this crate. Discriminants are on-chain ABI.
+
+| Range | Category |
+|-------|----------|
+| 1–8 | Message encoding, decimals, chain-id, amount overflow |
+| 13 | `NotAdminOrPauser` |
+| 20, 30 | Uninitialized rate limit or state |
+| 40–49 | Transceiver registry, threshold, transceiver-call failures |
+| 50–55 | Peer registration and validation |
+| 60–67 | Transfer flow, including `RecipientNotRegistered` (66) and `WormholeCoreCallFailed` (67) |
+| 80–84 | Attestation and redemption |
+
+Owner and pause failures are not in this enum. They come from the OpenZeppelin Stellar libraries: `OwnableError` (2100–2102), `RoleTransferError` (2200–2203), and `PausableError::EnforcedPause` (1000).
+
+## Security
+
+**No dedicated reentrancy guard:** the manager does not use a reentrancy flag or a transfer guard. Protection is structural: transfer entry points are gated by `#[when_not_paused]`, state changes follow checks-effects ordering, and the executed flag plus queue-entry removal are set around token release so a re-entered call finds the work already done.
+
+**Replay protection:** each message has a digest that binds it to its source chain. Attestations are recorded per transceiver per digest, so no transceiver counts twice. The executed flag is set in both the released and queued inbound branches. `execute_msg` and repeat attestations are idempotent.
+
+**Pausing:** `#[when_not_paused]` covers `transfer`, `transfer_with_payload`, `complete_queued_transfer`, `complete_inbound_transfer`, `attestation_received`, and `execute_msg`. `cancel_queued_transfer` is intentionally left uncovered so refunds work during a pause.
+
+**Authorization**
+
+| Operation | Auth |
+|-----------|------|
+| `transfer` / `transfer_with_payload` | `sender.require_auth()` |
+| `cancel_queued_transfer` | original sender |
+| `attestation_received` | `transceiver.require_auth()`, must be registered and enabled |
+| owner setters, `upgrade`, ownership transfer | owner (OZ `Ownable`) |
+| `pause` | owner or pauser |
+| `unpause` | owner only |
+| `complete_queued_transfer`, `complete_inbound_transfer`, `execute_msg`, `validate_invariants`, all getters | permissionless |
+
+## Modules
+
+`src/` holds eight modules plus `lib.rs`:
+
+| File | Responsibility |
+|------|----------------|
+| [`lib.rs`](src/lib.rs) | Contract struct, entry points, trait impls, constructor |
+| [`state.rs`](src/state.rs) | The `DataKey` enum |
+| [`storage.rs`](src/storage.rs) | Typed storage wrappers with TTL extension |
+| [`token_ops.rs`](src/token_ops.rs) | Lock / unlock / burn / mint dispatch by mode; decimals query |
+| [`peers.rs`](src/peers.rs) | Peer registry, per-peer inbound limit, backflow, peer verification |
+| [`transceivers.rs`](src/transceivers.rs) | Bitmap, registry add/remove, threshold, invariants |
+| [`rate_limit.rs`](src/rate_limit.rs) | Outbound consume/refill wrappers |
+| [`outbound.rs`](src/outbound.rs) | Outbound transfer lifecycle |
+| [`inbound.rs`](src/inbound.rs) | Attestation processing, threshold execution, inbound queue, `execute_msg` |
+
+`Mode`, `NttManagerPeer`, `RateLimitParams`, the message codecs, the error enum, the events, and the constants are all defined in [`soroban-ntt-client`](../soroban-ntt-client) and re-exported, not defined here.
+
+Behaviour is covered by the in-process suite under [`tests/`](tests/) and end-to-end in [`integration-tests`](../../integration-tests).
