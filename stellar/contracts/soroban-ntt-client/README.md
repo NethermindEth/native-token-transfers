@@ -35,21 +35,19 @@ Two facts make this crate the workspace's breaking-change surface, so any edit h
 
 An NTT token transfer is three payloads nested inside each other, then carried as the payload of a Wormhole VAA. The manager owns the inner two layers; the transceiver owns the envelope; Wormhole owns the VAA.
 
-```
-Wormhole VAA
-└── payload = TransceiverMessage        prefix 0x9945FF10
-    ├── source_manager   (32 bytes)
-    ├── recipient_manager(32 bytes)
-    ├── manager_payload = NttManagerMessage
-    │   ├── id     (32 bytes)
-    │   ├── sender (32 bytes)
-    │   └── payload = NativeTokenTransfer   prefix 0x994E5454
-    │       ├── TrimmedAmount (decimals + amount)
-    │       ├── source_token (32 bytes)
-    │       ├── to           (32 bytes)
-    │       ├── to_chain     (u16)
-    │       └── additional_payload (optional)
-    └── transceiver_payload (reserved, empty here)
+```mermaid
+flowchart TB
+  subgraph vaa["Wormhole VAA (guardian-signed)"]
+    subgraph tm["TransceiverMessage · prefix 0x9945FF10"]
+      tmf["source_manager (32)<br/>recipient_manager (32)<br/>transceiver_payload (reserved)"]
+      subgraph nmm["NttManagerMessage"]
+        nmf["id (32)<br/>sender (32)"]
+        subgraph ntt["NativeTokenTransfer · prefix 0x994E5454"]
+          nttf["TrimmedAmount (decimals + amount)<br/>source_token (32)<br/>to (32)<br/>to_chain (u16)<br/>additional_payload (optional)"]
+        end
+      end
+    end
+  end
 ```
 
 All multi-byte integers are big-endian. Decoders use `wormhole_soroban_client::BytesReader`; a truncated read returns `MessageTooShort`. The prefixes match the canonical NTT values used by the EVM, Solana, and Sui implementations, which is what lets a Stellar transfer land on any of them and back.

@@ -102,16 +102,13 @@ Capacity starts full, is consumed by the trimmed transfer amount, and refills li
    - **Over capacity, `should_queue = false`**: refund the custodied amount and return `TransferExceedsRateLimit`.
    - **Over capacity, `should_queue = true`**: store the queued transfer with a release timestamp, emit the queue events, and return `TransferResult::queued`. No dispatch and no backflow until it completes.
 
-```
-transfer ─▶ validate ─▶ trim (dust to sender) ─▶ custody (lock/burn)
-                                                      │
-                                            rate-limit check
-                                        ┌─────────────┴─────────────┐
-                                    within cap                 over cap
-                                        │                ┌──────────┴──────────┐
-                                 dispatch to all      queue?              queue?
-                                 transceivers +       no ─▶ refund +      yes ─▶ store +
-                                 backflow refill      TransferExceeds…    release_timestamp
+```mermaid
+flowchart TD
+  t["transfer"] --> v["validate"] --> tr["trim<br/>dust stays with sender"] --> c["custody<br/>lock / burn"] --> rl{"rate-limit check"}
+  rl -->|within capacity| disp["dispatch to all transceivers<br/>+ backflow refill"]
+  rl -->|over capacity| q{"should_queue?"}
+  q -->|no| refund["refund custody<br/>TransferExceedsRateLimit"]
+  q -->|yes| store["store queued transfer<br/>with release_timestamp"]
 ```
 
 A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, and works even while the contract is paused.

@@ -10,8 +10,9 @@ All tests are `#[ignore]`-gated, so a plain `cargo test --workspace` skips them 
 
 The full cycle, driven by the scripts in [`scripts/`](scripts) and configured by `.env.localnet`:
 
-```
-build-wasms.sh ─▶ start-localnet.sh ─▶ fund-identity.sh ─▶ run-tests.sh ─▶ stop-localnet.sh
+```mermaid
+flowchart LR
+  a["build-wasms.sh"] --> b["start-localnet.sh"] --> c["fund-identity.sh"] --> d["run-tests.sh"] --> e["stop-localnet.sh"]
 ```
 
 | Script | What it does |

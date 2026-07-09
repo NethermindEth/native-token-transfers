@@ -13,13 +13,15 @@ Package `stellar-ntt-transceiver`, `#![no_std]`. Message codecs, interfaces, err
 
 Neither side trusts the other blindly. Each proves one half of the security property.
 
-```
-                    outbound (manager authorizes)
-   ┌───────────┐   ───────────────────────────────▶   ┌──────────────┐   post_message   ┌───────────────┐
-   │  Manager  │                                       │ Transceiver  │ ───────────────▶ │ Wormhole core │
-   │ (custody, │   ◀───────────────────────────────    │  (Wormhole)  │ ◀─────────────── │  (guardians)  │
-   │  policy)  │   attestation_received (txcvr auths)   └──────────────┘  parse & verify  └───────────────┘
-   └───────────┘
+```mermaid
+flowchart LR
+  manager["Manager<br/>custody, policy"]
+  txcvr["Transceiver<br/>Wormhole"]
+  core["Wormhole core<br/>guardians"]
+  manager -->|"send_message (manager authorizes)"| txcvr
+  txcvr -->|"post_message"| core
+  core -->|"parse and verify VAA"| txcvr
+  txcvr -->|"attestation_received (transceiver authorizes)"| manager
 ```
 
 - On the way out, the transceiver checks `manager.require_auth()`. Without it, any caller could push forged payloads through this contract's Wormhole emitter.

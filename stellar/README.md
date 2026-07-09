@@ -8,13 +8,20 @@ This workspace is the Stellar side of that protocol. It deploys the two NTT role
 
 The two roles split policy from transport. The manager custodies the token and enforces limits and thresholds; the transceiver carries the message over Wormhole.
 
-```
-   Stellar (source)                    Wormhole                    peer chain (destination)
- ┌──────────┐  ┌─────────────┐    ┌───────────────┐            ┌─────────────┐  ┌──────────┐
- │ Manager  │─▶│ Transceiver │───▶│  core contract │──▶ VAA ──▶ │ Transceiver │─▶│ Manager  │
- │ lock/burn│  │  envelope   │    │  + guardians   │  (signed)  │  verify     │  │ mint/    │
- └──────────┘  └─────────────┘    └───────────────┘            └─────────────┘  │ unlock   │
-                                                                                 └──────────┘
+```mermaid
+flowchart LR
+  subgraph src["Stellar (source)"]
+    m1["Manager<br/>lock / burn"]
+    t1["Transceiver<br/>envelope"]
+  end
+  subgraph wh["Wormhole"]
+    core["core contract<br/>+ guardians"]
+  end
+  subgraph dst["peer chain (destination)"]
+    t2["Transceiver<br/>verify"]
+    m2["Manager<br/>mint / unlock"]
+  end
+  m1 --> t1 --> core -->|"signed VAA"| t2 --> m2
 ```
 
 1. A sender calls `transfer` on the manager, which locks or burns the token and hands an NTT message to every enabled transceiver.
@@ -26,26 +33,26 @@ Both directions are rate-limited, and transfers over the limit can be queued and
 
 ## Repository layout
 
-```
-stellar/
-├── contracts/
-│   ├── manager/            NTT manager: custody, sequencing, threshold, rate limits
-│   ├── transceiver/        Wormhole transceiver: post to / verify from the core
-│   ├── soroban-ntt-client/ shared types, wire codecs, errors, events, interfaces
-│   └── mock-token/          minimal token fixture for tests
-├── integration-tests/      end-to-end tests against a Dockerized localnet
-└── vaa-test-signing/        guardian VAA signing for tests
+```mermaid
+flowchart TD
+  root["stellar/"] --> contracts["contracts/"]
+  contracts --> manager["manager/"]
+  contracts --> transceiver["transceiver/"]
+  contracts --> client["soroban-ntt-client/"]
+  contracts --> mock["mock-token/"]
+  root --> it["integration-tests/"]
+  root --> vaa["vaa-test-signing/"]
 ```
 
 Dependencies between the crates:
 
-```
-        manager ──┐
-                  ├──▶ soroban-ntt-client ──▶ wormhole-soroban-client
-     transceiver ─┘                                    ▲
-                                                        │
-     integration-tests ──▶ vaa-test-signing            │
-                       └───────────────────────────────┘
+```mermaid
+flowchart LR
+  manager["manager"] --> client["soroban-ntt-client"]
+  transceiver["transceiver"] --> client
+  client --> whc["wormhole-soroban-client"]
+  it["integration-tests"] --> vaa["vaa-test-signing"]
+  it --> whc
 ```
 
 | Crate | README | Purpose |
