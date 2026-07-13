@@ -5,7 +5,7 @@
 //! pause / ownership flows, token balance reads, inbound submission).
 //!
 //! The Wormhole core enforces a fixed governance emitter at deploy time
-//! ([`GOVERNANCE_EMITTER_HEX`]); the harness bakes it in so tests don't
+//! ([`GOVERNANCE_EMITTER`]); the harness bakes it in so tests don't
 //! have to know that detail.
 
 use serde_json::Value;
@@ -179,7 +179,7 @@ impl Stack {
     /// Deploys a Wormhole core (with test guardian), a token (native SAC for
     /// `Locking`, fresh `MockToken` for `Burning`), the manager, and one
     /// transceiver. The transceiver is not yet registered with the manager;
-    /// the test calls [`register_transceiver`] when it needs that.
+    /// the test calls [`Self::register_transceiver`] when it needs that.
     pub fn deploy(ctx: &TestContext, opts: &StackOptions) -> Self {
         let wormhole_core = WormholeCore::deploy_with_test_guardian(ctx);
         let token = match opts.mode {
@@ -300,7 +300,7 @@ impl Stack {
     }
 
     /// Registers `transceiver` (any address) on the manager. Used to wire a
-    /// second or third transceiver returned by [`deploy_extra_transceiver`].
+    /// second or third transceiver returned by [`Self::deploy_extra_transceiver`].
     pub fn register_transceiver_addr(&self, ctx: &TestContext, transceiver: &str) {
         cli::invoke(
             &ctx.admin_identity,
@@ -325,7 +325,7 @@ impl Stack {
 
     /// Sets `peer_addr` as the peer emitter for `chain_id` on the given
     /// transceiver contract id. Used to wire additional transceivers
-    /// returned by [`deploy_extra_transceiver`].
+    /// returned by [`Self::deploy_extra_transceiver`].
     pub fn set_transceiver_peer(
         &self,
         ctx: &TestContext,
@@ -356,7 +356,7 @@ impl Stack {
 
     /// Deploys an additional transceiver bound to the same manager and
     /// Wormhole core. Returns its contract id; the caller registers it via
-    /// [`register_transceiver_addr`].
+    /// [`Self::register_transceiver_addr`].
     pub fn deploy_extra_transceiver(&self, ctx: &TestContext) -> String {
         Transceiver::deploy(
             ctx,

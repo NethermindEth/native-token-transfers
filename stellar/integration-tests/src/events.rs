@@ -113,7 +113,7 @@ impl<'a> EventQuery<'a> {
         arr.iter().filter_map(decode_event).collect()
     }
 
-    /// Polls [`fetch`] every second until an event satisfying `pred` shows up,
+    /// Polls [`Self::fetch`] every second until an event satisfying `pred` shows up,
     /// or `timeout` elapses. Required because RPC indexing lags ledger close —
     /// a single fetch right after a tx will often miss the event it emitted.
     pub fn find(
