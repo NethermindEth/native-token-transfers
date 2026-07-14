@@ -144,7 +144,7 @@ impl ManagerContract {
     /// Returns `(trimmed_amount, dust)` where `trimmed_amount` is what the
     /// recipient receives and `dust` is the precision lost to decimal
     /// differences between the local and peer token. Delivery fees are quoted
-    /// separately via [`quote_delivery_price`](Self::quote_delivery_price).
+    /// separately via `quote_delivery_price`.
     ///
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
