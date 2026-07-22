@@ -1,0 +1,15 @@
+[package]
+name = "stellar-ntt-with-executor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "stellar_ntt_with_executor"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+soroban-ntt-client = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

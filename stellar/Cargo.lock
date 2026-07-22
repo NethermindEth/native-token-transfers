@@ -1606,6 +1606,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-ntt-with-executor"
+version = "0.1.0"
+dependencies = [
+ "soroban-ntt-client",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "stellar-strkey"
 version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"

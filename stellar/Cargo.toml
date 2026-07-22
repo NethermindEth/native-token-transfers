@@ -2,6 +2,7 @@
 members = [
   "contracts/manager",
   "contracts/transceiver",
+  "contracts/ntt-with-executor",
   "contracts/soroban-ntt-client",
   "contracts/mock-token",
   "integration-tests",
@@ -19,6 +20,8 @@ license = "Apache-2.0"
 soroban-sdk = { version = "=25.3.0", features = ["hazmat-address"] }
 stellar-xdr = "25"
 wormhole-soroban-client = { git = "https://github.com/NethermindEth/wormhole", branch = "stellar" }
+executor-soroban-client = { git = "https://github.com/NethermindEth/example-messaging-executor", branch = "stellar" }
+executor-requests = { git = "https://github.com/NethermindEth/example-messaging-executor", branch = "stellar" }
 soroban-ntt-client = { path = "contracts/soroban-ntt-client" }
 vaa-test-signing = { path = "vaa-test-signing" }
 stellar-access = "=0.7.1"
