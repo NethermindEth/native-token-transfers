@@ -58,6 +58,12 @@
   },
   "peerDependencies": {
     "@wormhole-foundation/sdk-base": "^4.7.0",
-    "@wormhole-foundation/sdk-definitions": "^4.7.0"
+    "@wormhole-foundation/sdk-definitions": "^4.7.0",
+    "@wormhole-foundation/sdk-stellar": "^4.7.0",
+    "@wormhole-foundation/sdk-stellar-core": "^4.7.0"
+  },
+  "devDependencies": {
+    "@wormhole-foundation/sdk-stellar": "file:../../../wormhole-sdk-ts/platforms/stellar",
+    "@wormhole-foundation/sdk-stellar-core": "file:../../../wormhole-sdk-ts/platforms/stellar/protocols/core"
   }
 }
