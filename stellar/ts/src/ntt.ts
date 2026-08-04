@@ -7,7 +7,7 @@ import type {
   ChainsConfig,
   Contracts,
 } from "@wormhole-foundation/sdk-definitions";
-import type { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
+import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
@@ -17,13 +17,18 @@ import type {
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
 import {
+  asBigint,
   asBoolean,
   asNumber,
   asAddress,
+  decodeInboundQueuedTransfer,
   decodeMode,
   decodeNttManagerPeer,
+  decodeOutboundQueuedTransfer,
+  decodeRateLimitParams,
   decodeTransceiverInfo,
 } from "./scval-types.js";
+import type { OutboundQueuedTransfer } from "./scval-types.js";
 
 /**
  * NTT bindings for the Soroban manager + Wormhole transceiver contracts.
@@ -131,6 +136,79 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
     };
   }
 
+  /** Outbound capacity left right now, after the time-based refill. */
+  async getCurrentOutboundCapacity(): Promise<bigint> {
+    return this.untrim(asBigint(await this.read("get_outbound_capacity")));
+  }
+
+  async getOutboundLimit(): Promise<bigint> {
+    return this.untrim(
+      decodeRateLimitParams(await this.read("get_outbound_limit_params")).limit
+    );
+  }
+
+  // Inbound rate limits live on the peer entry, so both of these report 0 for a
+  // chain that is not a peer at all — it has no capacity rather than an empty
+  // bucket. Use `getPeer` to tell the two apart.
+  async getCurrentInboundCapacity(fromChain: Chain): Promise<bigint> {
+    const capacity = await this.read(
+      "get_inbound_capacity",
+      chainIdArg(fromChain)
+    );
+    return capacity === null ? 0n : this.untrim(asBigint(capacity));
+  }
+
+  async getInboundLimit(fromChain: Chain): Promise<bigint> {
+    const params = await this.read(
+      "get_inbound_limit_params",
+      chainIdArg(fromChain)
+    );
+    return params === null
+      ? 0n
+      : this.untrim(decodeRateLimitParams(params).limit);
+  }
+
+  /** Seconds, not milliseconds: Soroban ledger time. */
+  async getRateLimitDuration(): Promise<bigint> {
+    return asBigint(await this.read("get_rate_limit_duration"));
+  }
+
+  async getInboundQueuedTransfer(
+    fromChain: Chain,
+    transceiverMessage: Ntt.Message
+  ): Promise<Ntt.InboundQueuedTransfer<C> | null> {
+    const item = await this.read(
+      "get_inbound_queue_item",
+      digestArg(Ntt.messageDigest(fromChain, transceiverMessage))
+    );
+    if (item === null) return null;
+
+    const { recipient, amount, releaseTimestamp } =
+      decodeInboundQueuedTransfer(item);
+    return {
+      recipient: new StellarAddress(recipient) as AccountAddress<C>,
+      amount,
+      // The contract stores the release time itself, so unlike EVM there is
+      // nothing to add the rate-limit duration to.
+      rateLimitExpiryTimestamp: Number(releaseTimestamp),
+    };
+  }
+
+  /**
+   * The outbound transfer queued under `sequence`, if the rate limiter held it
+   * back. Stellar-specific: `complete_queued_transfer` and
+   * `cancel_queued_transfer` are keyed by sequence, not by digest.
+   */
+  async getOutboundQueuedTransfer(
+    sequence: bigint
+  ): Promise<OutboundQueuedTransfer | null> {
+    const item = await this.read(
+      "get_outbound_queue_item",
+      nativeToScVal(sequence, { type: "u64" })
+    );
+    return item === null ? null : decodeOutboundQueuedTransfer(item);
+  }
+
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
     const [token, transceiver] = await Promise.all([
       this.read("get_token"),
@@ -186,3 +264,6 @@ const TRIMMED_DECIMALS = 8;
 /** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
 const chainIdArg = (chain: Chain): xdr.ScVal =>
   nativeToScVal(toChainId(chain), { type: "u32" });
+
+const digestArg = (digest: Uint8Array): xdr.ScVal =>
+  nativeToScVal(Buffer.from(digest), { type: "bytes" });

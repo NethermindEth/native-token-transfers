@@ -1,8 +1,12 @@
 // ESM Jest does not inject the `jest` global; import it.
 import { jest } from "@jest/globals";
-import type { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+import type { rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
-import { StellarPlatform } from "@wormhole-foundation/sdk-stellar";
+import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
+import {
+  StellarAddress,
+  StellarPlatform,
+} from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
 
 const MANAGER = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
@@ -41,19 +45,54 @@ const managerState: Record<string, unknown> = {
       last_tx_timestamp: 1700000000n,
     },
   },
+  get_outbound_capacity: 900n,
+  get_outbound_limit_params: {
+    limit: 1000n,
+    current_capacity: 900n,
+    last_tx_timestamp: 1700000000n,
+  },
+  get_inbound_capacity: 500n,
+  get_inbound_limit_params: {
+    limit: 800n,
+    current_capacity: 500n,
+    last_tx_timestamp: 1700000000n,
+  },
+  get_rate_limit_duration: 86400n,
+  get_inbound_queue_item: {
+    recipient: OWNER,
+    amount: 500n,
+    trimmed_amount: 5n,
+    release_timestamp: 1700000042n,
+  },
+  get_outbound_queue_item: null,
+};
+
+const message: Ntt.Message = {
+  id: new Uint8Array(32),
+  sender: new UniversalAddress(new Uint8Array(32)),
+  payload: {
+    trimmedAmount: { amount: 1n, decimals: 7 },
+    sourceToken: new UniversalAddress(new Uint8Array(32)),
+    recipientAddress: new UniversalAddress(new Uint8Array(32)),
+    recipientChain: "Stellar",
+    additionalPayload: new Uint8Array(),
+  },
 };
 
 let overrides: Record<string, unknown>;
+let calls: { method: string; args: xdr.ScVal[] }[];
 
 const ntt = () =>
   new StellarNtt("Testnet", "Stellar", {} as SorobanRpc.Server, contracts);
 
 beforeEach(() => {
   overrides = {};
+  calls = [];
   jest
     .spyOn(StellarPlatform, "simulateRead")
-    .mockImplementation(async (_rpc, _network, contractId, method) => {
+    .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
       expect(contractId).toEqual(MANAGER);
+      calls.push({ method, args });
       const state = method in overrides ? overrides : managerState;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
       return state[method];
@@ -128,6 +167,78 @@ describe("StellarNtt config getters", () => {
   it("returns null for an unregistered peer", async () => {
     overrides = { get_peer: null };
     await expect(ntt().getPeer("Ethereum")).resolves.toBeNull();
+  });
+});
+
+describe("StellarNtt rate limits", () => {
+  it("reads outbound capacity, limits and the refill window", async () => {
+    const n = ntt();
+    // token_decimals is 7, so the trimmed domain is already the token's.
+    await expect(n.getCurrentOutboundCapacity()).resolves.toEqual(900n);
+    await expect(n.getOutboundLimit()).resolves.toEqual(1000n);
+    // Seconds, not milliseconds — Soroban ledger time.
+    await expect(n.getRateLimitDuration()).resolves.toEqual(86400n);
+  });
+
+  it("reads per-peer inbound capacity and limits", async () => {
+    const n = ntt();
+    await expect(n.getCurrentInboundCapacity("Ethereum")).resolves.toEqual(
+      500n
+    );
+    await expect(n.getInboundLimit("Ethereum")).resolves.toEqual(800n);
+    expect(
+      calls
+        .filter((c) => c.method.startsWith("get_inbound"))
+        .map((c) => c.args[0]!.u32())
+    ).toEqual([2, 2]);
+  });
+
+  it("rescales limits out of the trimmed domain into token decimals", async () => {
+    // The manager consumes rate limits in trimmed units (min(8, decimals)) and
+    // stores a bare u64, so an 18-decimal token needs 10 decimals put back.
+    overrides = { token_decimals: 18 };
+    const n = ntt();
+    await expect(n.getCurrentOutboundCapacity()).resolves.toEqual(
+      900n * 10n ** 10n
+    );
+    await expect(n.getOutboundLimit()).resolves.toEqual(1000n * 10n ** 10n);
+    await expect(n.getCurrentInboundCapacity("Ethereum")).resolves.toEqual(
+      500n * 10n ** 10n
+    );
+    await expect(n.getInboundLimit("Ethereum")).resolves.toEqual(
+      800n * 10n ** 10n
+    );
+    expect((await n.getPeer("Ethereum"))!.inboundLimit).toEqual(
+      1000n * 10n ** 10n
+    );
+  });
+
+  it("reports no capacity for a chain that is not a peer", async () => {
+    overrides = { get_inbound_capacity: null, get_inbound_limit_params: null };
+    const n = ntt();
+    await expect(n.getCurrentInboundCapacity("Ethereum")).resolves.toEqual(0n);
+    await expect(n.getInboundLimit("Ethereum")).resolves.toEqual(0n);
+  });
+
+  it("keys the inbound queue by the locally computed digest", async () => {
+    await expect(
+      ntt().getInboundQueuedTransfer("Ethereum", message)
+    ).resolves.toEqual({
+      recipient: new StellarAddress(OWNER),
+      amount: 500n,
+      rateLimitExpiryTimestamp: 1700000042,
+    });
+    expect(new Uint8Array(calls[0]!.args[0]!.bytes())).toEqual(
+      Ntt.messageDigest("Ethereum", message)
+    );
+  });
+
+  it("returns null for a transfer that was never queued", async () => {
+    overrides = { get_inbound_queue_item: null };
+    await expect(
+      ntt().getInboundQueuedTransfer("Ethereum", message)
+    ).resolves.toBeNull();
+    await expect(ntt().getOutboundQueuedTransfer(1n)).resolves.toBeNull();
   });
 });
 
