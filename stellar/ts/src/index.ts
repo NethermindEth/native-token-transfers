@@ -4,4 +4,5 @@
 export * from "./address.js";
 export * from "./constants.js";
 export * from "./messages.js";
+export * from "./ntt.js";
 export * from "./scval-types.js";
