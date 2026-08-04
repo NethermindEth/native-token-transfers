@@ -50,6 +50,34 @@ const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
 const isBytes = (v: unknown): v is Uint8Array => v instanceof Uint8Array;
 const isString = (v: unknown): v is string => typeof v === "string";
 
+/**
+ * Scalar returns. A contract's return type is part of its ABI, so a mismatch
+ * here is a wiring bug — fail loudly rather than coercing.
+ */
+export function asNumber(value: unknown): number {
+  if (!isNumber(value)) throw new Error(`Expected a u32, got ${typeof value}`);
+  return value;
+}
+
+export function asBigint(value: unknown): bigint {
+  if (!isBigint(value))
+    throw new Error(`Expected a u64/i128, got ${typeof value}`);
+  return value;
+}
+
+export function asBoolean(value: unknown): boolean {
+  if (!isBoolean(value))
+    throw new Error(`Expected a bool, got ${typeof value}`);
+  return value;
+}
+
+/** An `Address` decodes to its StrKey text; `StellarAddress` validates it. */
+export function asAddress(value: unknown): string {
+  if (!isString(value))
+    throw new Error(`Expected an Address, got ${typeof value}`);
+  return value;
+}
+
 /** `Mode` is a `#[repr(u32)]` unit enum, so it decodes to its discriminant. */
 export function decodeMode(value: unknown): Ntt.Mode {
   if (value === 0) return "locking";
