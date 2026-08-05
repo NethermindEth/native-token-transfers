@@ -13,8 +13,22 @@
 //! The executor is bound at construction (one per chain); the NTT manager is a
 //! per-call argument, so a single wrapper serves every manager on the chain.
 
+pub mod fee;
+
 use soroban_ntt_client::{TTL_EXTEND, TTL_THRESHOLD};
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+
+/// Errors raised by the wrapper's own validation. Manager and executor failures
+/// trap through their typed clients and revert the whole transaction.
+///
+/// Discriminants are part of the on-chain ABI: append only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[contracterror]
+#[repr(u32)]
+pub enum WrapperError {
+    /// Referrer fee `dbps` exceeds the `u16` on-wire fee field.
+    InvalidReferrerFee = 1,
+}
 
 #[derive(Clone)]
 #[contracttype]
