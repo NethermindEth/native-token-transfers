@@ -1,6 +1,15 @@
 // ESM Jest does not inject the `jest` global; import it.
 import { jest } from "@jest/globals";
-import type { rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Address,
+  Operation,
+  scValToNative,
+  type Transaction,
+  type rpc as SorobanRpc,
+  type xdr,
+} from "@stellar/stellar-sdk";
+import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
 import {
   UniversalAddress,
   createVAA,
@@ -9,6 +18,7 @@ import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
+  type StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
 
@@ -101,8 +111,35 @@ const attestation = createVAA("Ntt:WormholeTransfer", {
 let overrides: Record<string, unknown>;
 let calls: { method: string; args: xdr.ScVal[] }[];
 
-const ntt = () =>
-  new StellarNtt("Testnet", "Stellar", {} as SorobanRpc.Server, contracts);
+// Writes only need the two rpc calls `prepare` makes; `prepareTransaction`
+// hands the built transaction straight back so the tests can inspect it.
+const provider = {
+  getAccount: async (address: string) => new Account(address, "17"),
+  prepareTransaction: async (tx: Transaction) => tx,
+} as unknown as SorobanRpc.Server;
+
+const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
+
+/** The contract, method and decoded arguments a yielded transaction invokes. */
+const invocation = (tx: StellarUnsignedTransaction<"Testnet", "Stellar">) => {
+  const [operation] = tx.transaction.operations;
+  const invoke = (
+    operation as Operation.InvokeHostFunction
+  ).func.invokeContract();
+  return {
+    contract: Address.fromScAddress(invoke.contractAddress()).toString(),
+    method: invoke.functionName().toString(),
+    args: invoke.args().map((arg) => scValToNative(arg)),
+  };
+};
+
+const collect = async (
+  txs: AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
+) => {
+  const collected = [];
+  for await (const tx of txs) collected.push(tx);
+  return collected;
+};
 
 beforeEach(() => {
   overrides = {};
@@ -324,6 +361,70 @@ describe("StellarNtt delivery quotes", () => {
     await expect(
       ntt().quoteDeliveryPrice("Ethereum", { queue: false, automatic: true })
     ).rejects.toThrow(/not available/);
+  });
+});
+
+describe("StellarNtt.transfer", () => {
+  const recipient = new UniversalAddress(new Uint8Array(32).fill(0x11));
+  const destination = {
+    chain: "Ethereum",
+    address: recipient,
+  } as ChainAddress;
+
+  it("sends the recipient's universal address to the manager", async () => {
+    const [tx, ...rest] = await collect(
+      ntt().transfer(new StellarAddress(OWNER), 42n, destination, {
+        queue: false,
+      })
+    );
+    expect(rest).toEqual([]);
+    expect(invocation(tx!)).toEqual({
+      contract: MANAGER,
+      method: "transfer",
+      // sender, amount, recipient_chain, recipient, should_queue. The manager
+      // hashes the sender itself, so it goes over the ABI as an Address.
+      args: [OWNER, 42n, 2, Buffer.from(recipient.toUint8Array()), false],
+    });
+    // Sequential, so a queued transfer's completion lands after the transfer.
+    expect(tx!.parallelizable).toEqual(false);
+    expect(tx!.description).toEqual("Ntt.transfer");
+  });
+
+  it("routes an additional payload through transfer_with_payload", async () => {
+    const payload = new Uint8Array([1, 2, 3]);
+    const [tx] = await collect(
+      ntt().transfer(
+        new StellarAddress(OWNER),
+        42n,
+        destination,
+        { queue: true },
+        payload
+      )
+    );
+    expect(invocation(tx!).method).toEqual("transfer_with_payload");
+    expect(invocation(tx!).args).toEqual([
+      OWNER,
+      42n,
+      2,
+      Buffer.from(recipient.toUint8Array()),
+      true,
+      Buffer.from(payload),
+    ]);
+  });
+
+  it("refuses an automatic transfer and a sender it cannot sign for", async () => {
+    await expect(
+      collect(
+        ntt().transfer(new StellarAddress(OWNER), 42n, destination, {
+          queue: false,
+          automatic: true,
+        })
+      )
+    ).rejects.toThrow(/not available/);
+    // A UniversalAddress is a one-way hash_address; it cannot source a tx.
+    await expect(
+      collect(ntt().transfer(recipient, 42n, destination, { queue: false }))
+    ).rejects.toThrow();
   });
 });
 

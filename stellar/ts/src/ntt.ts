@@ -1,9 +1,18 @@
-import { nativeToScVal, rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
+import {
+  Address,
+  BASE_FEE,
+  Contract,
+  TransactionBuilder,
+  nativeToScVal,
+  rpc as SorobanRpc,
+  xdr,
+} from "@stellar/stellar-sdk";
 import { toChainId } from "@wormhole-foundation/sdk-base";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
   AccountAddress,
+  ChainAddress,
   ChainsConfig,
   Contracts,
 } from "@wormhole-foundation/sdk-definitions";
@@ -11,11 +20,16 @@ import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
+  StellarUnsignedTransaction,
+  stellarNetworkPassphrase,
 } from "@wormhole-foundation/sdk-stellar";
 import type {
+  AnyStellarAddress,
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
+import { decodeContractError } from "./errors.js";
+import type { ContractErrorSpace } from "./errors.js";
 import {
   asBigint,
   asBoolean,
@@ -180,7 +194,7 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   ): Promise<Ntt.InboundQueuedTransfer<C> | null> {
     const item = await this.read(
       "get_inbound_queue_item",
-      digestArg(Ntt.messageDigest(fromChain, transceiverMessage))
+      bytesArg(Ntt.messageDigest(fromChain, transceiverMessage))
     );
     if (item === null) return null;
 
@@ -213,13 +227,13 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   /** The threshold of attestations is met; the transfer may still be queued. */
   async getIsApproved(attestation: Ntt.Attestation): Promise<boolean> {
     return asBoolean(
-      await this.read("is_message_approved", digestArg(digestOf(attestation)))
+      await this.read("is_message_approved", bytesArg(digestOf(attestation)))
     );
   }
 
   async getIsExecuted(attestation: Ntt.Attestation): Promise<boolean> {
     const executed = asBoolean(
-      await this.read("is_message_executed", digestArg(digestOf(attestation)))
+      await this.read("is_message_executed", bytesArg(digestOf(attestation)))
     );
     // A rate-limited transfer is marked executed once the queue entry is
     // created, so it is only complete when nothing is left queued.
@@ -260,6 +274,55 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   /** Stellar has no NTT quoter, so a transfer is always manually redeemed. */
   async isRelayingAvailable(_destination: Chain): Promise<boolean> {
     return false;
+  }
+
+  /**
+   * Locks or burns `amount` and dispatches it to `destination`.
+   *
+   * `options.queue` picks what happens when the outbound rate limiter is
+   * exhausted: queue the transfer for later completion, or fail the whole call
+   * with `TransferExceedsRateLimit`. `options.wrapNative` has nothing to do on
+   * Stellar — XLM is already a SEP-41 contract, so the native token needs no
+   * wrapper. An `additionalPayload` routes the call through
+   * `transfer_with_payload` so the destination manager forwards it on.
+   *
+   * The manager takes custody with the token's own `transfer`/`burn`, both of
+   * which authorize `sender` rather than an allowance, so no separate approve
+   * step is needed. The transceiver pays the Wormhole message fee out of its
+   * own balance — see {@link quoteDeliveryPrice} for what that costs.
+   */
+  async *transfer(
+    sender: AccountAddress<C>,
+    amount: bigint,
+    destination: ChainAddress,
+    options: Ntt.TransferOptions,
+    additionalPayload?: Uint8Array
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    if (options.automatic)
+      throw new Error("Relaying is not available on Stellar");
+
+    const from = this.source(sender, "the sender");
+    const args = [
+      addressArg(from),
+      nativeToScVal(amount, { type: "i128" }),
+      chainIdArg(destination.chain),
+      // Generic: the destination's own address type decides its wire form —
+      // raw bytes for most chains, the one-way hash_address when the
+      // destination is itself Stellar. The manager hashes `sender` and
+      // `source_token` on-chain (outbound.rs), so neither is pre-hashed here.
+      bytesArg(destination.address.toUniversalAddress().toUint8Array()),
+      nativeToScVal(options.queue, { type: "bool" }),
+    ];
+    if (additionalPayload) args.push(bytesArg(additionalPayload));
+
+    yield await this.prepare(
+      from,
+      new Contract(this.managerAddress).call(
+        additionalPayload ? "transfer_with_payload" : "transfer",
+        ...args
+      ),
+      "Ntt.transfer"
+    );
   }
 
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
@@ -309,6 +372,56 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
       ...args
     );
   }
+
+  /**
+   * The account a write is sent from, which is also the account it authorizes.
+   *
+   * Every NTT write requires exactly one address to have authorized it — the
+   * sender, the owner, the pauser. Soroban's simulation returns source-account
+   * credentials for an address that is also the transaction source, and those
+   * are covered by the envelope signature the signer already applies; any other
+   * address would need its auth entry signed separately. So the caller's payer
+   * has to *be* the authorizing address, and there is no default for it.
+   */
+  private source(payer: AccountAddress<C> | undefined, role: string): string {
+    if (payer === undefined)
+      throw new Error(`Stellar has no implicit signer: pass ${role} as payer`);
+    return new StellarAddress(payer as AnyStellarAddress).toString();
+  }
+
+  /** Build, simulate and assemble a write for the signer to sign and submit. */
+  private async prepare(
+    from: string,
+    operation: xdr.Operation,
+    description: string,
+    space: ContractErrorSpace = "NttManager"
+  ): Promise<StellarUnsignedTransaction<N, C>> {
+    const source = await this.provider.getAccount(from);
+    const tx = new TransactionBuilder(source, {
+      fee: BASE_FEE,
+      networkPassphrase: stellarNetworkPassphrase(this.network),
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.provider
+      .prepareTransaction(tx)
+      .catch((error: unknown) => {
+        throw decodeContractError(error, space);
+      });
+
+    return new StellarUnsignedTransaction(
+      prepared,
+      this.network,
+      this.chain,
+      description,
+      // Connect runs non-parallelizable transactions one at a time, waiting for
+      // each to confirm — which is what keeps a queued transfer's completion
+      // behind the transfer that queued it.
+      false
+    );
+  }
 }
 
 /** `TrimmedAmount::MAX_DECIMALS` — the ceiling of the shared NTT amount domain. */
@@ -318,8 +431,12 @@ const TRIMMED_DECIMALS = 8;
 const chainIdArg = (chain: Chain): xdr.ScVal =>
   nativeToScVal(toChainId(chain), { type: "u32" });
 
-const digestArg = (digest: Uint8Array): xdr.ScVal =>
-  nativeToScVal(Buffer.from(digest), { type: "bytes" });
+/** `Bytes` and `BytesN<N>` share one ScVal type; the host checks the length. */
+const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
+  nativeToScVal(Buffer.from(bytes), { type: "bytes" });
+
+const addressArg = (address: AnyStellarAddress): xdr.ScVal =>
+  new Address(new StellarAddress(address).toString()).toScVal();
 
 /**
  * The manager message an attestation carries, with the chain that sent it.
