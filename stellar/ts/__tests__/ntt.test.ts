@@ -1,7 +1,10 @@
 // ESM Jest does not inject the `jest` global; import it.
 import { jest } from "@jest/globals";
 import type { rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
-import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
+import {
+  UniversalAddress,
+  createVAA,
+} from "@wormhole-foundation/sdk-definitions";
 import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
@@ -78,6 +81,22 @@ const message: Ntt.Message = {
     additionalPayload: new Uint8Array(),
   },
 };
+
+const attestation = createVAA("Ntt:WormholeTransfer", {
+  emitterChain: "Ethereum",
+  emitterAddress: new UniversalAddress(new Uint8Array(32)),
+  sequence: 1n,
+  guardianSet: 0,
+  timestamp: 0,
+  consistencyLevel: 1,
+  nonce: 0,
+  signatures: [],
+  payload: {
+    sourceNttManager: new UniversalAddress(new Uint8Array(32)),
+    recipientNttManager: new UniversalAddress(new Uint8Array(32)),
+    nttManagerPayload: message,
+  },
+});
 
 let overrides: Record<string, unknown>;
 let calls: { method: string; args: xdr.ScVal[] }[];
@@ -239,6 +258,35 @@ describe("StellarNtt rate limits", () => {
       ntt().getInboundQueuedTransfer("Ethereum", message)
     ).resolves.toBeNull();
     await expect(ntt().getOutboundQueuedTransfer(1n)).resolves.toBeNull();
+  });
+});
+
+describe("StellarNtt attestation status", () => {
+  it("keys the approval read by the digest of the manager message", async () => {
+    overrides = { is_message_approved: true };
+    await expect(ntt().getIsApproved(attestation)).resolves.toEqual(true);
+    expect(new Uint8Array(calls[0]!.args[0]!.bytes())).toEqual(
+      Ntt.messageDigest("Ethereum", message)
+    );
+  });
+
+  it("does not report a queued transfer as executed", async () => {
+    // The manager marks the attestation executed when it queues the transfer,
+    // so the queue has to be checked too before calling the transfer complete.
+    overrides = { is_message_executed: true };
+    await expect(ntt().getIsExecuted(attestation)).resolves.toEqual(false);
+    await expect(
+      ntt().getIsTransferInboundQueued(attestation)
+    ).resolves.toEqual(true);
+
+    overrides = { is_message_executed: true, get_inbound_queue_item: null };
+    await expect(ntt().getIsExecuted(attestation)).resolves.toEqual(true);
+  });
+
+  it("skips the queue lookup when the message was never executed", async () => {
+    overrides = { is_message_executed: false };
+    await expect(ntt().getIsExecuted(attestation)).resolves.toEqual(false);
+    expect(calls.map((c) => c.method)).toEqual(["is_message_executed"]);
   });
 });
 

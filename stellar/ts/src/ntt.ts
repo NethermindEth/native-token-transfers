@@ -209,6 +209,29 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
     return item === null ? null : decodeOutboundQueuedTransfer(item);
   }
 
+  /** The threshold of attestations is met; the transfer may still be queued. */
+  async getIsApproved(attestation: Ntt.Attestation): Promise<boolean> {
+    return asBoolean(
+      await this.read("is_message_approved", digestArg(digestOf(attestation)))
+    );
+  }
+
+  async getIsExecuted(attestation: Ntt.Attestation): Promise<boolean> {
+    const executed = asBoolean(
+      await this.read("is_message_executed", digestArg(digestOf(attestation)))
+    );
+    // A rate-limited transfer is marked executed once the queue entry is
+    // created, so it is only complete when nothing is left queued.
+    return executed && !(await this.getIsTransferInboundQueued(attestation));
+  }
+
+  async getIsTransferInboundQueued(
+    attestation: Ntt.Attestation
+  ): Promise<boolean> {
+    const [fromChain, message] = managerMessage(attestation);
+    return (await this.getInboundQueuedTransfer(fromChain, message)) !== null;
+  }
+
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
     const [token, transceiver] = await Promise.all([
       this.read("get_token"),
@@ -267,3 +290,17 @@ const chainIdArg = (chain: Chain): xdr.ScVal =>
 
 const digestArg = (digest: Uint8Array): xdr.ScVal =>
   nativeToScVal(Buffer.from(digest), { type: "bytes" });
+
+/**
+ * The manager message an attestation carries, with the chain that sent it.
+ * A standard-relayer VAA wraps the transceiver message one level deeper.
+ */
+const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
+  attestation.emitterChain,
+  (attestation.payloadName === "WormholeTransfer"
+    ? attestation.payload
+    : attestation.payload["payload"])["nttManagerPayload"],
+];
+
+const digestOf = (attestation: Ntt.Attestation): Uint8Array =>
+  Ntt.messageDigest(...managerMessage(attestation));
