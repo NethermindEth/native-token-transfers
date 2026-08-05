@@ -9,7 +9,10 @@ import {
 } from "@stellar/stellar-sdk";
 import { toChainId } from "@wormhole-foundation/sdk-base";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
-import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
+import {
+  UniversalAddress,
+  serialize,
+} from "@wormhole-foundation/sdk-definitions";
 import type {
   AccountAddress,
   ChainAddress,
@@ -28,7 +31,7 @@ import type {
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
-import { decodeContractError } from "./errors.js";
+import { contractErrorCodes, decodeContractError } from "./errors.js";
 import type { ContractErrorSpace } from "./errors.js";
 import {
   asBigint,
@@ -325,6 +328,55 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
     );
   }
 
+  /**
+   * Delivers each attestation to the Wormhole transceiver, which verifies the
+   * VAA against the core and forwards it to the manager. One transaction per
+   * attestation: the transceiver takes a single VAA, and each is independently
+   * replay-protected, so a batch that fails part-way can be resumed.
+   */
+  async *redeem(
+    attestations: Ntt.Attestation[],
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(payer, "the payer");
+    const transceiver = new Contract(this.transceiver(0));
+
+    for (const attestation of attestations) {
+      yield await this.prepare(
+        from,
+        transceiver.call("receive_message", bytesArg(serialize(attestation))),
+        "Ntt.redeem",
+        "Transceiver"
+      ).catch((error: unknown) => {
+        throw redeemError(error);
+      });
+    }
+  }
+
+  /**
+   * Registers `address` on the Wormhole core's address registry, so an inbound
+   * transfer can resolve its hashed recipient back to a typed `G…`/`C…`.
+   *
+   * Permissionless: `payer` only funds the transaction and need not be the
+   * address being recorded. Until this lands, a transfer to that recipient
+   * fails with `RecipientNotRegistered`; the entry is persistent storage, so a
+   * long-idle registration can also need restoring.
+   */
+  async *recordAddress(
+    payer: AccountAddress<C>,
+    address: AnyStellarAddress
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.prepare(
+      this.source(payer, "the payer"),
+      new Contract(this.coreAddress).call(
+        "record_address",
+        addressArg(address)
+      ),
+      "Ntt.recordAddress",
+      "WormholeCore"
+    );
+  }
+
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
     const [token, transceiver] = await Promise.all([
       this.read("get_token"),
@@ -360,6 +412,13 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   private async untrim(trimmed: bigint): Promise<bigint> {
     const decimals = await this.getTokenDecimals();
     return trimmed * 10n ** BigInt(Math.max(0, decimals - TRIMMED_DECIMALS));
+  }
+
+  /** Stellar registers only the Wormhole transceiver, and only at index 0. */
+  private transceiver(ix: number): string {
+    if (ix !== 0 || this.transceiverAddress === undefined)
+      throw new Error(`No transceiver at index ${ix} for ${this.chain}`);
+    return this.transceiverAddress;
   }
 
   /** Simulate a read-only manager call and return its decoded result. */
@@ -451,3 +510,28 @@ const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
 
 const digestOf = (attestation: Ntt.Attestation): Uint8Array =>
   Ntt.messageDigest(...managerMessage(attestation));
+
+/** `TransceiverError::ManagerRejectedMessage` / `NttManagerError::RecipientNotRegistered`. */
+const MANAGER_REJECTED_MESSAGE = 36;
+const RECIPIENT_NOT_REGISTERED = 66;
+
+/**
+ * `receive_message` forwards to the manager through `flatten_call`, which
+ * collapses every manager failure into `ManagerRejectedMessage` — the real
+ * cause survives only in the simulation's inner frames. The retryable one is
+ * the recipient never having been recorded on the core address registry.
+ */
+const redeemError = (error: unknown): Error => {
+  const decoded = decodeContractError(error, "Transceiver");
+  const codes = contractErrorCodes(error);
+  if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return decoded;
+
+  const cause = codes.includes(RECIPIENT_NOT_REGISTERED)
+    ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66)."
+    : "The manager rejected the message and flatten_call masked its error.";
+  return new Error(
+    `${decoded.message}\n${cause} If the recipient has never been recorded, ` +
+      `run StellarNtt.recordAddress(payer, recipient) and redeem again.`,
+    { cause: error }
+  );
+};

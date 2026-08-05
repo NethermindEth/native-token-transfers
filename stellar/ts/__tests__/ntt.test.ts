@@ -10,6 +10,7 @@ import {
   type xdr,
 } from "@stellar/stellar-sdk";
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
+import { serialize } from "@wormhole-foundation/sdk-definitions";
 import {
   UniversalAddress,
   createVAA,
@@ -23,9 +24,9 @@ import {
 import { StellarNtt } from "../src/ntt.js";
 
 const MANAGER = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
-const TOKEN = "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ";
-const TRANSCEIVER = "CBQCJMQTPGGDHNCLJKKJ7XLNKQAGXPKNXHLJTQPKQOB5QUAQTQZ7B6JG";
-const CORE = "CDCPB4NPHRIF3W7TPQAXCFCTZL2NEDGJJ3RIFH3JBM7MKMAAADYSJRQK";
+const TOKEN = "CBD3J5AK3ZNX3CJVELGW2N32P3CI2TLMRIQEIL5OXKWA2HH2LN2DA3AO";
+const TRANSCEIVER = "CBOBIVCYTPASAMHAKQVIXN73PLY6MFJQSWJCPLCFGDXW2ZBUC3RCZN5S";
+const CORE = "CDKTO4XRUS3SHEFSYEAAGVR5MCWIYDR5EFUVH5AUZXX5MAEM4KB5BSED";
 const OWNER = "GA5KWLHVHDUXW4YUM7A5MFEJ3CDNN4C3Z3T3VGG2DQUWIZMJSWIN56CF";
 
 const contracts = {
@@ -425,6 +426,66 @@ describe("StellarNtt.transfer", () => {
     await expect(
       collect(ntt().transfer(recipient, 42n, destination, { queue: false }))
     ).rejects.toThrow();
+  });
+});
+
+describe("StellarNtt.redeem", () => {
+  it("hands each VAA to the transceiver in its own transaction", async () => {
+    const txs = await collect(
+      ntt().redeem([attestation, attestation], new StellarAddress(OWNER))
+    );
+    expect(txs.map((tx) => invocation(tx))).toEqual(
+      Array(2).fill({
+        contract: TRANSCEIVER,
+        method: "receive_message",
+        args: [Buffer.from(serialize(attestation))],
+      })
+    );
+  });
+
+  it("points a rejected message at the address registry", async () => {
+    // flatten_call masks the manager's own error as ManagerRejectedMessage, so
+    // the inner code is the only evidence of what actually went wrong.
+    const failing = new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        prepareTransaction: async () => {
+          throw new Error(
+            "HostError: Error(Contract, #36)\nError(Contract, #66)"
+          );
+        },
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+
+    await expect(
+      collect(failing.redeem([attestation], new StellarAddress(OWNER)))
+    ).rejects.toThrow(/RecipientNotRegistered.*recordAddress/s);
+  });
+
+  it("refuses to redeem without a transceiver to redeem through", async () => {
+    const unwired = new StellarNtt("Testnet", "Stellar", provider, {
+      coreBridge: CORE,
+      ntt: { ...contracts.ntt, transceiver: {} },
+    });
+    await expect(
+      collect(unwired.redeem([attestation], new StellarAddress(OWNER)))
+    ).rejects.toThrow(/No transceiver at index 0/);
+  });
+});
+
+describe("StellarNtt.recordAddress", () => {
+  it("registers an address on the core so its hash can be resolved", async () => {
+    const [tx] = await collect(
+      ntt().recordAddress(new StellarAddress(OWNER), TOKEN)
+    );
+    expect(invocation(tx!)).toEqual({
+      contract: CORE,
+      method: "record_address",
+      args: [TOKEN],
+    });
   });
 });
 

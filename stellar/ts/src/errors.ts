@@ -10,7 +10,7 @@
  */
 
 /** Which contract's error vocabulary a code should be read against. */
-export type ContractErrorSpace = "NttManager" | "Transceiver";
+export type ContractErrorSpace = "NttManager" | "Transceiver" | "WormholeCore";
 
 const NTT_MANAGER_ERRORS: Record<number, string> = {
   1: "MessageTooShort",
@@ -94,6 +94,15 @@ const OZ_ERRORS: Record<number, string> = {
   2203: "TransferExpired",
 };
 
+const SPACES: Record<ContractErrorSpace, Record<number, string>> = {
+  NttManager: NTT_MANAGER_ERRORS,
+  Transceiver: TRANSCEIVER_ERRORS,
+  // The Wormhole core's own `WormholeError` vocabulary lives in the Wormhole
+  // repo, not here. Its codes are reported as-is rather than misread against a
+  // table they do not belong to.
+  WormholeCore: {},
+};
+
 /**
  * The contract error codes a host error mentions, outermost first.
  *
@@ -120,9 +129,7 @@ export function decodeContractError(
   const [code] = contractErrorCodes(error);
   if (code === undefined) return cause;
 
-  const errors =
-    space === "NttManager" ? NTT_MANAGER_ERRORS : TRANSCEIVER_ERRORS;
-  const name = errors[code] ?? OZ_ERRORS[code] ?? "Unknown";
+  const name = SPACES[space][code] ?? OZ_ERRORS[code] ?? "Unknown";
   return new Error(`${space}Error::${name} (${code}): ${cause.message}`, {
     cause,
   });
