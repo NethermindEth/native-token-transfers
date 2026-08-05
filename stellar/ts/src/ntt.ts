@@ -389,6 +389,207 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
     );
   }
 
+  // Administration. Each of these authorizes exactly one address — the owner,
+  // except where noted — so `payer` has to be that address, not a third party
+  // funding it. See `source` for why.
+
+  /**
+   * Registers or updates the manager on `peer.chain`. `tokenDecimals` are the
+   * peer token's, used to normalize amounts; `inboundLimit` is in this token's
+   * decimals and is trimmed on the way in (see {@link setInboundLimit}).
+   */
+  async *setPeer(
+    peer: ChainAddress,
+    tokenDecimals: number,
+    inboundLimit: bigint,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.setPeer",
+      "set_peer",
+      chainIdArg(peer.chain),
+      bytesArg(peer.address.toUniversalAddress().toUint8Array()),
+      nativeToScVal(tokenDecimals, { type: "u32" }),
+      await this.trimArg(inboundLimit)
+    );
+  }
+
+  /**
+   * Registers `peer` as the transceiver's counterpart on its chain, by the
+   * emitter address its VAAs carry. One-shot: a second call for the same chain
+   * fails with `TransceiverError::PeerAlreadySet`, and the fix is a redeploy.
+   */
+  async *setTransceiverPeer(
+    ix: number,
+    peer: ChainAddress,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.prepare(
+      this.source(payer, "the owner"),
+      new Contract(this.transceiver(ix)).call(
+        "set_peer",
+        chainIdArg(peer.chain),
+        bytesArg(peer.address.toUniversalAddress().toUint8Array())
+      ),
+      "Ntt.setTransceiverPeer",
+      "Transceiver"
+    );
+  }
+
+  /** How many transceivers must attest before an inbound transfer executes. */
+  async *setThreshold(
+    threshold: number,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.setThreshold",
+      "set_threshold",
+      nativeToScVal(threshold, { type: "u32" })
+    );
+  }
+
+  /**
+   * Registers a transceiver and returns it its permanent bitmap index.
+   * Registering the first one raises the threshold from 0 to 1 by itself.
+   */
+  async *setTransceiver(
+    transceiver: AnyStellarAddress,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.setTransceiver",
+      "set_transceiver",
+      addressArg(transceiver)
+    );
+  }
+
+  /**
+   * Disables a transceiver, lowering the threshold if it no longer fits. The
+   * registry entry (and its index) is kept so it can be re-enabled; the last
+   * enabled transceiver cannot be removed.
+   */
+  async *removeTransceiver(
+    transceiver: AnyStellarAddress,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.removeTransceiver",
+      "remove_transceiver",
+      addressArg(transceiver)
+    );
+  }
+
+  /** `limit` is in the token's decimals; see {@link trimArg}. */
+  async *setOutboundLimit(
+    limit: bigint,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.setOutboundLimit",
+      "set_outbound_limit",
+      await this.trimArg(limit)
+    );
+  }
+
+  /** `limit` is in the token's decimals; see {@link trimArg}. */
+  async *setInboundLimit(
+    fromChain: Chain,
+    limit: bigint,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(
+      payer,
+      "Ntt.setInboundLimit",
+      "set_inbound_limit",
+      chainIdArg(fromChain),
+      await this.trimArg(limit)
+    );
+  }
+
+  /**
+   * Proposes `newOwner`, who then has to call {@link acceptOwnership} before
+   * `liveUntilLedger` — a two-step handover, so a typo cannot strand the
+   * manager. Defaults to roughly a day's worth of ledgers; passing `0` cancels
+   * a pending proposal instead.
+   */
+  async *setOwner(
+    newOwner: AccountAddress<C>,
+    payer?: AccountAddress<C>,
+    liveUntilLedger?: number
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const until =
+      liveUntilLedger ??
+      (await this.provider.getLatestLedger()).sequence +
+        OWNERSHIP_OFFER_LEDGERS;
+    yield await this.admin(
+      payer,
+      "Ntt.setOwner",
+      "transfer_ownership",
+      addressArg(newOwner as AnyStellarAddress),
+      nativeToScVal(until, { type: "u32" })
+    );
+  }
+
+  /** Step two of {@link setOwner}, authorized by the proposed owner. */
+  async *acceptOwnership(
+    newOwner: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.admin(newOwner, "Ntt.acceptOwnership", "accept_ownership");
+  }
+
+  /**
+   * Hands the pause capability to `newPauser`, or removes the role entirely
+   * with `null`, leaving `pause` owner-only. Authorized by the owner *or* the
+   * current pauser.
+   */
+  async *setPauser(
+    newPauser: AccountAddress<C> | null,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(payer, "the owner or the current pauser");
+    yield await this.prepare(
+      from,
+      new Contract(this.managerAddress).call(
+        "transfer_pauser",
+        addressArg(from),
+        // `Option<Address>`: None crosses the ABI as the unit value.
+        newPauser === null
+          ? xdr.ScVal.scvVoid()
+          : addressArg(newPauser as AnyStellarAddress)
+      ),
+      "Ntt.setPauser"
+    );
+  }
+
+  /** Emergency stop, available to the owner and the pauser alike. */
+  async *pause(
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(payer, "the owner or the pauser");
+    yield await this.prepare(
+      from,
+      new Contract(this.managerAddress).call("pause", addressArg(from)),
+      "Ntt.pause"
+    );
+  }
+
+  /** Owner-only, unlike {@link pause}: a compromised pauser cannot resume. */
+  async *unpause(
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(payer, "the owner");
+    yield await this.prepare(
+      from,
+      new Contract(this.managerAddress).call("unpause", addressArg(from)),
+      "Ntt.unpause"
+    );
+  }
+
   /**
    * Delivers each attestation to the Wormhole transceiver, which verifies the
    * VAA against the core and forwards it to the manager. One transaction per
@@ -482,6 +683,38 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
     return this.transceiverAddress;
   }
 
+  /** An owner-authorized manager call, sent from the owner's own account. */
+  private async admin(
+    payer: AccountAddress<C> | undefined,
+    description: string,
+    method: string,
+    ...args: xdr.ScVal[]
+  ): Promise<StellarUnsignedTransaction<N, C>> {
+    return this.prepare(
+      this.source(payer, "the owner"),
+      new Contract(this.managerAddress).call(method, ...args),
+      description
+    );
+  }
+
+  /**
+   * Rescales a rate limit from the token's decimals into the trimmed domain
+   * the manager stores it in — the exact inverse of {@link untrim}, which is
+   * where the reason the scale has to be reconstructed at all is written down.
+   * Skipping this would set every limit `10^(decimals - 8)` too high.
+   *
+   * Rounds down: a limit that is not a whole number of trimmed units cannot be
+   * represented, and rounding up would raise the limit that was asked for.
+   */
+  private async trimArg(amount: bigint): Promise<xdr.ScVal> {
+    const decimals = await this.getTokenDecimals();
+    const trimmed =
+      amount / 10n ** BigInt(Math.max(0, decimals - TRIMMED_DECIMALS));
+    if (trimmed > MAX_U64)
+      throw new Error(`Rate limit ${amount} overflows the manager's u64`);
+    return nativeToScVal(trimmed, { type: "u64" });
+  }
+
   /** Simulate a read-only manager call and return its decoded result. */
   private read(method: string, ...args: xdr.ScVal[]): Promise<unknown> {
     return StellarPlatform.simulateRead(
@@ -546,6 +779,12 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
 
 /** `TrimmedAmount::MAX_DECIMALS` — the ceiling of the shared NTT amount domain. */
 const TRIMMED_DECIMALS = 8;
+
+/** Rate limits are stored as a bare `u64`, so a trimmed limit has to fit one. */
+const MAX_U64 = 2n ** 64n - 1n;
+
+/** ~24 hours at Stellar's 5-second ledgers, to accept an ownership offer in. */
+const OWNERSHIP_OFFER_LEDGERS = 17280;
 
 /** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
 const chainIdArg = (chain: Chain): xdr.ScVal =>

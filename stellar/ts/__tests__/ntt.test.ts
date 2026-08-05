@@ -28,6 +28,7 @@ const TOKEN = "CBD3J5AK3ZNX3CJVELGW2N32P3CI2TLMRIQEIL5OXKWA2HH2LN2DA3AO";
 const TRANSCEIVER = "CBOBIVCYTPASAMHAKQVIXN73PLY6MFJQSWJCPLCFGDXW2ZBUC3RCZN5S";
 const CORE = "CDKTO4XRUS3SHEFSYEAAGVR5MCWIYDR5EFUVH5AUZXX5MAEM4KB5BSED";
 const OWNER = "GA5KWLHVHDUXW4YUM7A5MFEJ3CDNN4C3Z3T3VGG2DQUWIZMJSWIN56CF";
+const PAUSER = "GC4E6RZNOREPKUIGQR3BLPNGPUT3MAPLZV4LGF7UTLR2G5JKHKVYQVHZ";
 
 const contracts = {
   coreBridge: CORE,
@@ -112,11 +113,12 @@ const attestation = createVAA("Ntt:WormholeTransfer", {
 let overrides: Record<string, unknown>;
 let calls: { method: string; args: xdr.ScVal[] }[];
 
-// Writes only need the two rpc calls `prepare` makes; `prepareTransaction`
-// hands the built transaction straight back so the tests can inspect it.
+// Writes only need the rpc calls `prepare` makes; `prepareTransaction` hands
+// the built transaction straight back so the tests can inspect it.
 const provider = {
   getAccount: async (address: string) => new Account(address, "17"),
   prepareTransaction: async (tx: Transaction) => tx,
+  getLatestLedger: async () => ({ sequence: 1000 }),
 } as unknown as SorobanRpc.Server;
 
 const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
@@ -426,6 +428,136 @@ describe("StellarNtt.transfer", () => {
     await expect(
       collect(ntt().transfer(recipient, 42n, destination, { queue: false }))
     ).rejects.toThrow();
+  });
+});
+
+describe("StellarNtt admin setters", () => {
+  const owner = new StellarAddress(OWNER);
+  const peer = {
+    chain: "Ethereum",
+    address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+  } as ChainAddress;
+  const peerBytes = Buffer.from(
+    peer.address.toUniversalAddress().toUint8Array()
+  );
+
+  const one = async (
+    txs: AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
+  ) => invocation((await collect(txs))[0]!);
+
+  it("registers a peer and its transceiver counterpart", async () => {
+    expect(await one(ntt().setPeer(peer, 18, 1000n, owner))).toEqual({
+      contract: MANAGER,
+      method: "set_peer",
+      args: [2, peerBytes, 18, 1000n],
+    });
+    // The transceiver's peer is the emitter its VAAs carry, and is one-shot.
+    expect(await one(ntt().setTransceiverPeer(0, peer, owner))).toEqual({
+      contract: TRANSCEIVER,
+      method: "set_peer",
+      args: [2, peerBytes],
+    });
+  });
+
+  it("manages the threshold and the transceiver registry", async () => {
+    expect(await one(ntt().setThreshold(2, owner))).toEqual({
+      contract: MANAGER,
+      method: "set_threshold",
+      args: [2],
+    });
+    expect(await one(ntt().setTransceiver(TRANSCEIVER, owner))).toEqual({
+      contract: MANAGER,
+      method: "set_transceiver",
+      args: [TRANSCEIVER],
+    });
+    expect(await one(ntt().removeTransceiver(TRANSCEIVER, owner))).toEqual({
+      contract: MANAGER,
+      method: "remove_transceiver",
+      args: [TRANSCEIVER],
+    });
+  });
+
+  it("hands over ownership in two steps and pauses in one", async () => {
+    const proposed = new StellarAddress(PAUSER);
+    expect(await one(ntt().setOwner(proposed, owner))).toEqual({
+      contract: MANAGER,
+      method: "transfer_ownership",
+      // Defaulted from the latest ledger, so a stale offer expires by itself.
+      args: [PAUSER, 1000 + 17280],
+    });
+    expect(await one(ntt().setOwner(proposed, owner, 0))).toEqual({
+      contract: MANAGER,
+      method: "transfer_ownership",
+      args: [PAUSER, 0],
+    });
+    expect(await one(ntt().acceptOwnership(proposed))).toEqual({
+      contract: MANAGER,
+      method: "accept_ownership",
+      args: [],
+    });
+
+    expect(await one(ntt().setPauser(proposed, owner))).toEqual({
+      contract: MANAGER,
+      method: "transfer_pauser",
+      args: [OWNER, PAUSER],
+    });
+    // `None` gives up the role, leaving pause owner-only.
+    expect((await one(ntt().setPauser(null, owner))).args).toEqual([
+      OWNER,
+      null,
+    ]);
+    expect(await one(ntt().pause(owner))).toEqual({
+      contract: MANAGER,
+      method: "pause",
+      args: [OWNER],
+    });
+    expect((await one(ntt().unpause(owner))).method).toEqual("unpause");
+  });
+
+  it("trims rate limits into the domain the manager stores", async () => {
+    // The manager stores a bare u64 in the trimmed domain, so an 18-decimal
+    // token's limit has to lose 10 decimals on the way in — the exact inverse
+    // of what the reads put back, or every limit lands 10^10 too high.
+    overrides = { token_decimals: 18 };
+    const limit = 1000n * 10n ** 10n;
+    expect((await one(ntt().setOutboundLimit(limit, owner))).args).toEqual([
+      1000n,
+    ]);
+    expect(
+      (await one(ntt().setInboundLimit("Ethereum", limit, owner))).args
+    ).toEqual([2, 1000n]);
+    expect((await one(ntt().setPeer(peer, 18, limit, owner))).args[3]).toEqual(
+      1000n
+    );
+  });
+
+  it("round-trips a limit through set and read", async () => {
+    overrides = { token_decimals: 18 };
+    const n = ntt();
+    const [stored] = (await one(n.setOutboundLimit(4_200n * 10n ** 10n, owner)))
+      .args as [bigint];
+    overrides = {
+      token_decimals: 18,
+      get_outbound_limit_params: {
+        limit: stored,
+        current_capacity: stored,
+        last_tx_timestamp: 0n,
+      },
+    };
+    await expect(n.getOutboundLimit()).resolves.toEqual(4_200n * 10n ** 10n);
+  });
+
+  it("refuses a limit too large for the manager's u64", async () => {
+    // 7 decimals, so nothing is trimmed away and the u64 is the real ceiling.
+    await expect(
+      collect(ntt().setOutboundLimit(2n ** 64n, owner))
+    ).rejects.toThrow(/overflows/);
+  });
+
+  it("refuses an admin call with nobody to authorize it", async () => {
+    await expect(collect(ntt().setThreshold(1))).rejects.toThrow(
+      /no implicit signer/
+    );
   });
 });
 
