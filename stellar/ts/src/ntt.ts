@@ -222,9 +222,70 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   ): Promise<OutboundQueuedTransfer | null> {
     const item = await this.read(
       "get_outbound_queue_item",
-      nativeToScVal(sequence, { type: "u64" })
+      sequenceArg(sequence)
     );
     return item === null ? null : decodeOutboundQueuedTransfer(item);
+  }
+
+  /**
+   * Releases an inbound transfer the rate limiter held back. Permissionless
+   * once the queue entry's `release_timestamp` has passed — `payer` only funds
+   * the transaction — and the tokens go to the recipient the message named,
+   * not to whoever calls this.
+   */
+  async *completeInboundQueuedTransfer(
+    fromChain: Chain,
+    transceiverMessage: Ntt.Message,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.prepare(
+      this.source(payer, "the payer"),
+      new Contract(this.managerAddress).call(
+        "complete_inbound_transfer",
+        bytesArg(Ntt.messageDigest(fromChain, transceiverMessage))
+      ),
+      "Ntt.completeInboundQueuedTransfer"
+    );
+  }
+
+  /**
+   * Dispatches an outbound transfer the rate limiter held back, keyed by the
+   * sequence {@link getOutboundQueuedTransfer} reports. Also permissionless
+   * once the delay has been served; the message is sent under a *new* sequence.
+   */
+  async *completeOutboundQueuedTransfer(
+    sequence: bigint,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    yield await this.prepare(
+      this.source(payer, "the payer"),
+      new Contract(this.managerAddress).call(
+        "complete_queued_transfer",
+        sequenceArg(sequence)
+      ),
+      "Ntt.completeOutboundQueuedTransfer"
+    );
+  }
+
+  /**
+   * Abandons a queued outbound transfer and refunds the custodied tokens.
+   * Only the original sender may cancel (`CancellerNotSender` otherwise), so
+   * `sender` is both the authorizing address and the refund recipient.
+   */
+  async *cancelOutboundQueuedTransfer(
+    sequence: bigint,
+    sender: AccountAddress<C>
+  ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(sender, "the original sender");
+    yield await this.prepare(
+      from,
+      new Contract(this.managerAddress).call(
+        "cancel_queued_transfer",
+        addressArg(from),
+        sequenceArg(sequence)
+      ),
+      "Ntt.cancelOutboundQueuedTransfer"
+    );
   }
 
   /** The threshold of attestations is met; the transfer may still be queued. */
@@ -493,6 +554,9 @@ const chainIdArg = (chain: Chain): xdr.ScVal =>
 /** `Bytes` and `BytesN<N>` share one ScVal type; the host checks the length. */
 const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
   nativeToScVal(Buffer.from(bytes), { type: "bytes" });
+
+const sequenceArg = (sequence: bigint): xdr.ScVal =>
+  nativeToScVal(sequence, { type: "u64" });
 
 const addressArg = (address: AnyStellarAddress): xdr.ScVal =>
   new Address(new StellarAddress(address).toString()).toScVal();

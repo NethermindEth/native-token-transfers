@@ -489,6 +489,45 @@ describe("StellarNtt.recordAddress", () => {
   });
 });
 
+describe("StellarNtt queue completion", () => {
+  it("keys the inbound completion by the message digest", async () => {
+    const [tx] = await collect(
+      ntt().completeInboundQueuedTransfer(
+        "Ethereum",
+        message,
+        new StellarAddress(OWNER)
+      )
+    );
+    expect(invocation(tx!)).toEqual({
+      contract: MANAGER,
+      method: "complete_inbound_transfer",
+      args: [Buffer.from(Ntt.messageDigest("Ethereum", message))],
+    });
+  });
+
+  it("keys the outbound queue by sequence, not digest", async () => {
+    const payer = new StellarAddress(OWNER);
+    const [completed] = await collect(
+      ntt().completeOutboundQueuedTransfer(7n, payer)
+    );
+    expect(invocation(completed!)).toEqual({
+      contract: MANAGER,
+      method: "complete_queued_transfer",
+      args: [7n],
+    });
+
+    // Cancelling is sender-gated, so the sender goes over the ABI as well.
+    const [cancelled] = await collect(
+      ntt().cancelOutboundQueuedTransfer(7n, payer)
+    );
+    expect(invocation(cancelled!)).toEqual({
+      contract: MANAGER,
+      method: "cancel_queued_transfer",
+      args: [OWNER, 7n],
+    });
+  });
+});
+
 describe("StellarNtt.verifyAddresses", () => {
   it("returns null when the on-chain addresses match the config", async () => {
     await expect(ntt().verifyAddresses()).resolves.toBeNull();
