@@ -71,6 +71,12 @@ export function asBoolean(value: unknown): boolean {
   return value;
 }
 
+/** `Bytes`/`BytesN<N>` decode to a `Buffer`, which is a `Uint8Array`. */
+export function asBytes(value: unknown): Uint8Array {
+  if (!isBytes(value)) throw new Error(`Expected Bytes, got ${typeof value}`);
+  return value;
+}
+
 /** An `Address` decodes to its StrKey text; `StellarAddress` validates it. */
 export function asAddress(value: unknown): string {
   if (!isString(value))

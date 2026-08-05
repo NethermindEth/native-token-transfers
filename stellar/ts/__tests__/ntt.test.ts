@@ -82,6 +82,11 @@ const managerState: Record<string, unknown> = {
   get_outbound_queue_item: null,
 };
 
+/** The transceiver's own read surface, keyed the same way. */
+const transceiverState: Record<string, unknown> = {
+  get_peer: Buffer.alloc(32, 0xcd),
+};
+
 const message: Ntt.Message = {
   id: new Uint8Array(32),
   sender: new UniversalAddress(new Uint8Array(32)),
@@ -150,9 +155,9 @@ beforeEach(() => {
   jest
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
-      expect(contractId).toEqual(MANAGER);
       calls.push({ method, args });
-      const state = method in overrides ? overrides : managerState;
+      const contract = contractId === MANAGER ? managerState : transceiverState;
+      const state = method in overrides ? overrides : contract;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
       return state[method];
     });
@@ -657,6 +662,62 @@ describe("StellarNtt queue completion", () => {
       method: "cancel_queued_transfer",
       args: [OWNER, 7n],
     });
+  });
+});
+
+describe("StellarNtt.getTransceiver", () => {
+  it("has only the Wormhole transceiver, at index 0", async () => {
+    await expect(ntt().getTransceiver(1)).resolves.toBeNull();
+    await expect(
+      new StellarNtt("Testnet", "Stellar", provider, {
+        coreBridge: CORE,
+        ntt: { ...contracts.ntt, transceiver: {} },
+      }).getTransceiver(0)
+    ).resolves.toBeNull();
+  });
+
+  it("delegates to the manager it was reached through", async () => {
+    const transceiver = (await ntt().getTransceiver(0))!;
+    await expect(transceiver.getTransceiverType()).resolves.toEqual("wormhole");
+    expect((await transceiver.getAddress()).address.toString()).toEqual(
+      TRANSCEIVER
+    );
+    // A peer emitter is 32 raw wire bytes, so it stays universal.
+    await expect(transceiver.getPeer("Ethereum")).resolves.toEqual({
+      chain: "Ethereum",
+      address: new UniversalAddress(new Uint8Array(Buffer.alloc(32, 0xcd))),
+    });
+
+    const [peered] = await collect(
+      transceiver.setPeer(
+        {
+          chain: "Ethereum",
+          address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+        } as ChainAddress,
+        new StellarAddress(OWNER)
+      ) as AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
+    );
+    expect(invocation(peered!).method).toEqual("set_peer");
+
+    const [received] = await collect(
+      transceiver.receive(
+        attestation,
+        new StellarAddress(OWNER)
+      ) as AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
+    );
+    expect(invocation(received!).method).toEqual("receive_message");
+  });
+
+  it("reports no pauser: the transceiver's pause is owner-only", async () => {
+    const transceiver = (await ntt().getTransceiver(0))!;
+    await expect(transceiver.getPauser()).resolves.toBeNull();
+    await expect(
+      collect(
+        transceiver.setPauser(new StellarAddress(PAUSER)) as AsyncGenerator<
+          StellarUnsignedTransaction<"Testnet", "Stellar">
+        >
+      )
+    ).rejects.toThrow(/owner-only/);
   });
 });
 
