@@ -13,6 +13,7 @@
 //! The executor is bound at construction (one per chain); the NTT manager is a
 //! per-call argument, so a single wrapper serves every manager on the chain.
 
+pub mod encoding;
 pub mod fee;
 
 use soroban_ntt_client::{TTL_EXTEND, TTL_THRESHOLD};

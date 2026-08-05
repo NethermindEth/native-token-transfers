@@ -8,8 +8,12 @@ crate-type = ["cdylib", "rlib"]
 name = "stellar_ntt_with_executor"
 
 [dependencies]
-soroban-sdk = { workspace = true }
+# `alloc` provides the global allocator required by executor-requests, which
+# builds its request payloads with alloc::Vec.
+soroban-sdk = { workspace = true, features = ["alloc"] }
 soroban-ntt-client = { workspace = true }
+wormhole-soroban-client = { workspace = true }
+executor-requests = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
