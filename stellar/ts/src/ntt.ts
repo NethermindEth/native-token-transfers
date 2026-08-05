@@ -26,6 +26,7 @@ import {
   decodeNttManagerPeer,
   decodeOutboundQueuedTransfer,
   decodeRateLimitParams,
+  decodeTransceiverFee,
   decodeTransceiverInfo,
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
@@ -230,6 +231,35 @@ export class StellarNtt<N extends Network, C extends StellarChains> {
   ): Promise<boolean> {
     const [fromChain, message] = managerMessage(attestation);
     return (await this.getInboundQueuedTransfer(fromChain, message)) !== null;
+  }
+
+  /**
+   * The cost of dispatching a transfer, in stroops: the sum of every enabled
+   * transceiver's quote. A transceiver whose own quote failed reports `None`
+   * and is skipped, so a broken transceiver does not lose the whole quote.
+   */
+  async quoteDeliveryPrice(
+    destination: Chain,
+    options: Ntt.TransferOptions
+  ): Promise<bigint> {
+    if (options.automatic)
+      throw new Error("Relaying is not available on Stellar");
+
+    const quotes = await this.read(
+      "quote_delivery_price",
+      chainIdArg(destination)
+    );
+    if (!Array.isArray(quotes))
+      throw new Error(`Expected a Vec<TransceiverFee>, got ${typeof quotes}`);
+
+    return quotes
+      .map((quote) => decodeTransceiverFee(quote).fee ?? 0n)
+      .reduce((total, fee) => total + fee, 0n);
+  }
+
+  /** Stellar has no NTT quoter, so a transfer is always manually redeemed. */
+  async isRelayingAvailable(_destination: Chain): Promise<boolean> {
+    return false;
   }
 
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {

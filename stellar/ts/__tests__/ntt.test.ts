@@ -290,6 +290,43 @@ describe("StellarNtt attestation status", () => {
   });
 });
 
+describe("StellarNtt delivery quotes", () => {
+  const options = { queue: false };
+
+  it("sums the quotes of every enabled transceiver", async () => {
+    overrides = {
+      quote_delivery_price: [
+        { transceiver: TRANSCEIVER, fee: 100n },
+        { transceiver: MANAGER, fee: 250n },
+      ],
+    };
+    await expect(
+      ntt().quoteDeliveryPrice("Ethereum", options)
+    ).resolves.toEqual(350n);
+    expect(calls[0]!.args[0]!.u32()).toEqual(2);
+  });
+
+  it("skips a transceiver that could not quote", async () => {
+    overrides = {
+      quote_delivery_price: [
+        { transceiver: TRANSCEIVER, fee: null },
+        { transceiver: MANAGER, fee: 250n },
+      ],
+    };
+    await expect(
+      ntt().quoteDeliveryPrice("Ethereum", options)
+    ).resolves.toEqual(250n);
+  });
+
+  it("never advertises relaying: Stellar has no quoter", async () => {
+    await expect(ntt().isRelayingAvailable("Ethereum")).resolves.toEqual(false);
+    // ...so asking for an automatic quote is a mistake, not a manual price.
+    await expect(
+      ntt().quoteDeliveryPrice("Ethereum", { queue: false, automatic: true })
+    ).rejects.toThrow(/not available/);
+  });
+});
+
 describe("StellarNtt.verifyAddresses", () => {
   it("returns null when the on-chain addresses match the config", async () => {
     await expect(ntt().verifyAddresses()).resolves.toBeNull();
