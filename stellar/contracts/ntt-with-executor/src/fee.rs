@@ -12,7 +12,7 @@ const DBPS_DENOMINATOR: u128 = 100_000;
 /// Returns `0` when `dbps` is zero or `amount` is non-positive. `dbps` is
 /// tenths of a basis point over [`DBPS_DENOMINATOR`] and must fit in the
 /// on-wire `u16` fee field; a larger value is `InvalidReferrerFee`.
-pub fn referrer_fee(
+pub(crate) fn referrer_fee(
     amount: i128,
     dbps: u32,
     from_decimals: u8,

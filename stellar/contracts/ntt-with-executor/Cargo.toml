@@ -17,3 +17,8 @@ executor-requests = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lints.clippy]
+# The executor's request_execution binding mirrors a fixed on-chain ABI whose
+# argument count cannot be reduced without breaking the cross-contract call.
+too_many_arguments = "allow"

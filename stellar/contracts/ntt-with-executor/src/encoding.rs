@@ -9,7 +9,7 @@ use wormhole_soroban_client::hash_address;
 /// `srcManager` is the manager's 32-byte identifier (`hash_address`) and
 /// `messageId` is the sequence right-aligned in 32 bytes — the same identifiers
 /// the destination manager reconstructs when it verifies the delivered message.
-pub fn ntt_request(env: &Env, chain_id: u16, ntt_manager: &Address, sequence: u64) -> Bytes {
+pub(crate) fn ntt_request(env: &Env, chain_id: u16, ntt_manager: &Address, sequence: u64) -> Bytes {
     let request = make_ntt_v1_request(
         chain_id,
         hash_address(env, ntt_manager).to_array(),
