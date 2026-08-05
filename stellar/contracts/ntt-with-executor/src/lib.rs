@@ -18,6 +18,9 @@ mod fee;
 
 pub mod executor;
 
+#[cfg(test)]
+mod tests;
+
 use executor::ExecutorClient;
 use soroban_ntt_client::{NttManagerClient, TTL_EXTEND, TTL_THRESHOLD};
 use soroban_sdk::{
