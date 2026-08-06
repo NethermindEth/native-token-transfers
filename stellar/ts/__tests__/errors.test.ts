@@ -36,6 +36,23 @@ describe("contract error decoding", () => {
     ).toMatch(/PeerNotFound/);
   });
 
+  it("names the token codes the manager's own table shadows", () => {
+    // The manager custodies with the built-in token contract, whose errors
+    // arrive in the same form; 13 is its TrustlineMissing as much as the
+    // manager's NotAdminOrPauser, and naming one of them is a guess.
+    expect(
+      decodeContractError(simulationError(13), "NttManager").message
+    ).toMatch(/NotAdminOrPauser \| TrustlineMissing \(13\)/);
+    // The transceiver reaches no token: a manager failure below it is masked.
+    expect(
+      decodeContractError(simulationError(13), "Transceiver").message
+    ).toMatch(/TransceiverError::PeerNotFound \(13\)/);
+    // Unambiguous, and unnamed before: running out of XLM to pay a fee.
+    expect(
+      decodeContractError(simulationError(10), "NttManager").message
+    ).toMatch(/BalanceError \(10\)/);
+  });
+
   it("names the shared OpenZeppelin codes in either space", () => {
     expect(
       decodeContractError(simulationError(1000), "Transceiver").message

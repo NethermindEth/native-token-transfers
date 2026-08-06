@@ -102,14 +102,51 @@ const OZ_ERRORS: Record<number, string> = {
   2203: "TransferExpired",
 };
 
-const SPACES: Record<ContractErrorSpace, Record<number, string>> = {
-  NttManager: NTT_MANAGER_ERRORS,
-  Transceiver: TRANSCEIVER_ERRORS,
-  // The Wormhole core's own `WormholeError` vocabulary lives in the Wormhole
-  // repo, not here. Its codes are reported as-is rather than misread against a
-  // table they do not belong to.
-  WormholeCore: {},
+/**
+ * `soroban_env_host::builtin_contracts::ContractError`, raised by the built-in
+ * Stellar Asset Contract. Every NTT write that moves tokens has a token frame
+ * in it, and the host reports these in the same `Error(Contract, #N)` form as a
+ * contract's own, over a range that collides with the tables above.
+ */
+const TOKEN_ERRORS: Record<number, string> = {
+  1: "InternalError",
+  2: "OperationNotSupported",
+  3: "AlreadyInitialized",
+  4: "Unauthorized",
+  5: "AuthenticationError",
+  6: "AccountMissing",
+  7: "AccountIsNotClassic",
+  8: "NegativeAmount",
+  9: "AllowanceError",
+  10: "BalanceError",
+  11: "BalanceDeauthorized",
+  12: "Overflow",
+  13: "TrustlineMissing",
 };
+
+/**
+ * The vocabularies each space's codes may come from, most specific first.
+ *
+ * A code is only meaningful together with the contract that raised it, and a
+ * host error does not say which frame that was, so a code the tables disagree
+ * about is reported as every candidate rather than as a confident guess.
+ */
+const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
+  // The manager custodies through the built-in token contract, so its writes
+  // carry a token frame.
+  NttManager: [NTT_MANAGER_ERRORS, OZ_ERRORS, TOKEN_ERRORS],
+  // No token frame surfaces here: everything below `receive_message` is masked
+  // as `ManagerRejectedMessage (36)`.
+  Transceiver: [TRANSCEIVER_ERRORS, OZ_ERRORS],
+  // The Wormhole core's own `WormholeError` vocabulary lives in the Wormhole
+  // repo, not here, and its registry writes move no tokens. Its codes are
+  // reported as-is rather than misread against a table they do not belong to.
+  WormholeCore: [OZ_ERRORS],
+};
+
+/** Every name `code` could have in `space`, or `"Unknown"` if it has none. */
+const errorName = (code: number, space: ContractErrorSpace): string =>
+  SPACES[space].flatMap((table) => table[code] ?? []).join(" | ") || "Unknown";
 
 /**
  * The contract error codes a host error mentions, outermost first.
@@ -137,8 +174,8 @@ export function decodeContractError(
   const [code] = contractErrorCodes(error);
   if (code === undefined) return cause;
 
-  const name = SPACES[space][code] ?? OZ_ERRORS[code] ?? "Unknown";
-  return new Error(`${space}Error::${name} (${code}): ${cause.message}`, {
-    cause,
-  });
+  return new Error(
+    `${space}Error::${errorName(code, space)} (${code}): ${cause.message}`,
+    { cause }
+  );
 }
