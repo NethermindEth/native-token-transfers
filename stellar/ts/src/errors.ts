@@ -10,7 +10,11 @@
  */
 
 /** Which contract's error vocabulary a code should be read against. */
-export type ContractErrorSpace = "NttManager" | "Transceiver" | "WormholeCore";
+export type ContractErrorSpace =
+  | "NttManager"
+  | "Transceiver"
+  | "WormholeCore"
+  | "NttWithExecutor";
 
 const NTT_MANAGER_ERRORS: Record<number, string> = {
   1: "MessageTooShort",
@@ -84,6 +88,25 @@ const TRANSCEIVER_ERRORS: Record<number, string> = {
 export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
 
+/** `stellar_ntt_with_executor::WrapperError` — its own validation, nothing else. */
+const WRAPPER_ERRORS: Record<number, string> = {
+  1: "InvalidReferrerFee",
+  2: "PeerNotFound",
+};
+
+/**
+ * `stellar_ntt_with_executor::executor::ExecutorError`, raised by the Executor
+ * contract the wrapper pays and propagated verbatim through it.
+ */
+const EXECUTOR_ERRORS: Record<number, string> = {
+  11: "QuoteExpired",
+  12: "QuoteSrcChainMismatch",
+  13: "QuoteDstChainMismatch",
+  14: "InvalidAmount",
+  15: "InvalidQuote",
+  16: "QuotePayeeMismatch",
+};
+
 /**
  * `stellar_contract_utils::pausable::PausableError` and
  * `stellar_access::{ownable::OwnableError, role_transfer::RoleTransferError}`.
@@ -105,8 +128,9 @@ const OZ_ERRORS: Record<number, string> = {
 /**
  * `soroban_env_host::builtin_contracts::ContractError`, raised by the built-in
  * Stellar Asset Contract. Every NTT write that moves tokens has a token frame
- * in it, and the host reports these in the same `Error(Contract, #N)` form as a
- * contract's own, over a range that collides with the tables above.
+ * in it — the manager's custody, the wrapper's referrer fee, the executor's XLM
+ * fee — and the host reports these in the same `Error(Contract, #N)` form as a
+ * contract's own, over a range that collides with all of them.
  */
 const TOKEN_ERRORS: Record<number, string> = {
   1: "InternalError",
@@ -142,6 +166,18 @@ const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // repo, not here, and its registry writes move no tokens. Its codes are
   // reported as-is rather than misread against a table they do not belong to.
   WormholeCore: [OZ_ERRORS],
+  // One `ntt_with_executor::transfer` reaches three contracts plus the token,
+  // and a sub-call error propagates verbatim through the generated clients (no
+  // `flatten_call` masking it), so the code can be any of theirs. Transceiver
+  // codes are the one thing it cannot be — the manager masks those as
+  // `TransceiverCallFailed (49)`.
+  NttWithExecutor: [
+    WRAPPER_ERRORS,
+    EXECUTOR_ERRORS,
+    NTT_MANAGER_ERRORS,
+    OZ_ERRORS,
+    TOKEN_ERRORS,
+  ],
 };
 
 /** Every name `code` could have in `space`, or `"Unknown"` if it has none. */

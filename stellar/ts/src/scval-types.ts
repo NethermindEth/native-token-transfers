@@ -281,6 +281,21 @@ export const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
 export const sequenceArg = (sequence: bigint): xdr.ScVal =>
   nativeToScVal(sequence, { type: "u64" });
 
+/**
+ * A `#[contracttype]` struct argument: an ScMap keyed by the Rust field names.
+ * The keys have to be **symbols** — `nativeToScVal` makes a bare string an
+ * `scvString`, which the host would reject — and the entries have to be in the
+ * host's byte order. `nativeToScVal` sorts them with `localeCompare`, which
+ * agrees with byte order for the lowercase snake_case names a `#[contracttype]`
+ * field has; it would not for mixed case.
+ */
+export const structArg = (fields: Record<string, xdr.ScVal>): xdr.ScVal =>
+  nativeToScVal(fields, {
+    type: Object.fromEntries(
+      Object.keys(fields).map((name) => [name, ["symbol", null]])
+    ),
+  });
+
 /** `AccountAddress<C>` widens to `AnyStellarAddress`; the ctor rejects the rest. */
 export const addressArg = (
   address: AnyStellarAddress | AccountAddress<StellarChains>

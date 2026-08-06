@@ -53,6 +53,21 @@ describe("contract error decoding", () => {
     ).toMatch(/BalanceError \(10\)/);
   });
 
+  it("reads a wrapper transfer against all four of its frames", () => {
+    // One `ntt_with_executor::transfer` runs wrapper, manager, executor and
+    // token frames, and the host error says only the number.
+    const named = (code: number) =>
+      decodeContractError(simulationError(code), "NttWithExecutor").message;
+
+    expect(named(2)).toMatch(
+      /NttWithExecutorError::PeerNotFound \| InvalidPrefix \| OperationNotSupported \(2\)/
+    );
+    // Unique on this path: the executor's, the manager's, and the token's.
+    expect(named(16)).toMatch(/::QuotePayeeMismatch \(16\)/);
+    expect(named(62)).toMatch(/::TransferExceedsRateLimit \(62\)/);
+    expect(named(10)).toMatch(/::BalanceError \(10\)/);
+  });
+
   it("names the shared OpenZeppelin codes in either space", () => {
     expect(
       decodeContractError(simulationError(1000), "Transceiver").message

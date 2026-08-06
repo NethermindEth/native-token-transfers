@@ -4,11 +4,14 @@ import type { Network } from "@wormhole-foundation/sdk-base";
 /**
  * Per-network Stellar contract ids that are not carried in the chain's
  * `Contracts` config. The Wormhole core, manager and transceiver addresses are
- * config (injected by the caller / the localnet env), and no Stellar NTT
- * deployment is public yet, so this table is empty until one exists.
+ * config (injected by the caller / the localnet env); the `ntt-with-executor`
+ * wrapper is not, because it is one deployment per chain serving every manager
+ * on it — exactly as EVM's `nttManagerWithExecutorAddresses` and Sui's
+ * `SUI_ADDRESSES` hold theirs. No Stellar NTT deployment is public yet, so this
+ * table is empty until one exists.
  */
 export const STELLAR_ADDRESSES: Partial<
-  Record<Network, { coreBridge: string }>
+  Record<Network, { nttWithExecutor: string }>
 > = {};
 
 /** Wormhole chain id for Stellar; the manager's `chain_id` is this value. */
