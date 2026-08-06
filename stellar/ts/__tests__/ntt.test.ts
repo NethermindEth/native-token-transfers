@@ -806,7 +806,9 @@ describe("StellarNttWormholeTransceiver", () => {
       args: [OWNER],
     });
     await expect(xcvr().getPauser()).resolves.toBeNull();
-    await expect(collect(xcvr().setPauser())).rejects.toThrow(/owner-only/);
+    await expect(
+      collect(xcvr().setPauser(new StellarAddress(PAUSER), owner))
+    ).rejects.toThrow(/owner-only/);
   });
 });
 
@@ -821,48 +823,10 @@ describe("StellarNtt.getTransceiver", () => {
     ).resolves.toBeNull();
   });
 
-  it("delegates to the manager it was reached through", async () => {
+  it("hands back the transceiver binding itself", async () => {
     const transceiver = (await ntt().getTransceiver(0))!;
-    await expect(transceiver.getTransceiverType()).resolves.toEqual("wormhole");
-    expect((await transceiver.getAddress()).address.toString()).toEqual(
-      TRANSCEIVER
-    );
-    // A peer emitter is 32 raw wire bytes, so it stays universal.
-    await expect(transceiver.getPeer("Ethereum")).resolves.toEqual({
-      chain: "Ethereum",
-      address: new UniversalAddress(new Uint8Array(Buffer.alloc(32, 0xcd))),
-    });
-
-    const [peered] = await collect(
-      transceiver.setPeer(
-        {
-          chain: "Ethereum",
-          address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
-        } as ChainAddress,
-        new StellarAddress(OWNER)
-      ) as AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
-    );
-    expect(invocation(peered!).method).toEqual("set_peer");
-
-    const [received] = await collect(
-      transceiver.receive(
-        attestation,
-        new StellarAddress(OWNER)
-      ) as AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
-    );
-    expect(invocation(received!).method).toEqual("receive_message");
-  });
-
-  it("reports no pauser: the transceiver's pause is owner-only", async () => {
-    const transceiver = (await ntt().getTransceiver(0))!;
-    await expect(transceiver.getPauser()).resolves.toBeNull();
-    await expect(
-      collect(
-        transceiver.setPauser(new StellarAddress(PAUSER)) as AsyncGenerator<
-          StellarUnsignedTransaction<"Testnet", "Stellar">
-        >
-      )
-    ).rejects.toThrow(/owner-only/);
+    expect(transceiver).toBeInstanceOf(StellarNttWormholeTransceiver);
+    expect(transceiver.address).toEqual(TRANSCEIVER);
   });
 });
 

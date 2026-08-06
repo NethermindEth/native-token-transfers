@@ -15,7 +15,6 @@ import type {
   Contracts,
 } from "@wormhole-foundation/sdk-definitions";
 import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
-import type { NttTransceiver } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
@@ -33,7 +32,6 @@ import {
   addressArg,
   asBigint,
   asBoolean,
-  asBytes,
   asNumber,
   asAddress,
   bytesArg,
@@ -622,69 +620,15 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 
   /**
    * The transceiver at `ix`, or `null` if the manager has none there. Stellar
-   * registers only the Wormhole transceiver, at index 0.
-   *
-   * The methods that touch the chain delegate to this class, which already
-   * owns the manager/transceiver addresses and the transaction builder; the
-   * transceiver has no state of its own to carry.
+   * registers only the Wormhole transceiver, at index 0. Unlike the private
+   * accessor the write paths use, a missing one is reported rather than
+   * thrown: asking which transceivers exist is a legitimate question.
    */
   async getTransceiver(
     ix: number
-  ): Promise<NttTransceiver<N, C, Ntt.Attestation> | null> {
+  ): Promise<StellarNttWormholeTransceiver<N, C> | null> {
     if (ix !== 0 || this.transceiverAddress === undefined) return null;
-    const ntt = this;
-    const address = this.transceiverAddress;
-
-    return {
-      async getTransceiverType(): Promise<string> {
-        return "wormhole";
-      },
-      async getAddress(): Promise<ChainAddress<C>> {
-        return {
-          chain: ntt.chain,
-          address: new StellarAddress(address),
-        } as ChainAddress<C>;
-      },
-      async *setPeer(
-        peer: ChainAddress,
-        payer?: AccountAddress<C>
-      ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-        yield* ntt.setTransceiverPeer(ix, peer, payer);
-      },
-      async getPeer<P extends Chain>(
-        chain: P
-      ): Promise<ChainAddress<P> | null> {
-        const emitter = await StellarPlatform.simulateRead(
-          ntt.provider,
-          ntt.network,
-          address,
-          "get_peer",
-          chainIdArg(chain)
-        );
-        // A peer emitter is the 32 raw wire bytes, which stay universal.
-        return emitter === null
-          ? null
-          : {
-              chain,
-              address: new UniversalAddress(new Uint8Array(asBytes(emitter))),
-            };
-      },
-      /** Pausing the transceiver is owner-only; it has no pauser role. */
-      async getPauser(): Promise<AccountAddress<C> | null> {
-        return null;
-      },
-      async *setPauser(): AsyncGenerator<never> {
-        throw new Error(
-          "The Stellar transceiver has no pauser role: pause is owner-only"
-        );
-      },
-      async *receive(
-        attestation: Ntt.Attestation,
-        sender?: AccountAddress<C>
-      ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-        yield* ntt.redeem([attestation], sender);
-      },
-    };
+    return this.transceiver(ix);
   }
 
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {

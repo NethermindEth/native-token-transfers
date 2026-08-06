@@ -180,7 +180,12 @@ export class StellarNttWormholeTransceiver<
     return null;
   }
 
-  async *setPauser(): AsyncGenerator<never> {
+  // Takes the interface's arguments and ignores them, so that holding this
+  // class concretely is never narrower than holding the interface.
+  async *setPauser(
+    _newPauser: AccountAddress<C>,
+    _payer?: AccountAddress<C>
+  ): AsyncGenerator<never> {
     throw new Error(
       "The Stellar transceiver has no pauser role: pause is owner-only"
     );
