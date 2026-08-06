@@ -32,7 +32,12 @@ import type {
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
-import { contractErrorCodes, decodeContractError } from "./errors.js";
+import {
+  MANAGER_REJECTED_MESSAGE,
+  RECIPIENT_NOT_REGISTERED,
+  contractErrorCodes,
+  decodeContractError,
+} from "./errors.js";
 import type { ContractErrorSpace } from "./errors.js";
 import {
   asBigint,
@@ -70,6 +75,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    */
   readonly transceiverAddress: string | undefined;
   readonly coreAddress: string;
+  private tokenDecimals: Promise<number> | undefined;
 
   constructor(
     readonly network: N,
@@ -126,8 +132,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return asNumber(await this.read("get_threshold"));
   }
 
+  /** Cached: the manager sets `token_decimals` once, in its constructor. */
   async getTokenDecimals(): Promise<number> {
-    return asNumber(await this.read("token_decimals"));
+    return (this.tokenDecimals ??= this.read("token_decimals").then(asNumber));
   }
 
   /** The manager holds the locked tokens itself; in Burning mode it mints. */
@@ -518,8 +525,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * Proposes `newOwner`, who then has to call {@link acceptOwnership} before
    * `liveUntilLedger` — a two-step handover, so a typo cannot strand the
-   * manager. Defaults to roughly a day's worth of ledgers; passing `0` cancels
-   * a pending proposal instead.
+   * manager. Defaults to roughly a day of ledgers; passing `0` cancels a
+   * pending proposal instead.
    */
   async *setOwner(
     newOwner: AccountAddress<C>,
@@ -534,7 +541,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       payer,
       "Ntt.setOwner",
       "transfer_ownership",
-      addressArg(newOwner as AnyStellarAddress),
+      addressArg(newOwner),
       nativeToScVal(until, { type: "u32" })
     );
   }
@@ -562,9 +569,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         "transfer_pauser",
         addressArg(from),
         // `Option<Address>`: None crosses the ABI as the unit value.
-        newPauser === null
-          ? xdr.ScVal.scvVoid()
-          : addressArg(newPauser as AnyStellarAddress)
+        newPauser === null ? xdr.ScVal.scvVoid() : addressArg(newPauser)
       ),
       "Ntt.setPauser"
     );
@@ -614,7 +619,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         "Ntt.redeem",
         "Transceiver"
       ).catch((error: unknown) => {
-        throw redeemError(error);
+        // `prepare` has already named the transceiver error; this only adds
+        // what the masked inner failure means for the caller.
+        throw redeemGuidance(error);
       });
     }
   }
@@ -783,6 +790,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       amount / 10n ** BigInt(Math.max(0, decimals - TRIMMED_DECIMALS));
     if (trimmed > MAX_U64)
       throw new Error(`Rate limit ${amount} overflows the manager's u64`);
+    // A limit under one trimmed unit would floor to zero, which the rate
+    // limiter reads as "allow nothing" — not what a small limit asked for.
+    if (amount > 0n && trimmed === 0n)
+      throw new Error(
+        `Rate limit ${amount} is below one trimmed unit of a ${decimals}-decimal token`
+      );
     return nativeToScVal(trimmed, { type: "u64" });
   }
 
@@ -806,11 +819,21 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * are covered by the envelope signature the signer already applies; any other
    * address would need its auth entry signed separately. So the caller's payer
    * has to *be* the authorizing address, and there is no default for it.
+   *
+   * That address also has to be a `G…` account, because only an account can
+   * source a transaction. A manager owned by a `C…` contract is administered
+   * by invoking that contract, not through this class.
    */
   private source(payer: AccountAddress<C> | undefined, role: string): string {
     if (payer === undefined)
       throw new Error(`Stellar has no implicit signer: pass ${role} as payer`);
-    return new StellarAddress(payer as AnyStellarAddress).toString();
+
+    const from = new StellarAddress(payer as AnyStellarAddress).toString();
+    if (!from.startsWith("G"))
+      throw new Error(
+        `${role} must be a G… account to source a transaction, got ${from}`
+      );
+    return from;
   }
 
   /** Build, simulate and assemble a write for the signer to sign and submit. */
@@ -854,7 +877,7 @@ const TRIMMED_DECIMALS = 8;
 /** Rate limits are stored as a bare `u64`, so a trimmed limit has to fit one. */
 const MAX_U64 = 2n ** 64n - 1n;
 
-/** ~24 hours at Stellar's 5-second ledgers, to accept an ownership offer in. */
+/** Roughly a day of ~5-second ledgers, to accept an ownership offer in. */
 const OWNERSHIP_OFFER_LEDGERS = 17280;
 
 /** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
@@ -868,8 +891,13 @@ const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
 const sequenceArg = (sequence: bigint): xdr.ScVal =>
   nativeToScVal(sequence, { type: "u64" });
 
-const addressArg = (address: AnyStellarAddress): xdr.ScVal =>
-  new Address(new StellarAddress(address).toString()).toScVal();
+/** `AccountAddress<C>` widens to `AnyStellarAddress`; the ctor rejects the rest. */
+const addressArg = (
+  address: AnyStellarAddress | AccountAddress<StellarChains>
+): xdr.ScVal =>
+  new Address(
+    new StellarAddress(address as AnyStellarAddress).toString()
+  ).toScVal();
 
 /**
  * The manager message an attestation carries, with the chain that sent it.
@@ -885,27 +913,24 @@ const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
 const digestOf = (attestation: Ntt.Attestation): Uint8Array =>
   Ntt.messageDigest(...managerMessage(attestation));
 
-/** `TransceiverError::ManagerRejectedMessage` / `NttManagerError::RecipientNotRegistered`. */
-const MANAGER_REJECTED_MESSAGE = 36;
-const RECIPIENT_NOT_REGISTERED = 66;
-
 /**
  * `receive_message` forwards to the manager through `flatten_call`, which
  * collapses every manager failure into `ManagerRejectedMessage` — the real
  * cause survives only in the simulation's inner frames. The retryable one is
- * the recipient never having been recorded on the core address registry.
+ * the recipient never having been recorded on the core address registry, so
+ * say what to do about it. Anything else is passed through as decoded.
  */
-const redeemError = (error: unknown): Error => {
-  const decoded = decodeContractError(error, "Transceiver");
+const redeemGuidance = (error: unknown): unknown => {
   const codes = contractErrorCodes(error);
-  if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return decoded;
+  if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return error;
 
-  const cause = codes.includes(RECIPIENT_NOT_REGISTERED)
+  const masked = codes.includes(RECIPIENT_NOT_REGISTERED)
     ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66)."
     : "The manager rejected the message and flatten_call masked its error.";
   return new Error(
-    `${decoded.message}\n${cause} If the recipient has never been recorded, ` +
-      `run StellarNtt.recordAddress(payer, recipient) and redeem again.`,
+    `${error instanceof Error ? error.message : String(error)}\n${masked} ` +
+      `If the recipient has never been recorded, run ` +
+      `StellarNtt.recordAddress(payer, recipient) and redeem again.`,
     { cause: error }
   );
 };

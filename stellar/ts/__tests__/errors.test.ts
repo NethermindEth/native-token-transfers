@@ -1,14 +1,21 @@
 import { contractErrorCodes, decodeContractError } from "../src/errors.js";
 
-// What `rpc.Server.prepareTransaction` rethrows when the simulation reverts:
-// the failing frame, then the diagnostic events beneath it.
+// The shape `rpc.Server.prepareTransaction` rethrows verbatim from the
+// simulation's `error` field: the frame that failed, then its diagnostic event
+// log. Both put the outermost failure first, which is what `[0]` relies on.
 const simulationError = (...codes: number[]) =>
   new Error(
     [
       "host invocation failed",
       "",
       "Caused by:",
-      ...codes.map((c) => `    HostError: Error(Contract, #${c})`),
+      `    HostError: Error(Contract, #${codes[0]})`,
+      "    ",
+      "    Event log (newest first):",
+      ...codes.map(
+        (c, i) =>
+          `       ${i}: [Diagnostic] topics:[error, Error(Contract, #${c})]`
+      ),
     ].join("\n")
   );
 
@@ -46,7 +53,10 @@ describe("contract error decoding", () => {
   it("reports every code, outermost first", () => {
     // `flatten_call` masks the manager's own error as ManagerRejectedMessage,
     // so the cause is only recoverable from the inner frame.
-    expect(contractErrorCodes(simulationError(36, 66))).toEqual([36, 66]);
+    expect(contractErrorCodes(simulationError(36, 66))).toEqual([36, 36, 66]);
+    expect(
+      decodeContractError(simulationError(36, 66), "Transceiver").message
+    ).toMatch(/ManagerRejectedMessage \(36\)/);
     expect(contractErrorCodes(new Error("fetch failed"))).toEqual([]);
   });
 });

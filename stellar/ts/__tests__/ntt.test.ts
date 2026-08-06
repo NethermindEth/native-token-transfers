@@ -552,17 +552,29 @@ describe("StellarNtt admin setters", () => {
     await expect(n.getOutboundLimit()).resolves.toEqual(4_200n * 10n ** 10n);
   });
 
-  it("refuses a limit too large for the manager's u64", async () => {
+  it("refuses a limit the manager cannot represent", async () => {
     // 7 decimals, so nothing is trimmed away and the u64 is the real ceiling.
     await expect(
       collect(ntt().setOutboundLimit(2n ** 64n, owner))
     ).rejects.toThrow(/overflows/);
+
+    // The other end: a limit under one trimmed unit floors to zero, which the
+    // rate limiter reads as "allow nothing" rather than "allow a little".
+    overrides = { token_decimals: 18 };
+    await expect(collect(ntt().setOutboundLimit(1n, owner))).rejects.toThrow(
+      /below one trimmed unit/
+    );
   });
 
-  it("refuses an admin call with nobody to authorize it", async () => {
+  it("refuses an admin call nobody can source", async () => {
     await expect(collect(ntt().setThreshold(1))).rejects.toThrow(
       /no implicit signer/
     );
+    // Only a G… account can source a transaction; a contract owner has to
+    // administer the manager by invoking itself.
+    await expect(
+      collect(ntt().setThreshold(1, new StellarAddress(TOKEN)))
+    ).rejects.toThrow(/must be a G… account/);
   });
 });
 
@@ -597,9 +609,17 @@ describe("StellarNtt.redeem", () => {
       contracts
     );
 
-    await expect(
-      collect(failing.redeem([attestation], new StellarAddress(OWNER)))
-    ).rejects.toThrow(/RecipientNotRegistered.*recordAddress/s);
+    const rejected = await collect(
+      failing.redeem([attestation], new StellarAddress(OWNER))
+    ).catch((error: Error) => error);
+
+    expect((rejected as Error).message).toMatch(
+      /RecipientNotRegistered.*recordAddress/s
+    );
+    // Named once, by `prepare`, not again by the guidance layered on top.
+    expect(
+      (rejected as Error).message.match(/ManagerRejectedMessage/g)
+    ).toHaveLength(1);
   });
 
   it("refuses to redeem without a transceiver to redeem through", async () => {

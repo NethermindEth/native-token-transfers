@@ -77,6 +77,14 @@ const TRANSCEIVER_ERRORS: Record<number, string> = {
 };
 
 /**
+ * The two codes a caller has to act on rather than just read: `receive_message`
+ * reports every manager failure as the first, and only the inner frames say
+ * whether the cause was the second. Kept beside the tables they come from.
+ */
+export const MANAGER_REJECTED_MESSAGE = 36;
+export const RECIPIENT_NOT_REGISTERED = 66;
+
+/**
  * `stellar_contract_utils::pausable::PausableError` and
  * `stellar_access::{ownable::OwnableError, role_transfer::RoleTransferError}`.
  * Both contracts derive their pause and ownership gates from these, so the
@@ -112,8 +120,8 @@ const SPACES: Record<ContractErrorSpace, Record<number, string>> = {
  */
 export function contractErrorCodes(error: unknown): number[] {
   const message = error instanceof Error ? error.message : String(error);
-  return [...message.matchAll(/Error\(Contract, #(\d+)\)/g)].map((m) =>
-    Number(m[1])
+  return [...message.matchAll(/Error\(Contract, #(\d+)\)/g)].flatMap((m) =>
+    m[1] === undefined ? [] : [Number(m[1])]
   );
 }
 
