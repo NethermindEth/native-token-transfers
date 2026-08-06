@@ -9,6 +9,7 @@ import {
   type rpc as SorobanRpc,
   type xdr,
 } from "@stellar/stellar-sdk";
+import { encoding } from "@wormhole-foundation/sdk-base";
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
 import { serialize } from "@wormhole-foundation/sdk-definitions";
 import {
@@ -22,6 +23,7 @@ import {
   type StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
+import { StellarNttWormholeTransceiver } from "../src/transceiver.js";
 
 const MANAGER = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
 const TOKEN = "CBD3J5AK3ZNX3CJVELGW2N32P3CI2TLMRIQEIL5OXKWA2HH2LN2DA3AO";
@@ -84,7 +86,11 @@ const managerState: Record<string, unknown> = {
 
 /** The transceiver's own read surface, keyed the same way. */
 const transceiverState: Record<string, unknown> = {
+  get_transceiver_type: Buffer.from("wormhole"),
   get_peer: Buffer.alloc(32, 0xcd),
+  get_peer_info: { emitter: Buffer.alloc(32, 0xcd), enabled: true },
+  is_peer_enabled: true,
+  is_vaa_consumed: false,
 };
 
 const message: Ntt.Message = {
@@ -148,6 +154,11 @@ const collect = async (
   for await (const tx of txs) collected.push(tx);
   return collected;
 };
+
+/** The single invocation a one-transaction write yields. */
+const one = async (
+  txs: AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
+) => invocation((await collect(txs))[0]!);
 
 beforeEach(() => {
   overrides = {};
@@ -446,10 +457,6 @@ describe("StellarNtt admin setters", () => {
     peer.address.toUniversalAddress().toUint8Array()
   );
 
-  const one = async (
-    txs: AsyncGenerator<StellarUnsignedTransaction<"Testnet", "Stellar">>
-  ) => invocation((await collect(txs))[0]!);
-
   it("registers a peer and its transceiver counterpart", async () => {
     expect(await one(ntt().setPeer(peer, 18, 1000n, owner))).toEqual({
       contract: MANAGER,
@@ -682,6 +689,124 @@ describe("StellarNtt queue completion", () => {
       method: "cancel_queued_transfer",
       args: [OWNER, 7n],
     });
+  });
+});
+
+describe("StellarNttWormholeTransceiver", () => {
+  const owner = new StellarAddress(OWNER);
+  const peer = {
+    chain: "Ethereum",
+    address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+  } as ChainAddress;
+  const xcvr = () => new StellarNttWormholeTransceiver(ntt(), TRANSCEIVER);
+
+  it("reports the raw contract id as its emitter, not hash_address", async () => {
+    // The same contract has two distinct wire identities (D2). The core takes
+    // an emitter's identity from AddressPayload::ContractIdHash — the raw
+    // contract id — while hash_address, the keccak256 of the StrKey text, is
+    // what NTT messages carry. A peer registering the hash as this
+    // transceiver's emitter would fail every inbound VAA with
+    // TransceiverError::UnexpectedEmitter, so the two must not be confused.
+    const rawId =
+      "5c1454589bc12030e0542a8bb7fb7af1e61530959227ac4530ef6d643416e22c";
+    const hashAddress =
+      "35d8048097dd779df4bee5cf0bd3e871656cf21d77f7701262fab28488577660";
+    expect(rawId).not.toEqual(hashAddress);
+    expect(
+      encoding.hex.encode(
+        new StellarAddress(TRANSCEIVER).toUniversalAddress().toUint8Array()
+      )
+    ).toEqual(hashAddress);
+
+    const address = await xcvr().getAddress();
+    expect(address.chain).toEqual("Stellar");
+    expect(encoding.hex.encode(address.address.toUint8Array())).toEqual(rawId);
+  });
+
+  it("reads its transport identifier off the contract", async () => {
+    await expect(xcvr().getTransceiverType()).resolves.toEqual("wormhole");
+    expect(calls.map((c) => c.method)).toEqual(["get_transceiver_type"]);
+  });
+
+  it("reads a peer's emitter, which stays universal", async () => {
+    const emitter = new UniversalAddress(
+      new Uint8Array(Buffer.alloc(32, 0xcd))
+    );
+    await expect(xcvr().getPeer("Ethereum")).resolves.toEqual({
+      chain: "Ethereum",
+      address: emitter,
+    });
+    // get_peer_info answers "registered?" and "enabled?" in one read; a
+    // disabled peer keeps its emitter, so get_peer alone cannot tell them apart.
+    await expect(xcvr().getPeerInfo("Ethereum")).resolves.toEqual({
+      address: { chain: "Ethereum", address: emitter },
+      enabled: true,
+    });
+    await expect(xcvr().isPeerEnabled("Ethereum")).resolves.toEqual(true);
+    expect(calls.map((c) => c.args[0]!.u32())).toEqual([2, 2, 2]);
+  });
+
+  it("returns null for a chain with no peer at all", async () => {
+    overrides = { get_peer: null, get_peer_info: null, is_peer_enabled: false };
+    await expect(xcvr().getPeer("Ethereum")).resolves.toBeNull();
+    await expect(xcvr().getPeerInfo("Ethereum")).resolves.toBeNull();
+    await expect(xcvr().isPeerEnabled("Ethereum")).resolves.toEqual(false);
+  });
+
+  it("registers a peer once and disables it separately", async () => {
+    expect(await one(xcvr().setPeer(peer, owner))).toEqual({
+      contract: TRANSCEIVER,
+      method: "set_peer",
+      args: [2, Buffer.from(peer.address.toUniversalAddress().toUint8Array())],
+    });
+    // set_peer is one-shot (PeerAlreadySet), so this is the only way back.
+    expect(await one(xcvr().setPeerEnabled("Ethereum", false, owner))).toEqual({
+      contract: TRANSCEIVER,
+      method: "set_peer_enabled",
+      args: [2, false],
+    });
+  });
+
+  it("checks replay by the VAA's emitter and sequence, not the digest", async () => {
+    await expect(xcvr().isVaaConsumed(attestation)).resolves.toEqual(false);
+    expect(calls[0]!.args.map((arg) => scValToNative(arg))).toEqual([
+      2,
+      Buffer.alloc(32),
+      1n,
+    ]);
+  });
+
+  it("hands a VAA to receive_message, guiding an unregistered recipient", async () => {
+    const [tx] = await collect(xcvr().receive(attestation, owner));
+    expect(invocation(tx!)).toEqual({
+      contract: TRANSCEIVER,
+      method: "receive_message",
+      args: [Buffer.from(serialize(attestation))],
+    });
+    // The transaction is a transceiver call, and says so — `redeem` yields
+    // this same one, so its description moved off "Ntt.redeem" with it.
+    expect(tx!.description).toEqual("Transceiver.receive");
+    // Permissionless, but Stellar has no implicit signer to fund it.
+    await expect(collect(xcvr().receive(attestation))).rejects.toThrow(
+      /no implicit signer/
+    );
+  });
+
+  it("pauses owner-only and has no pauser role to hand out", async () => {
+    // Unlike the manager, whose pauser can also pause. The contract ignores
+    // the caller it is handed and enforces owner auth, but still takes it.
+    expect(await one(xcvr().pause(owner))).toEqual({
+      contract: TRANSCEIVER,
+      method: "pause",
+      args: [OWNER],
+    });
+    expect(await one(xcvr().unpause(owner))).toEqual({
+      contract: TRANSCEIVER,
+      method: "unpause",
+      args: [OWNER],
+    });
+    await expect(xcvr().getPauser()).resolves.toBeNull();
+    await expect(collect(xcvr().setPauser())).rejects.toThrow(/owner-only/);
   });
 });
 

@@ -1,5 +1,4 @@
 import {
-  Address,
   BASE_FEE,
   Contract,
   TransactionBuilder,
@@ -7,12 +6,8 @@ import {
   rpc as SorobanRpc,
   xdr,
 } from "@stellar/stellar-sdk";
-import { toChainId } from "@wormhole-foundation/sdk-base";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
-import {
-  UniversalAddress,
-  serialize,
-} from "@wormhole-foundation/sdk-definitions";
+import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
   AccountAddress,
   ChainAddress,
@@ -32,19 +27,17 @@ import type {
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
-import {
-  MANAGER_REJECTED_MESSAGE,
-  RECIPIENT_NOT_REGISTERED,
-  contractErrorCodes,
-  decodeContractError,
-} from "./errors.js";
+import { decodeContractError } from "./errors.js";
 import type { ContractErrorSpace } from "./errors.js";
 import {
+  addressArg,
   asBigint,
   asBoolean,
   asBytes,
   asNumber,
   asAddress,
+  bytesArg,
+  chainIdArg,
   decodeInboundQueuedTransfer,
   decodeMode,
   decodeNttManagerPeer,
@@ -52,8 +45,10 @@ import {
   decodeRateLimitParams,
   decodeTransceiverFee,
   decodeTransceiverInfo,
+  sequenceArg,
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
+import { StellarNttWormholeTransceiver } from "./transceiver.js";
 
 /**
  * NTT bindings for the Soroban manager + Wormhole transceiver contracts.
@@ -426,26 +421,13 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /**
-   * Registers `peer` as the transceiver's counterpart on its chain, by the
-   * emitter address its VAAs carry. One-shot: a second call for the same chain
-   * fails with `TransceiverError::PeerAlreadySet`, and the fix is a redeploy.
-   */
+  /** The `Ntt` interface's name for {@link StellarNttWormholeTransceiver.setPeer}. */
   async *setTransceiverPeer(
     ix: number,
     peer: ChainAddress,
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-    yield await this.prepare(
-      this.source(payer, "the owner"),
-      new Contract(this.transceiver(ix)).call(
-        "set_peer",
-        chainIdArg(peer.chain),
-        bytesArg(peer.address.toUniversalAddress().toUint8Array())
-      ),
-      "Ntt.setTransceiverPeer",
-      "Transceiver"
-    );
+    yield* this.transceiver(ix).setPeer(peer, payer);
   }
 
   /** How many transceivers must attest before an inbound transfer executes. */
@@ -609,21 +591,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     attestations: Ntt.Attestation[],
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-    const from = this.source(payer, "the payer");
-    const transceiver = new Contract(this.transceiver(0));
-
-    for (const attestation of attestations) {
-      yield await this.prepare(
-        from,
-        transceiver.call("receive_message", bytesArg(serialize(attestation))),
-        "Ntt.redeem",
-        "Transceiver"
-      ).catch((error: unknown) => {
-        // `prepare` has already named the transceiver error; this only adds
-        // what the masked inner failure means for the caller.
-        throw redeemGuidance(error);
-      });
-    }
+    const transceiver = this.transceiver(0);
+    for (const attestation of attestations)
+      yield* transceiver.receive(attestation, payer);
   }
 
   /**
@@ -755,10 +725,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /** Stellar registers only the Wormhole transceiver, and only at index 0. */
-  private transceiver(ix: number): string {
+  private transceiver(ix: number): StellarNttWormholeTransceiver<N, C> {
     if (ix !== 0 || this.transceiverAddress === undefined)
       throw new Error(`No transceiver at index ${ix} for ${this.chain}`);
-    return this.transceiverAddress;
+    return new StellarNttWormholeTransceiver(this, this.transceiverAddress);
   }
 
   /** An owner-authorized manager call, sent from the owner's own account. */
@@ -823,8 +793,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * That address also has to be a `G…` account, because only an account can
    * source a transaction. A manager owned by a `C…` contract is administered
    * by invoking that contract, not through this class.
+   *
+   * Public, like {@link prepare}, because the transceiver binding sends its
+   * own contract's calls through this one — the manager owns the package's
+   * only transaction builder, exactly as `EvmNtt.createUnsignedTx` does.
    */
-  private source(payer: AccountAddress<C> | undefined, role: string): string {
+  source(payer: AccountAddress<C> | undefined, role: string): string {
     if (payer === undefined)
       throw new Error(`Stellar has no implicit signer: pass ${role} as payer`);
 
@@ -836,8 +810,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return from;
   }
 
-  /** Build, simulate and assemble a write for the signer to sign and submit. */
-  private async prepare(
+  /**
+   * Build, simulate and assemble a write for the signer to sign and submit.
+   * `space` names the contract whose error table a rejection is read against,
+   * so a call to another NTT contract is not misnamed against the manager's.
+   */
+  async prepare(
     from: string,
     operation: xdr.Operation,
     description: string,
@@ -880,25 +858,6 @@ const MAX_U64 = 2n ** 64n - 1n;
 /** Roughly a day of ~5-second ledgers, to accept an ownership offer in. */
 const OWNERSHIP_OFFER_LEDGERS = 17280;
 
-/** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
-const chainIdArg = (chain: Chain): xdr.ScVal =>
-  nativeToScVal(toChainId(chain), { type: "u32" });
-
-/** `Bytes` and `BytesN<N>` share one ScVal type; the host checks the length. */
-const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
-  nativeToScVal(Buffer.from(bytes), { type: "bytes" });
-
-const sequenceArg = (sequence: bigint): xdr.ScVal =>
-  nativeToScVal(sequence, { type: "u64" });
-
-/** `AccountAddress<C>` widens to `AnyStellarAddress`; the ctor rejects the rest. */
-const addressArg = (
-  address: AnyStellarAddress | AccountAddress<StellarChains>
-): xdr.ScVal =>
-  new Address(
-    new StellarAddress(address as AnyStellarAddress).toString()
-  ).toScVal();
-
 /**
  * The manager message an attestation carries, with the chain that sent it.
  * A standard-relayer VAA wraps the transceiver message one level deeper.
@@ -912,25 +871,3 @@ const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
 
 const digestOf = (attestation: Ntt.Attestation): Uint8Array =>
   Ntt.messageDigest(...managerMessage(attestation));
-
-/**
- * `receive_message` forwards to the manager through `flatten_call`, which
- * collapses every manager failure into `ManagerRejectedMessage` — the real
- * cause survives only in the simulation's inner frames. The retryable one is
- * the recipient never having been recorded on the core address registry, so
- * say what to do about it. Anything else is passed through as decoded.
- */
-const redeemGuidance = (error: unknown): unknown => {
-  const codes = contractErrorCodes(error);
-  if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return error;
-
-  const masked = codes.includes(RECIPIENT_NOT_REGISTERED)
-    ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66)."
-    : "The manager rejected the message and flatten_call masked its error.";
-  return new Error(
-    `${error instanceof Error ? error.message : String(error)}\n${masked} ` +
-      `If the recipient has never been recorded, run ` +
-      `StellarNtt.recordAddress(payer, recipient) and redeem again.`,
-    { cause: error }
-  );
-};

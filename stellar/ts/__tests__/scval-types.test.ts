@@ -10,6 +10,7 @@ import {
   decodeMode,
   decodeNttManagerPeer,
   decodeOutboundQueuedTransfer,
+  decodePeerInfo,
   decodeTransceiverFee,
   decodeTransceiverInfo,
   decodeTransferResult,
@@ -177,6 +178,18 @@ describe("ScVal decoders", () => {
     expect(decodeTransceiverFee(unavailable)).toEqual({
       transceiver: CONTRACT,
       fee: null,
+    });
+  });
+
+  it("decodes a transceiver PeerInfo", () => {
+    const peer = struct({
+      emitter: bytes(0xcd),
+      enabled: xdr.ScVal.scvBool(false),
+    });
+    expect(decodePeerInfo(peer)).toEqual({
+      emitter: Buffer.alloc(32, 0xcd),
+      // A disabled peer keeps its emitter, so both fields have to survive.
+      enabled: false,
     });
   });
 

@@ -1,7 +1,8 @@
 /**
- * Decoders for the Soroban `#[contracttype]` structs the NTT contracts return
- * (`soroban_ntt_client::{types, rate_limit, messages}` and the manager's
- * `TransceiverInfo`). The analogue of `sui/ts/src/bcs-types.ts`.
+ * The ScVal codec: decoders for the Soroban `#[contracttype]` structs the NTT
+ * contracts return (`soroban_ntt_client::{types, rate_limit, messages}` and the
+ * manager's `TransceiverInfo`), and the encoders that build call arguments for
+ * them. The analogue of `sui/ts/src/bcs-types.ts`.
  *
  * `StellarPlatform.simulateRead` already runs `scValToNative`, which turns a
  * struct into a plain object keyed by its Rust field names — `u32`/`bool` stay
@@ -10,10 +11,20 @@
  * decoders pin those field names (the on-chain layout is field-ordered, so a
  * rename is a breaking change) and narrow the loose result to a typed value.
  */
+import { Address, nativeToScVal } from "@stellar/stellar-sdk";
+import type { xdr } from "@stellar/stellar-sdk";
+import { toChainId } from "@wormhole-foundation/sdk-base";
+import type { Chain } from "@wormhole-foundation/sdk-base";
+import type { AccountAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
   Ntt,
   TrimmedAmount,
 } from "@wormhole-foundation/sdk-definitions-ntt";
+import { StellarAddress } from "@wormhole-foundation/sdk-stellar";
+import type {
+  AnyStellarAddress,
+  StellarChains,
+} from "@wormhole-foundation/sdk-stellar";
 
 const isStruct = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -237,3 +248,43 @@ export function decodeTransceiverFee(value: unknown): TransceiverFee {
     fee: optionalField(s, "fee", isBigint),
   };
 }
+
+export type PeerInfo = {
+  /** The peer transceiver's 32-byte Wormhole emitter address. */
+  emitter: Uint8Array;
+  /** A disabled peer keeps its emitter, so it can be re-enabled as it was. */
+  enabled: boolean;
+};
+
+export function decodePeerInfo(value: unknown): PeerInfo {
+  const s = struct(value, "PeerInfo");
+  return {
+    emitter: field(s, "emitter", isBytes),
+    enabled: field(s, "enabled", isBoolean),
+  };
+}
+
+/**
+ * Call-argument encoders. Soroban is strict about the ScVal type it is handed
+ * and every NTT contract takes its arguments in these few shapes, so they are
+ * spelled out once here rather than at each call site.
+ */
+
+/** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
+export const chainIdArg = (chain: Chain): xdr.ScVal =>
+  nativeToScVal(toChainId(chain), { type: "u32" });
+
+/** `Bytes` and `BytesN<N>` share one ScVal type; the host checks the length. */
+export const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
+  nativeToScVal(Buffer.from(bytes), { type: "bytes" });
+
+export const sequenceArg = (sequence: bigint): xdr.ScVal =>
+  nativeToScVal(sequence, { type: "u64" });
+
+/** `AccountAddress<C>` widens to `AnyStellarAddress`; the ctor rejects the rest. */
+export const addressArg = (
+  address: AnyStellarAddress | AccountAddress<StellarChains>
+): xdr.ScVal =>
+  new Address(
+    new StellarAddress(address as AnyStellarAddress).toString()
+  ).toScVal();
