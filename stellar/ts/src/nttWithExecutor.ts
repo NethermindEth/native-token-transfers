@@ -177,12 +177,20 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
    * `receive_message`, which has no `msg.value` to attach and no caller-set gas
    * limit: the relayer's cost is the resource fee its own simulation computes.
    *
+   * Measured on the localnet, that fee is not one number. A first delivery of a
+   * plain transfer simulated at 270_527 stroops (11.8M instructions) against a
+   * one-guardian set, and at 358_889 stroops (41.6M instructions) against a
+   * 19-guardian set signed to mainnet's quorum of 13 — the signatures the core
+   * recovers dominate the CPU budget, so the figure moves with the guardian set
+   * the delivery is verified against. Both are then priced by the network's own
+   * fee configuration, which a localnet only approximates.
+   *
    * Solana answers with a real `msgValue` because its destination-side rent and
-   * signature costs are known protocol constants; Soroban's resource fee is not
-   * one, and no quoter prices Stellar as a destination yet — the route rejects
-   * the chain before this is reached. Measuring `receive_message` on the
-   * localnet is what turns this into a number; inventing one now would price
-   * the delivery at something no relayer agreed to either way.
+   * signature costs are protocol constants; Soroban's is a simulation result,
+   * and what turns this into a number is simulating `receive_message` against
+   * the destination at quote time rather than a constant measured elsewhere.
+   * Nothing reaches this today in any case: the route rejects a destination
+   * whose executor capabilities do not list `ERN1`, and no quoter prices 61.
    */
   async estimateMsgValueAndGasLimit(
     _recipient: ChainAddress | undefined
