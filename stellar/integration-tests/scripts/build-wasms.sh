@@ -13,14 +13,17 @@ cd "$STELLAR_DIR"
 # artifacts first so the optimized wasm the tests upload is always regenerated.
 rm -f target/wasm32v1-none/release/stellar_ntt_manager.wasm \
   target/wasm32v1-none/release/stellar_ntt_transceiver.wasm \
+  target/wasm32v1-none/release/stellar_ntt_with_executor.wasm \
   target/wasm32v1-none/release/mock_token.wasm
 stellar contract build --optimize
 
 for wasm in \
   "target/wasm32v1-none/release/stellar_ntt_manager.wasm" \
   "target/wasm32v1-none/release/stellar_ntt_transceiver.wasm" \
+  "target/wasm32v1-none/release/stellar_ntt_with_executor.wasm" \
   "target/wasm32v1-none/release/mock_token.wasm" \
-  "integration-tests/vendor/wormhole_core.wasm"; do
+  "integration-tests/vendor/wormhole_core.wasm" \
+  "integration-tests/vendor/wormhole_executors.wasm"; do
   if [ ! -f "$wasm" ]; then
     echo "ERROR: missing artifact: $wasm" >&2
     exit 1

@@ -17,15 +17,23 @@ flowchart LR
 
 | Script | What it does |
 |--------|--------------|
-| [`build-wasms.sh`](scripts/build-wasms.sh) | Deletes the prior release wasms, then `stellar contract build --optimize`. The deletion is deliberate: `--optimize` only runs `wasm-opt` on freshly compiled output, and a stale unoptimized manager wasm is oversized and rejected on upload. Asserts all four artifacts exist (three built plus the vendored core). |
-| [`start-localnet.sh`](scripts/start-localnet.sh) | `docker run --rm -d -p 8000:8000 --name stellar_localnet stellar/quickstart:latest --standalone`, then polls RPC health and waits for the ledger to advance twice, so tests do not start against a stalled genesis ledger. |
+| [`build-wasms.sh`](scripts/build-wasms.sh) | Deletes the prior release wasms, then `stellar contract build --optimize`. The deletion is deliberate: `--optimize` only runs `wasm-opt` on freshly compiled output, and a stale unoptimized manager wasm is oversized and rejected on upload. Asserts all six artifacts exist (four built plus the two vendored ones). |
+| [`start-localnet.sh`](scripts/start-localnet.sh) | `docker run --rm -d -p 8000:8000 --name stellar_localnet $STELLAR_QUICKSTART_IMAGE --standalone`, then polls RPC health and waits for the ledger to advance twice, so tests do not start against a stalled genesis ledger. |
 | [`fund-identity.sh`](scripts/fund-identity.sh) | Registers the `localnet` network alias, generates the `admin` key if absent, and friendbot-funds it, retrying while friendbot warms up. |
 | [`run-tests.sh`](scripts/run-tests.sh) | Absolutizes the wasm paths, rebuilds, then `cargo test -p integration-tests -- --ignored --nocapture --test-threads=1`. |
 | [`stop-localnet.sh`](scripts/stop-localnet.sh) | Stops and removes the container. `--rm` means state is ephemeral: a fresh network every cycle. |
 
 Tests run single-threaded on purpose. Every transaction originates from the one `admin` account, so parallel runs would collide on its sequence number and on the shared network.
 
-Configuration lives in `.env.localnet` and is exported into every script. Key values: `STELLAR_CHAIN_ID = 61` (Stellar's Wormhole chain id), `SOROBAN_RPC_URL = http://localhost:8000/soroban/rpc`, the three built wasm paths under `target/wasm32v1-none/release/` plus the vendored core at `vendor/wormhole_core.wasm`, and `GUARDIAN_SECRET_HEX`, a localnet-only test guardian key.
+Configuration lives in `.env.localnet` and is exported into every script. Key values: `STELLAR_CHAIN_ID = 61` (Stellar's Wormhole chain id), `SOROBAN_RPC_URL = http://localhost:8000/soroban/rpc`, the four built wasm paths under `target/wasm32v1-none/release/` plus the vendored core and Executor rail under `vendor/`, `GUARDIAN_SECRET_HEX` (a localnet-only test guardian key), and `STELLAR_QUICKSTART_IMAGE`.
+
+That last one is `stellar/quickstart:testing`, not `:latest`, because `:latest` is still a protocol-25 host and the vendored Executor rail is built with soroban-sdk 27 — a protocol-25 host rejects it on upload with `contract protocol number is newer than host`. Everything else here targets soroban-sdk 25 and runs unchanged on the newer host.
+
+## The TypeScript suite
+
+`stellar/ts/integration/` is a second suite over the same network, driving the same contracts through the `@wormhole-foundation/sdk-stellar-ntt` bindings instead of the CLI. It reuses this directory's `.env.localnet`, vendored wasms and test guardian verbatim, so one `start-localnet.sh` serves both. Run it with `npm run test:localnet --workspace stellar/ts` (the plain `npm test` is the unit suite and needs no Docker).
+
+The two suites divide the work rather than duplicate it: the Rust tests pin the contracts' behaviour, and the TypeScript ones pin the bindings — that a read decodes the struct the contract returns, that a write's arguments arrive in the shape the ABI wants, and that the bytes a transfer puts on the wire are what the shared NTT layouts read back.
 
 ## Harness modules
 
@@ -93,9 +101,11 @@ Thirty tests across four groups. The single test binary is [`tests/run.rs`](test
 | `event_shapes_outbound` | `transfer_sent` topics and data fields |
 | `wasm_size_budget` | manager, transceiver, and mock-token stay under their size budgets |
 
-## Vendored Wormhole core
+## Vendored contracts
 
 [`vendor/wormhole_core.wasm`](vendor/) is the Stellar port of the Wormhole core, committed as a fixed binary so the harness has a deterministic thing to deploy. Provenance is recorded in [`vendor/WORMHOLE_CORE_README.md`](vendor/WORMHOLE_CORE_README.md): built from `NethermindEth/wormhole` branch `stellar`, commit `f379981…`, with the `stellar` CLI, then optimized.
+
+[`vendor/wormhole_executors.wasm`](vendor/) is the Executor rail that `contracts/ntt-with-executor` pays, vendored for the same reason and recorded in [`vendor/WORMHOLE_EXECUTOR_README.md`](vendor/WORMHOLE_EXECUTOR_README.md). Only the TypeScript suite deploys it today.
 
 The workspace also depends on the same repo as a git crate (`wormhole-soroban-client`) for host-side encoders. The wasm is vendored separately because the harness needs the compiled, optimized artifact to `stellar contract deploy`, and rebuilding a moving branch tip on every run would be slow and non-deterministic. Refreshing it means rebuilding from the pinned commit and updating the recorded commit, size, and toolchain.
 
