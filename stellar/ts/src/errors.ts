@@ -106,6 +106,7 @@ const WORMHOLE_CORE_ERRORS: Record<number, string> = {
 const WRAPPER_ERRORS: Record<number, string> = {
   1: "InvalidReferrerFee",
   2: "PeerNotFound",
+  3: "FeeExceedsAmount",
 };
 
 /**
@@ -160,6 +161,24 @@ const TOKEN_ERRORS: Record<number, string> = {
   11: "BalanceDeauthorized",
   12: "Overflow",
   13: "TrustlineMissing",
+};
+
+/**
+ * The contract error tables that have a Rust enum behind them, keyed by the
+ * enum's name. `__tests__/errors.parity.test.ts` reads those enums and asserts
+ * these match.
+ *
+ * `OZ_ERRORS`, `TOKEN_ERRORS`, and `WORMHOLE_CORE_ERRORS` are absent: they come
+ * from external crates with no source in this repository to compare against.
+ * `ExecutorError` is checked against this crate's regenerated binding, which
+ * mirrors the Executor contract rather than defining it, so that row catches
+ * drift between two local files and not from the deployed Executor.
+ */
+export const ERROR_TABLES = {
+  NttManagerError: NTT_MANAGER_ERRORS,
+  TransceiverError: TRANSCEIVER_ERRORS,
+  WrapperError: WRAPPER_ERRORS,
+  ExecutorError: EXECUTOR_ERRORS,
 };
 
 /**
