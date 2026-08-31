@@ -444,3 +444,38 @@ fn authorized_under_single_sender_auth() {
     );
     assert_eq!(sequence, SEQUENCE);
 }
+
+// The largest fee rate the wire accepts must still leave a bridgeable
+// remainder. dbps is capped at u16::MAX, below the 100_000 denominator, which
+// is what keeps the fee under the amount and the subtraction in range.
+#[test]
+fn max_dbps_bridges_the_remainder() {
+    let env = Env::default();
+    let f = setup(&env);
+    let fee = fee::referrer_fee(
+        AMOUNT,
+        u16::MAX as u32,
+        SRC_DECIMALS as u8,
+        DST_DECIMALS as u8,
+    )
+    .unwrap();
+    assert!(fee > 0 && fee < AMOUNT);
+
+    f.wrapper.transfer(
+        &f.sender,
+        &f.manager,
+        &AMOUNT,
+        &f.destination(DEST_CHAIN),
+        &f.fee_args(u16::MAX as u32),
+        &f.exec,
+    );
+
+    assert_eq!(f.token_balance(&f.referrer), fee);
+    assert_eq!(
+        MockManagerClient::new(&env, &f.manager)
+            .last_transfer()
+            .unwrap()
+            .amount,
+        AMOUNT - fee
+    );
+}
