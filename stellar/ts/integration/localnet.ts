@@ -59,7 +59,7 @@ const STELLAR_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const env = loadEnv();
 
-const rpc = new SorobanRpc.Server(env.rpcUrl, { allowHttp: true });
+export const rpc = new SorobanRpc.Server(env.rpcUrl, { allowHttp: true });
 
 /**
  * The account every transaction in a test file is sourced from. Regenerated per
