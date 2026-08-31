@@ -88,6 +88,20 @@ const TRANSCEIVER_ERRORS: Record<number, string> = {
 export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
 
+/**
+ * The code the core registry reports for a hash it has no address for.
+ * `resolveAddress` turns it into `AddressNotFoundError`.
+ */
+export const ADDRESS_NOT_FOUND = 43;
+
+/**
+ * `wormhole_soroban_client::WormholeError`, limited to the codes this package
+ * acts on. The core's full vocabulary lives in the Wormhole repository.
+ */
+const WORMHOLE_CORE_ERRORS: Record<number, string> = {
+  [ADDRESS_NOT_FOUND]: "AddressNotFound",
+};
+
 /** `stellar_ntt_with_executor::WrapperError` — its own validation, nothing else. */
 const WRAPPER_ERRORS: Record<number, string> = {
   1: "InvalidReferrerFee",
@@ -162,10 +176,10 @@ const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // No token frame surfaces here: everything below `receive_message` is masked
   // as `ManagerRejectedMessage (36)`.
   Transceiver: [TRANSCEIVER_ERRORS, OZ_ERRORS],
-  // The Wormhole core's own `WormholeError` vocabulary lives in the Wormhole
-  // repo, not here, and its registry writes move no tokens. Its codes are
-  // reported as-is rather than misread against a table they do not belong to.
-  WormholeCore: [OZ_ERRORS],
+  // Only the core codes this package acts on are named here; the rest of its
+  // vocabulary lives in the Wormhole repository. Its registry writes move no
+  // tokens, so no token frame surfaces.
+  WormholeCore: [WORMHOLE_CORE_ERRORS, OZ_ERRORS],
   // One `ntt_with_executor::transfer` reaches three contracts plus the token,
   // and a sub-call error propagates verbatim through the generated clients (no
   // `flatten_call` masking it), so the code can be any of theirs. Transceiver
