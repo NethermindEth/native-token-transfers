@@ -1,5 +1,4 @@
 import {
-  Address,
   BASE_FEE,
   Contract,
   TransactionBuilder,
@@ -7,12 +6,8 @@ import {
   rpc as SorobanRpc,
   xdr,
 } from "@stellar/stellar-sdk";
-import { toChainId } from "@wormhole-foundation/sdk-base";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
-import {
-  UniversalAddress,
-  serialize,
-} from "@wormhole-foundation/sdk-definitions";
+import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
   AccountAddress,
   ChainAddress,
@@ -20,7 +15,6 @@ import type {
   Contracts,
 } from "@wormhole-foundation/sdk-definitions";
 import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
-import type { NttTransceiver } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
@@ -32,19 +26,16 @@ import type {
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
-import {
-  MANAGER_REJECTED_MESSAGE,
-  RECIPIENT_NOT_REGISTERED,
-  contractErrorCodes,
-  decodeContractError,
-} from "./errors.js";
+import { decodeContractError } from "./errors.js";
 import type { ContractErrorSpace } from "./errors.js";
 import {
+  addressArg,
   asBigint,
   asBoolean,
-  asBytes,
   asNumber,
   asAddress,
+  bytesArg,
+  chainIdArg,
   decodeInboundQueuedTransfer,
   decodeMode,
   decodeNttManagerPeer,
@@ -52,8 +43,10 @@ import {
   decodeRateLimitParams,
   decodeTransceiverFee,
   decodeTransceiverInfo,
+  sequenceArg,
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
+import { StellarNttWormholeTransceiver } from "./transceiver.js";
 
 /**
  * NTT bindings for the Soroban manager + Wormhole transceiver contracts.
@@ -69,9 +62,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   readonly tokenAddress: string;
   /**
    * The Wormhole transceiver, if the config names one; Stellar registers no
-   * other transceiver type. A manager can legitimately be inspected before its
-   * transceiver is wired up, and reporting that is `verifyAddresses`'s job, so
-   * a missing one is not a construction error.
+   * other transceiver type. A caller can legitimately inspect a manager before
+   * its transceiver is registered, and reporting that is the `verifyAddresses`
+   * method's job, so a missing one is not a construction error.
    */
   readonly transceiverAddress: string | undefined;
   readonly coreAddress: string;
@@ -93,6 +86,11 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     this.coreAddress = contracts.coreBridge;
   }
 
+  /**
+   * Creates a binding for the chain the RPC endpoint serves, taking contract
+   * addresses from `config`. Throws if that config names a different network
+   * than the endpoint reports.
+   */
   static async fromRpc<N extends Network>(
     provider: SorobanRpc.Server,
     config: ChainsConfig<N, StellarPlatformType>
@@ -112,8 +110,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return asBoolean(await this.read("paused"));
   }
 
-  // The owner can be renounced, which leaves the manager permanently
-  // unadministrable; the Ntt interface has no null case for it, so surface it.
+  // The owner can renounce ownership, which leaves the manager permanently
+  // unadministrable; the `Ntt` interface has no null case for it, so surface it.
   async getOwner(): Promise<AccountAddress<C>> {
     const owner = await this.read("get_owner");
     if (owner === null)
@@ -132,17 +130,23 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return asNumber(await this.read("get_threshold"));
   }
 
-  /** Cached: the manager sets `token_decimals` once, in its constructor. */
+  /**
+   * Caches after the first read: the manager sets `token_decimals` once, in
+   * its constructor.
+   */
   async getTokenDecimals(): Promise<number> {
     return (this.tokenDecimals ??= this.read("token_decimals").then(asNumber));
   }
 
-  /** The manager holds the locked tokens itself; in Burning mode it mints. */
+  /**
+   * Returns the manager's own address: it holds the locked tokens, and in
+   * Burning mode it mints.
+   */
   async getCustodyAddress(): Promise<string> {
     return this.managerAddress;
   }
 
-  /** The Wormhole chain id the manager was deployed with; 61 for Stellar. */
+  /** Returns the Wormhole chain id the manager was deployed with; 61 for Stellar. */
   async getChainId(): Promise<number> {
     return asNumber(await this.read("get_chain_id"));
   }
@@ -155,7 +159,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       decodeNttManagerPeer(peer);
     return {
       // A peer address is the 32 wire bytes; on a Stellar peer that is a
-      // one-way hash_address, so it stays universal rather than native.
+      // one-way `hash_address`, so it stays universal rather than native.
       address: {
         chain,
         address: new UniversalAddress(new Uint8Array(address)),
@@ -165,7 +169,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     };
   }
 
-  /** Outbound capacity left right now, after the time-based refill. */
+  /**
+   * Returns the outbound capacity left at the current ledger, after the
+   * time-based refill.
+   */
   async getCurrentOutboundCapacity(): Promise<bigint> {
     return this.untrim(asBigint(await this.read("get_outbound_capacity")));
   }
@@ -197,7 +204,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       : this.untrim(decodeRateLimitParams(params).limit);
   }
 
-  /** Seconds, not milliseconds: Soroban ledger time. */
+  /** Returns the duration in seconds, not milliseconds: Soroban ledger time. */
   async getRateLimitDuration(): Promise<bigint> {
     return asBigint(await this.read("get_rate_limit_duration"));
   }
@@ -224,8 +231,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * The outbound transfer queued under `sequence`, if the rate limiter held it
-   * back. Stellar-specific: `complete_queued_transfer` and
+   * Returns the outbound transfer queued under `sequence`, if the rate limiter
+   * held it back. Stellar-specific: `complete_queued_transfer` and
    * `cancel_queued_transfer` are keyed by sequence, not by digest.
    */
   async getOutboundQueuedTransfer(
@@ -299,7 +306,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /** The threshold of attestations is met; the transfer may still be queued. */
+  /**
+   * Checks whether the threshold of attestations is met; the transfer may
+   * still be queued.
+   */
   async getIsApproved(attestation: Ntt.Attestation): Promise<boolean> {
     return asBoolean(
       await this.read("is_message_approved", bytesArg(digestOf(attestation)))
@@ -310,8 +320,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     const executed = asBoolean(
       await this.read("is_message_executed", bytesArg(digestOf(attestation)))
     );
-    // A rate-limited transfer is marked executed once the queue entry is
-    // created, so it is only complete when nothing is left queued.
+    // The manager marks a rate-limited transfer executed once it creates the
+    // queue entry, so the transfer is only complete when nothing is left queued.
     return executed && !(await this.getIsTransferInboundQueued(attestation));
   }
 
@@ -323,9 +333,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * The cost of dispatching a transfer, in stroops: the sum of every enabled
-   * transceiver's quote. A transceiver whose own quote failed reports `None`
-   * and is skipped, so a broken transceiver does not lose the whole quote.
+   * Returns the cost of dispatching a transfer, in stroops: the sum of every
+   * enabled transceiver's quote. A transceiver whose own quote failed reports
+   * `None` and drops out of the sum, so a broken transceiver does not lose the
+   * whole quote.
    */
   async quoteDeliveryPrice(
     destination: Chain,
@@ -346,7 +357,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       .reduce((total, fee) => total + fee, 0n);
   }
 
-  /** Stellar has no NTT quoter, so a transfer is always manually redeemed. */
+  /**
+   * Returns `false`: Stellar has no NTT quoter, so every transfer needs a
+   * manual redeem.
+   */
   async isRelayingAvailable(_destination: Chain): Promise<boolean> {
     return false;
   }
@@ -354,7 +368,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * Locks or burns `amount` and dispatches it to `destination`.
    *
-   * `options.queue` picks what happens when the outbound rate limiter is
+   * `options.queue` controls what happens when the outbound rate limiter is
    * exhausted: queue the transfer for later completion, or fail the whole call
    * with `TransferExceedsRateLimit`. `options.wrapNative` has nothing to do on
    * Stellar — XLM is already a SEP-41 contract, so the native token needs no
@@ -362,8 +376,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * `transfer_with_payload` so the destination manager forwards it on.
    *
    * The manager takes custody with the token's own `transfer`/`burn`, both of
-   * which authorize `sender` rather than an allowance, so no separate approve
-   * step is needed. The transceiver pays the Wormhole message fee out of its
+   * which authorize `sender` rather than an allowance, so the caller needs no
+   * separate approve step. The transceiver pays the Wormhole message fee out of its
    * own balance — see {@link quoteDeliveryPrice} for what that costs.
    */
   async *transfer(
@@ -381,10 +395,11 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       addressArg(from),
       nativeToScVal(amount, { type: "i128" }),
       chainIdArg(destination.chain),
-      // Generic: the destination's own address type decides its wire form —
-      // raw bytes for most chains, the one-way hash_address when the
+      // Generic: the destination's own address type determines its wire form —
+      // raw bytes for most chains, the one-way `hash_address` when the
       // destination is itself Stellar. The manager hashes `sender` and
-      // `source_token` on-chain (outbound.rs), so neither is pre-hashed here.
+      // `source_token` on-chain (`outbound.rs`), so this call passes both
+      // unhashed.
       bytesArg(destination.address.toUniversalAddress().toUint8Array()),
       nativeToScVal(options.queue, { type: "bool" }),
     ];
@@ -407,7 +422,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * Registers or updates the manager on `peer.chain`. `tokenDecimals` are the
    * peer token's, used to normalize amounts; `inboundLimit` is in this token's
-   * decimals and is trimmed on the way in (see {@link setInboundLimit}).
+   * decimals, and `trimArg` trims it on the way in (see {@link setInboundLimit}).
    */
   async *setPeer(
     peer: ChainAddress,
@@ -427,28 +442,18 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * Registers `peer` as the transceiver's counterpart on its chain, by the
-   * emitter address its VAAs carry. One-shot: a second call for the same chain
-   * fails with `TransceiverError::PeerAlreadySet`, and the fix is a redeploy.
+   * Forwards to {@link StellarNttWormholeTransceiver.setPeer} under the `Ntt`
+   * interface's name for it.
    */
   async *setTransceiverPeer(
     ix: number,
     peer: ChainAddress,
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-    yield await this.prepare(
-      this.source(payer, "the owner"),
-      new Contract(this.transceiver(ix)).call(
-        "set_peer",
-        chainIdArg(peer.chain),
-        bytesArg(peer.address.toUniversalAddress().toUint8Array())
-      ),
-      "Ntt.setTransceiverPeer",
-      "Transceiver"
-    );
+    yield* this.transceiver(ix).setPeer(peer, payer);
   }
 
-  /** How many transceivers must attest before an inbound transfer executes. */
+  /** Sets how many transceivers must attest before an inbound transfer executes. */
   async *setThreshold(
     threshold: number,
     payer?: AccountAddress<C>
@@ -462,7 +467,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * Registers a transceiver and returns it its permanent bitmap index.
+   * Registers a transceiver and assigns it its permanent bitmap index.
    * Registering the first one raises the threshold from 0 to 1 by itself.
    */
   async *setTransceiver(
@@ -479,8 +484,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 
   /**
    * Disables a transceiver, lowering the threshold if it no longer fits. The
-   * registry entry (and its index) is kept so it can be re-enabled; the last
-   * enabled transceiver cannot be removed.
+   * registry entry and its index survive, so the owner can re-enable it; the
+   * contract rejects removing the last enabled transceiver.
    */
   async *removeTransceiver(
     transceiver: AnyStellarAddress,
@@ -494,7 +499,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /** `limit` is in the token's decimals; see {@link trimArg}. */
+  /** Sets the outbound rate limit, in the token's decimals (see {@link trimArg}). */
   async *setOutboundLimit(
     limit: bigint,
     payer?: AccountAddress<C>
@@ -507,7 +512,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /** `limit` is in the token's decimals; see {@link trimArg}. */
+  /**
+   * Sets the inbound rate limit for `fromChain`, in the token's decimals (see
+   * {@link trimArg}).
+   */
   async *setInboundLimit(
     fromChain: Chain,
     limit: bigint,
@@ -546,7 +554,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /** Step two of {@link setOwner}, authorized by the proposed owner. */
+  /**
+   * Completes the two-step handover {@link setOwner} proposed, authorized by the
+   * proposed owner.
+   */
   async *acceptOwnership(
     newOwner: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
@@ -568,14 +579,17 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       new Contract(this.managerAddress).call(
         "transfer_pauser",
         addressArg(from),
-        // `Option<Address>`: None crosses the ABI as the unit value.
+        // `Option<Address>`: `None` crosses the ABI as the unit value.
         newPauser === null ? xdr.ScVal.scvVoid() : addressArg(newPauser)
       ),
       "Ntt.setPauser"
     );
   }
 
-  /** Emergency stop, available to the owner and the pauser alike. */
+  /**
+   * Pauses the manager as an emergency stop, available to the owner and the
+   * pauser alike.
+   */
   async *pause(
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
@@ -587,7 +601,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 
-  /** Owner-only, unlike {@link pause}: a compromised pauser cannot resume. */
+  /**
+   * Resumes the manager. Owner-only, unlike {@link pause}: a compromised
+   * pauser cannot resume.
+   */
   async *unpause(
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
@@ -602,28 +619,16 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * Delivers each attestation to the Wormhole transceiver, which verifies the
    * VAA against the core and forwards it to the manager. One transaction per
-   * attestation: the transceiver takes a single VAA, and each is independently
-   * replay-protected, so a batch that fails part-way can be resumed.
+   * attestation: the transceiver takes a single VAA, and each carries its own
+   * replay protection, so the caller can resume a batch that fails part-way.
    */
   async *redeem(
     attestations: Ntt.Attestation[],
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-    const from = this.source(payer, "the payer");
-    const transceiver = new Contract(this.transceiver(0));
-
-    for (const attestation of attestations) {
-      yield await this.prepare(
-        from,
-        transceiver.call("receive_message", bytesArg(serialize(attestation))),
-        "Ntt.redeem",
-        "Transceiver"
-      ).catch((error: unknown) => {
-        // `prepare` has already named the transceiver error; this only adds
-        // what the masked inner failure means for the caller.
-        throw redeemGuidance(error);
-      });
-    }
+    const transceiver = this.transceiver(0);
+    for (const attestation of attestations)
+      yield* transceiver.receive(attestation, payer);
   }
 
   /**
@@ -631,9 +636,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * transfer can resolve its hashed recipient back to a typed `G…`/`C…`.
    *
    * Permissionless: `payer` only funds the transaction and need not be the
-   * address being recorded. Until this lands, a transfer to that recipient
-   * fails with `RecipientNotRegistered`; the entry is persistent storage, so a
-   * long-idle registration can also need restoring.
+   * address being recorded. Until this transaction confirms, a transfer to
+   * that recipient fails with `RecipientNotRegistered`; the entry is persistent
+   * storage, so a long-idle registration can also need restoring.
    */
   async *recordAddress(
     payer: AccountAddress<C>,
@@ -651,72 +656,23 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * The transceiver at `ix`, or `null` if the manager has none there. Stellar
-   * registers only the Wormhole transceiver, at index 0.
-   *
-   * The methods that touch the chain delegate to this class, which already
-   * owns the manager/transceiver addresses and the transaction builder; the
-   * transceiver has no state of its own to carry.
+   * Gets the transceiver at `ix`, or `null` if the manager has none there.
+   * Stellar registers only the Wormhole transceiver, at index 0. Unlike the
+   * private accessor the write paths use, this reports a missing one rather
+   * than throwing: asking which transceivers exist is a legitimate question.
    */
   async getTransceiver(
     ix: number
-  ): Promise<NttTransceiver<N, C, Ntt.Attestation> | null> {
+  ): Promise<StellarNttWormholeTransceiver<N, C> | null> {
     if (ix !== 0 || this.transceiverAddress === undefined) return null;
-    const ntt = this;
-    const address = this.transceiverAddress;
-
-    return {
-      async getTransceiverType(): Promise<string> {
-        return "wormhole";
-      },
-      async getAddress(): Promise<ChainAddress<C>> {
-        return {
-          chain: ntt.chain,
-          address: new StellarAddress(address),
-        } as ChainAddress<C>;
-      },
-      async *setPeer(
-        peer: ChainAddress,
-        payer?: AccountAddress<C>
-      ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-        yield* ntt.setTransceiverPeer(ix, peer, payer);
-      },
-      async getPeer<P extends Chain>(
-        chain: P
-      ): Promise<ChainAddress<P> | null> {
-        const emitter = await StellarPlatform.simulateRead(
-          ntt.provider,
-          ntt.network,
-          address,
-          "get_peer",
-          chainIdArg(chain)
-        );
-        // A peer emitter is the 32 raw wire bytes, which stay universal.
-        return emitter === null
-          ? null
-          : {
-              chain,
-              address: new UniversalAddress(new Uint8Array(asBytes(emitter))),
-            };
-      },
-      /** Pausing the transceiver is owner-only; it has no pauser role. */
-      async getPauser(): Promise<AccountAddress<C> | null> {
-        return null;
-      },
-      async *setPauser(): AsyncGenerator<never> {
-        throw new Error(
-          "The Stellar transceiver has no pauser role: pause is owner-only"
-        );
-      },
-      async *receive(
-        attestation: Ntt.Attestation,
-        sender?: AccountAddress<C>
-      ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
-        yield* ntt.redeem([attestation], sender);
-      },
-    };
+    return this.transceiver(ix);
   }
 
+  /**
+   * Compares the configured token and transceiver against the manager's own,
+   * returning the fields that differ, or `null` when every one of them
+   * matches.
+   */
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
     const [token, transceiver] = await Promise.all([
       this.read("get_token"),
@@ -744,24 +700,28 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Rescales a rate-limit amount into the token's own decimals.
    *
    * The manager consumes and stores rate limits in the trimmed domain
-   * (`min(8, tokenDecimals)`, matching EVM's `_setOutboundLimit`), but the Ntt
-   * interface reports amounts in token decimals. Unlike EVM's `TrimmedAmount`,
-   * Soroban's `RateLimitParams` is a bare `u64` that carries no decimals, so
-   * there is nothing to read back and the scale has to be reconstructed.
+   * (`min(8, tokenDecimals)`, matching EVM's `_setOutboundLimit`), but the
+   * `Ntt` interface reports amounts in token decimals. Unlike EVM's
+   * `TrimmedAmount`, Soroban's `RateLimitParams` is a bare `u64` that carries no
+   * decimals, so there is nothing to read back and this binding has to
+   * reconstruct the scale.
    */
   private async untrim(trimmed: bigint): Promise<bigint> {
     const decimals = await this.getTokenDecimals();
     return trimmed * 10n ** BigInt(Math.max(0, decimals - TRIMMED_DECIMALS));
   }
 
-  /** Stellar registers only the Wormhole transceiver, and only at index 0. */
-  private transceiver(ix: number): string {
+  /**
+   * Returns the transceiver at `ix`; Stellar registers only the Wormhole
+   * transceiver, and only at index 0.
+   */
+  private transceiver(ix: number): StellarNttWormholeTransceiver<N, C> {
     if (ix !== 0 || this.transceiverAddress === undefined)
       throw new Error(`No transceiver at index ${ix} for ${this.chain}`);
-    return this.transceiverAddress;
+    return new StellarNttWormholeTransceiver(this, this.transceiverAddress);
   }
 
-  /** An owner-authorized manager call, sent from the owner's own account. */
+  /** Prepares an owner-authorized manager call, sent from the owner's own account. */
   private async admin(
     payer: AccountAddress<C> | undefined,
     description: string,
@@ -777,8 +737,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 
   /**
    * Rescales a rate limit from the token's decimals into the trimmed domain
-   * the manager stores it in — the exact inverse of {@link untrim}, which is
-   * where the reason the scale has to be reconstructed at all is written down.
+   * the manager stores it in — the exact inverse of {@link untrim}, which
+   * explains why the scale has to be reconstructed at all.
    * Skipping this would set every limit `10^(decimals - 8)` too high.
    *
    * Rounds down: a limit that is not a whole number of trimmed units cannot be
@@ -799,7 +759,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return nativeToScVal(trimmed, { type: "u64" });
   }
 
-  /** Simulate a read-only manager call and return its decoded result. */
+  /** Simulates a read-only manager call and returns its decoded result. */
   private read(method: string, ...args: xdr.ScVal[]): Promise<unknown> {
     return StellarPlatform.simulateRead(
       this.provider,
@@ -811,20 +771,25 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * The account a write is sent from, which is also the account it authorizes.
+   * Returns the account that sources a write, which is also the account it
+   * authorizes.
    *
    * Every NTT write requires exactly one address to have authorized it — the
    * sender, the owner, the pauser. Soroban's simulation returns source-account
-   * credentials for an address that is also the transaction source, and those
-   * are covered by the envelope signature the signer already applies; any other
-   * address would need its auth entry signed separately. So the caller's payer
+   * credentials for an address that is also the transaction source, and the
+   * envelope signature the signer already applies covers those; any other
+   * address would need a separately signed auth entry. So the caller's payer
    * has to *be* the authorizing address, and there is no default for it.
    *
    * That address also has to be a `G…` account, because only an account can
-   * source a transaction. A manager owned by a `C…` contract is administered
-   * by invoking that contract, not through this class.
+   * source a transaction. To administer a manager owned by a `C…` contract,
+   * invoke that contract rather than going through this class.
+   *
+   * Public, like {@link prepare}, because the transceiver binding sends its
+   * own contract's calls through this one — the manager owns the package's
+   * only transaction builder, exactly as `EvmNtt.createUnsignedTx` does.
    */
-  private source(payer: AccountAddress<C> | undefined, role: string): string {
+  source(payer: AccountAddress<C> | undefined, role: string): string {
     if (payer === undefined)
       throw new Error(`Stellar has no implicit signer: pass ${role} as payer`);
 
@@ -836,8 +801,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return from;
   }
 
-  /** Build, simulate and assemble a write for the signer to sign and submit. */
-  private async prepare(
+  /**
+   * Builds, simulates, and assembles a write for the signer to sign and submit.
+   * `space` names the contract whose error table decodes a rejection, so a
+   * rejection from another NTT contract does not carry a manager error name.
+   */
+  async prepare(
     from: string,
     operation: xdr.Operation,
     description: string,
@@ -874,33 +843,14 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 /** `TrimmedAmount::MAX_DECIMALS` — the ceiling of the shared NTT amount domain. */
 const TRIMMED_DECIMALS = 8;
 
-/** Rate limits are stored as a bare `u64`, so a trimmed limit has to fit one. */
+/** The manager stores rate limits as a bare `u64`, so a trimmed limit has to fit one. */
 const MAX_U64 = 2n ** 64n - 1n;
 
 /** Roughly a day of ~5-second ledgers, to accept an ownership offer in. */
 const OWNERSHIP_OFFER_LEDGERS = 17280;
 
-/** Chain ids cross the Soroban ABI as `u32`, though the wire format is `u16`. */
-const chainIdArg = (chain: Chain): xdr.ScVal =>
-  nativeToScVal(toChainId(chain), { type: "u32" });
-
-/** `Bytes` and `BytesN<N>` share one ScVal type; the host checks the length. */
-const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
-  nativeToScVal(Buffer.from(bytes), { type: "bytes" });
-
-const sequenceArg = (sequence: bigint): xdr.ScVal =>
-  nativeToScVal(sequence, { type: "u64" });
-
-/** `AccountAddress<C>` widens to `AnyStellarAddress`; the ctor rejects the rest. */
-const addressArg = (
-  address: AnyStellarAddress | AccountAddress<StellarChains>
-): xdr.ScVal =>
-  new Address(
-    new StellarAddress(address as AnyStellarAddress).toString()
-  ).toScVal();
-
 /**
- * The manager message an attestation carries, with the chain that sent it.
+ * Returns the manager message an attestation carries, with the chain that sent it.
  * A standard-relayer VAA wraps the transceiver message one level deeper.
  */
 const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
@@ -912,25 +862,3 @@ const managerMessage = (attestation: Ntt.Attestation): [Chain, Ntt.Message] => [
 
 const digestOf = (attestation: Ntt.Attestation): Uint8Array =>
   Ntt.messageDigest(...managerMessage(attestation));
-
-/**
- * `receive_message` forwards to the manager through `flatten_call`, which
- * collapses every manager failure into `ManagerRejectedMessage` — the real
- * cause survives only in the simulation's inner frames. The retryable one is
- * the recipient never having been recorded on the core address registry, so
- * say what to do about it. Anything else is passed through as decoded.
- */
-const redeemGuidance = (error: unknown): unknown => {
-  const codes = contractErrorCodes(error);
-  if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return error;
-
-  const masked = codes.includes(RECIPIENT_NOT_REGISTERED)
-    ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66)."
-    : "The manager rejected the message and flatten_call masked its error.";
-  return new Error(
-    `${error instanceof Error ? error.message : String(error)}\n${masked} ` +
-      `If the recipient has never been recorded, run ` +
-      `StellarNtt.recordAddress(payer, recipient) and redeem again.`,
-    { cause: error }
-  );
-};
