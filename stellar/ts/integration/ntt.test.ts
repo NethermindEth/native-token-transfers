@@ -3,9 +3,9 @@
  * contracts.
  *
  * The Rust suite in `stellar/integration-tests/tests/` already pins the
- * contracts' own behaviour, so what is asserted here is the *binding*: that a
- * read reaches the method it names and decodes the struct the contract returns,
- * that a write's arguments arrive in the order and shape the ABI wants, and
+ * contracts' own behavior, so these tests assert the *binding*: that a read
+ * reaches the method it names and decodes the struct the contract returns, that
+ * a write's arguments arrive in the order and shape the ABI specifies, and
  * that the bytes a transfer puts on the wire are the ones the shared NTT
  * layouts read back.
  */
@@ -48,7 +48,7 @@ const AMOUNT = 10_000_000n;
 const WIRE_AMOUNT = 100_000_000n;
 const NO_LIMIT = 2n ** 63n;
 
-/** A `NativeTokenTransfer` to `recipient`, in the peer's 8-decimal domain. */
+/** Builds a `NativeTokenTransfer` to `recipient`, in the peer's 8-decimal domain. */
 const transferTo = (recipient: string, amount = WIRE_AMOUNT): Ntt.Message => ({
   id: new Uint8Array(32).fill(0x10),
   sender: new UniversalAddress(new Uint8Array(32).fill(0x20)),

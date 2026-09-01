@@ -23,7 +23,7 @@ const CONTRACTS = join(
   "contracts"
 );
 
-/** Where each table's enum is declared. */
+/** Maps each table to the file that declares its enum. */
 const SOURCES: Record<keyof typeof ERROR_TABLES, string> = {
   NttManagerError: "soroban-ntt-client/src/errors.rs",
   TransceiverError: "soroban-ntt-client/src/errors.rs",
@@ -32,9 +32,10 @@ const SOURCES: Record<keyof typeof ERROR_TABLES, string> = {
 };
 
 /**
- * The `Variant = N` pairs of the `#[contracterror]` enum named `name`, read
- * from `file`. Doc comments and attributes sit between the variants, so the
- * body is matched first and the variants are picked out of it.
+ * Returns the `Variant = N` pairs of the `#[contracterror]` enum named
+ * `name`, read from `file`. Doc comments and attributes sit between the
+ * variants, so this matches the enum body first, then picks the variants out
+ * of it.
  */
 function rustEnum(file: string, name: string): Record<number, string> {
   const source = readFileSync(join(CONTRACTS, file), "utf8");
