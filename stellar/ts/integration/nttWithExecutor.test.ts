@@ -167,10 +167,10 @@ describe("ntt-with-executor", () => {
   });
 
   /**
-   * A quote whose 68-byte header says what the Executor checks: the quoter at
-   * `[4..24)`, the payee at `[24..56)`, the source and destination chains, and
-   * an expiry an hour out on the ledger clock. Everything past the header is
-   * opaque to the contract and is emitted verbatim.
+   * Builds a quote whose 68-byte header says what the Executor checks: the
+   * quoter at `[4..24)`, the payee at `[24..56)`, the source and destination
+   * chains, and an expiry an hour out on the ledger clock. The contract treats
+   * everything past the header as opaque and emits it verbatim.
    */
   async function signedQuote(
     payeeAddress: Uint8Array,

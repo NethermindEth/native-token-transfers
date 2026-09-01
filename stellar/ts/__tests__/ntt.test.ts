@@ -134,7 +134,7 @@ const provider = {
 
 const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
 
-/** The contract, method and decoded arguments a yielded transaction invokes. */
+/** The contract, method, and decoded arguments a yielded transaction invokes. */
 const invocation = (tx: StellarUnsignedTransaction<"Testnet", "Stellar">) => {
   const [operation] = tx.transaction.operations;
   const invoke = (
@@ -193,7 +193,7 @@ describe("StellarNtt construction", () => {
   });
 
   it("accepts a manager whose transceiver is not registered yet", () => {
-    // verifyAddresses is what reports that, so it has to be constructible.
+    // `verifyAddresses` is what reports that, so it has to be constructible.
     expect(
       new StellarNtt("Testnet", "Stellar", {} as SorobanRpc.Server, {
         coreBridge: CORE,
@@ -228,7 +228,8 @@ describe("StellarNtt config getters", () => {
 
   it("returns a peer's wire address as universal", async () => {
     // The peer's 32 bytes are opaque here — on a Stellar peer they are a
-    // one-way hash_address, so they must not be read back as a native address.
+    // one-way `hash_address`, so they must not be read back as a native
+    // address.
     await expect(ntt().getPeer("Ethereum")).resolves.toEqual({
       address: {
         chain: "Ethereum",
@@ -248,7 +249,7 @@ describe("StellarNtt config getters", () => {
 describe("StellarNtt rate limits", () => {
   it("reads outbound capacity, limits and the refill window", async () => {
     const n = ntt();
-    // token_decimals is 7, so the trimmed domain is already the token's.
+    // `token_decimals` is 7, so the trimmed domain is already the token's.
     await expect(n.getCurrentOutboundCapacity()).resolves.toEqual(900n);
     await expect(n.getOutboundLimit()).resolves.toEqual(1000n);
     // Seconds, not milliseconds — Soroban ledger time.
@@ -400,8 +401,9 @@ describe("StellarNtt.transfer", () => {
     expect(invocation(tx!)).toEqual({
       contract: MANAGER,
       method: "transfer",
-      // sender, amount, recipient_chain, recipient, should_queue. The manager
-      // hashes the sender itself, so it goes over the ABI as an Address.
+      // `sender`, `amount`, `recipient_chain`, `recipient`, `should_queue`.
+      // The manager hashes the sender itself, so it goes over the ABI as an
+      // `Address`.
       args: [OWNER, 42n, 2, Buffer.from(recipient.toUint8Array()), false],
     });
     // Sequential, so a queued transfer's completion lands after the transfer.
@@ -440,7 +442,7 @@ describe("StellarNtt.transfer", () => {
         })
       )
     ).rejects.toThrow(/not available/);
-    // A UniversalAddress is a one-way hash_address; it cannot source a tx.
+    // A `UniversalAddress` is a one-way `hash_address`; it cannot source a tx.
     await expect(
       collect(ntt().transfer(recipient, 42n, destination, { queue: false }))
     ).rejects.toThrow();
@@ -600,8 +602,8 @@ describe("StellarNtt.redeem", () => {
   });
 
   it("points a rejected message at the address registry", async () => {
-    // flatten_call masks the manager's own error as ManagerRejectedMessage, so
-    // the inner code is the only evidence of what actually went wrong.
+    // `flatten_call` masks the manager's own error as `ManagerRejectedMessage`,
+    // so the inner code is the only evidence of what actually went wrong.
     const failing = new StellarNtt(
       "Testnet",
       "Stellar",
@@ -680,7 +682,7 @@ describe("StellarNtt queue completion", () => {
       args: [7n],
     });
 
-    // Cancelling is sender-gated, so the sender goes over the ABI as well.
+    // Canceling is sender-gated, so the sender goes over the ABI as well.
     const [cancelled] = await collect(
       ntt().cancelOutboundQueuedTransfer(7n, payer)
     );
@@ -701,12 +703,12 @@ describe("StellarNttWormholeTransceiver", () => {
   const xcvr = () => new StellarNttWormholeTransceiver(ntt(), TRANSCEIVER);
 
   it("reports the raw contract id as its emitter, not hash_address", async () => {
-    // The same contract has two distinct wire identities (D2). The core takes
-    // an emitter's identity from AddressPayload::ContractIdHash — the raw
-    // contract id — while hash_address, the keccak256 of the StrKey text, is
+    // The same contract has two distinct wire identities. The core takes an
+    // emitter's identity from `AddressPayload::ContractIdHash` — the raw
+    // contract id — while `hash_address`, the keccak256 of the StrKey text, is
     // what NTT messages carry. A peer registering the hash as this
     // transceiver's emitter would fail every inbound VAA with
-    // TransceiverError::UnexpectedEmitter, so the two must not be confused.
+    // `TransceiverError::UnexpectedEmitter`, so the two must not be confused.
     const rawId =
       "5c1454589bc12030e0542a8bb7fb7af1e61530959227ac4530ef6d643416e22c";
     const hashAddress =
@@ -736,8 +738,9 @@ describe("StellarNttWormholeTransceiver", () => {
       chain: "Ethereum",
       address: emitter,
     });
-    // get_peer_info answers "registered?" and "enabled?" in one read; a
-    // disabled peer keeps its emitter, so get_peer alone cannot tell them apart.
+    // `get_peer_info` answers "registered?" and "enabled?" in one read; a
+    // disabled peer keeps its emitter, so `get_peer` alone cannot tell them
+    // apart.
     await expect(xcvr().getPeerInfo("Ethereum")).resolves.toEqual({
       address: { chain: "Ethereum", address: emitter },
       enabled: true,
@@ -759,7 +762,7 @@ describe("StellarNttWormholeTransceiver", () => {
       method: "set_peer",
       args: [2, Buffer.from(peer.address.toUniversalAddress().toUint8Array())],
     });
-    // set_peer is one-shot (PeerAlreadySet), so this is the only way back.
+    // `set_peer` is one-shot (`PeerAlreadySet`), so this is the only way back.
     expect(await one(xcvr().setPeerEnabled("Ethereum", false, owner))).toEqual({
       contract: TRANSCEIVER,
       method: "set_peer_enabled",
@@ -784,7 +787,8 @@ describe("StellarNttWormholeTransceiver", () => {
       args: [Buffer.from(serialize(attestation))],
     });
     // The transaction is a transceiver call, and says so — `redeem` yields
-    // this same one, so its description moved off "Ntt.redeem" with it.
+    // this same one, so its description reads `Transceiver.receive` there too,
+    // not `Ntt.redeem`.
     expect(tx!.description).toEqual("Transceiver.receive");
     // Permissionless, but Stellar has no implicit signer to fund it.
     await expect(collect(xcvr().receive(attestation))).rejects.toThrow(

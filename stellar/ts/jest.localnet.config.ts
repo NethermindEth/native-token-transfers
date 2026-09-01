@@ -1,17 +1,19 @@
 import type { Config } from "jest";
 
 /**
- * The Docker-localnet suite, kept out of `npm test` — and so out of CI, which
- * has no Docker — by living in its own directory rather than in `__tests__`,
- * which `jest.config.ts` roots on. Run it with `npm run test:localnet` once
+ * Configures the Docker-localnet suite, kept out of `npm test` — and so out of
+ * CI, which does not start the localnet — by living in its own directory
+ * rather than in
+ * `__tests__`, which `jest.config.ts` roots on. Run it with
+ * `npm run test:localnet` once
  * `stellar/integration-tests/scripts/start-localnet.sh` has the network up.
  *
- * The transform and mapper are spelled out again rather than spread from
- * `jest.config.ts`: Jest loads a TypeScript config as ESM, where `./jest.config`
- * resolves to a `.js` file that does not exist.
+ * This file spells the transform and mapper out again rather than spreading
+ * them from `jest.config.ts`: Jest loads a TypeScript config as ESM, where
+ * `./jest.config` resolves to a `.js` file that does not exist.
  *
- * One worker, like the Rust harness's `--test-threads=1`: every deploy is
- * sourced from a single admin account, and parallel files would race on its
+ * One worker, like the Rust harness's `--test-threads=1`: every deploy uses a
+ * single admin account as its source, and parallel files would race on its
  * sequence number.
  */
 const config: Config = {

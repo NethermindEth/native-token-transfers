@@ -27,7 +27,8 @@ describe("contract error decoding", () => {
   });
 
   it("reads the same code differently per contract", () => {
-    // 13 is NotAdminOrPauser on the manager and PeerNotFound on the transceiver.
+    // 13 is `NotAdminOrPauser` on the manager and `PeerNotFound` on the
+    // transceiver.
     expect(
       decodeContractError(simulationError(13), "NttManager").message
     ).toMatch(/NotAdminOrPauser/);
@@ -38,8 +39,8 @@ describe("contract error decoding", () => {
 
   it("names the token codes the manager's own table shadows", () => {
     // The manager custodies with the built-in token contract, whose errors
-    // arrive in the same form; 13 is its TrustlineMissing as much as the
-    // manager's NotAdminOrPauser, and naming one of them is a guess.
+    // arrive in the same form; 13 is its `TrustlineMissing` as much as the
+    // manager's `NotAdminOrPauser`, and naming one of them is a guess.
     expect(
       decodeContractError(simulationError(13), "NttManager").message
     ).toMatch(/NotAdminOrPauser \| TrustlineMissing \(13\)/);
@@ -54,7 +55,7 @@ describe("contract error decoding", () => {
   });
 
   it("reads a wrapper transfer against all four of its frames", () => {
-    // One `ntt_with_executor::transfer` runs wrapper, manager, executor and
+    // One `ntt_with_executor::transfer` runs wrapper, manager, executor, and
     // token frames, and the host error says only the number.
     const named = (code: number) =>
       decodeContractError(simulationError(code), "NttWithExecutor").message;
@@ -83,8 +84,9 @@ describe("contract error decoding", () => {
   });
 
   it("reports every code, outermost first", () => {
-    // `flatten_call` masks the manager's own error as ManagerRejectedMessage,
-    // so the cause is only recoverable from the inner frame.
+    // `flatten_call` masks the manager's own error as
+    // `ManagerRejectedMessage`, so the cause is only recoverable from the
+    // inner frame.
     expect(contractErrorCodes(simulationError(36, 66))).toEqual([36, 36, 66]);
     expect(
       decodeContractError(simulationError(36, 66), "Transceiver").message
