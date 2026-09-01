@@ -3,9 +3,9 @@
  * contracts.
  *
  * The Rust suite in `stellar/integration-tests/tests/` already pins the
- * contracts' own behaviour, so what is asserted here is the *binding*: that a
- * read reaches the method it names and decodes the struct the contract returns,
- * that a write's arguments arrive in the order and shape the ABI wants, and
+ * contracts' own behavior, so these tests assert the *binding*: that a read
+ * reaches the method it names and decodes the struct the contract returns, that
+ * a write's arguments arrive in the order and shape the ABI specifies, and
  * that the bytes a transfer puts on the wire are the ones the shared NTT
  * layouts read back.
  */
@@ -17,6 +17,7 @@ import {
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
 import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import { StellarAddress } from "@wormhole-foundation/sdk-stellar";
+import { AddressNotFoundError, resolveAddress } from "../src/address.js";
 import { asBytes, decodeTransferResult } from "../src/scval-types.js";
 import type { Stack } from "./localnet.js";
 import {
@@ -31,6 +32,8 @@ import {
   hashAddress,
   inboundVaa,
   mint,
+  NETWORK,
+  rpc,
 } from "./localnet.js";
 
 /** The peer every scenario registers, mirroring the Rust suite's fixture. */
@@ -45,7 +48,7 @@ const AMOUNT = 10_000_000n;
 const WIRE_AMOUNT = 100_000_000n;
 const NO_LIMIT = 2n ** 63n;
 
-/** A `NativeTokenTransfer` to `recipient`, in the peer's 8-decimal domain. */
+/** Builds a `NativeTokenTransfer` to `recipient`, in the peer's 8-decimal domain. */
 const transferTo = (recipient: string, amount = WIRE_AMOUNT): Ntt.Message => ({
   id: new Uint8Array(32).fill(0x10),
   sender: new UniversalAddress(new Uint8Array(32).fill(0x20)),
@@ -159,6 +162,24 @@ describe("burning manager", () => {
     expect(payload.recipientChain).toBe(PEER_CHAIN);
     // Trimmed to min(8, local 7, peer 8), so the amount is unchanged at 7.
     expect(payload.trimmedAmount).toEqual({ decimals: 7, amount: AMOUNT });
+  });
+
+  it("resolves an address only after it is recorded", async () => {
+    const address = new StellarAddress(
+      (await fund(Keypair.random())).publicKey()
+    );
+    const hash = address.toUniversalAddress();
+    const resolve = () => resolveAddress(rpc, NETWORK, stack.core, hash);
+
+    // hash_address is one-way, so the registry is the only inverse and it
+    // holds nothing until record_address writes it.
+    await expect(resolve()).rejects.toThrow(AddressNotFoundError);
+
+    await drive(stack.ntt.recordAddress(adminAddress(), address));
+
+    // Recovering the exact strkey proves the forward hash the SDK computes and
+    // the reverse the contract stores agree on the same address.
+    expect((await resolve()).toString()).toBe(address.toString());
   });
 
   it("redeems an inbound transfer to its recipient, and only once", async () => {

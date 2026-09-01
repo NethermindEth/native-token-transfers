@@ -9,8 +9,9 @@
  *
  * Every contract call a test makes goes through the package under test; what is
  * built here is what has no binding at all — uploading and instantiating wasm —
- * and the submission step, which cannot go through Repo A's signer for the
- * protocol-version reason {@link submit} records.
+ * and the submission step, which cannot go through the signer in
+ * `@wormhole-foundation/sdk-stellar` for the protocol-version reason
+ * {@link submit} records.
  */
 import { createECDH, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -50,7 +51,7 @@ import { StellarNtt } from "../src/ntt.js";
 import { StellarNttWithExecutor } from "../src/nttWithExecutor.js";
 import { bytesArg } from "../src/scval-types.js";
 
-/** The localnet passphrase is registered as Stellar's `Devnet` in sdk-base. */
+/** sdk-base registers the localnet passphrase as Stellar's `Devnet`. */
 export const NETWORK = "Devnet";
 export const CHAIN = "Stellar";
 
@@ -59,7 +60,7 @@ const STELLAR_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const env = loadEnv();
 
-const rpc = new SorobanRpc.Server(env.rpcUrl, { allowHttp: true });
+export const rpc = new SorobanRpc.Server(env.rpcUrl, { allowHttp: true });
 
 /**
  * The account every transaction in a test file is sourced from. Regenerated per
@@ -77,8 +78,8 @@ const guardians = new mocks.MockGuardians(0, [env.guardianSecretHex]);
  * absolutizes the wasm paths it holds relative to `stellar/`, as that script
  * does. A missing key fails here rather than as an unreadable file later.
  *
- * Parsed rather than handed to `process.loadEnvFile`, which writes to the real
- * process environment while a Jest module sees a sandboxed copy of it.
+ * Parses rather than hands the file to `process.loadEnvFile`, which writes to
+ * the real process environment while a Jest module sees a sandboxed copy of it.
  */
 function loadEnv() {
   const file = resolve(STELLAR_DIR, "integration-tests/.env.localnet");
@@ -114,7 +115,7 @@ function loadEnv() {
 }
 
 /**
- * Friendbot-funds `account` and blocks until Soroban RPC serves it, so the
+ * Funds `account` through friendbot and blocks until Soroban RPC serves it, so the
  * caller can source a transaction from it immediately: friendbot answers before
  * the funding ledger closes, hence the poll rather than a bare request.
  */
@@ -139,7 +140,7 @@ export async function fund(account: Keypair): Promise<Keypair> {
 }
 
 /**
- * Builds, simulates, assembles and submits `operation` from the admin account,
+ * Builds, simulates, assembles, and submits `operation` from the admin account,
  * returning the value the invocation produced. The same build → simulate →
  * assemble path `StellarNtt.prepare` takes, so a deployment exercises it too.
  */
@@ -196,16 +197,17 @@ async function simulate(
 }
 
 /**
- * Signs, submits and confirms one assembled transaction, returning what the
+ * Signs, submits, and confirms one assembled transaction, returning what the
  * invocation returned.
  *
- * Repo A's `StellarSigner` / `StellarPlatform.sendAndConfirm` is the path a
- * consumer takes, and would be the thing to reuse here, but it cannot run
- * against this network: it confirms through `rpc.getTransaction`, which eagerly
- * parses the response's `resultMetaXdr`, and `@stellar/stellar-sdk@13` — the
- * version this package and Repo A pin — knows only `TransactionMeta` v0-v3.
+ * The `StellarSigner` and `StellarPlatform.sendAndConfirm` of
+ * `@wormhole-foundation/sdk-stellar` are the path a consumer takes, and would
+ * be the thing to reuse here, but they cannot run against this network: they
+ * confirm through `rpc.getTransaction`, which eagerly parses the response's
+ * `resultMetaXdr`, and `@stellar/stellar-sdk@13` — the version this package and
+ * `@wormhole-foundation/sdk-stellar` pin — knows only `TransactionMeta` v0-v3.
  * Protocol 23 and up emit v4, so the parse throws `Bad union switch: 4` before
- * any field can be read. Building, simulating, signing and submitting are all
+ * any field can be read. Building, simulating, signing, and submitting are all
  * unaffected, so the harness confirms from the raw JSON-RPC status instead.
  *
  * The return value comes from `simulation`, because the applied one lives in
@@ -239,7 +241,7 @@ async function submit(
   throw new Error(`${description} was never confirmed`);
 }
 
-/** A JSON-RPC call the SDK cannot make for us; see {@link submit}. */
+/** A JSON-RPC call the SDK cannot make; see {@link submit}. */
 async function rpcCall(
   method: string,
   params: Record<string, unknown>
@@ -288,10 +290,10 @@ async function deploy(
 }
 
 /**
- * The native XLM Stellar Asset Contract, deployed on first use. Its id is
- * derived from the network passphrase, so it is the same address on every call
- * and a second deploy would fail — hence the check rather than a swallowed
- * error, which would also hide an RPC that is simply down.
+ * Deploys the native XLM Stellar Asset Contract on first use and returns its
+ * id. The id derives from the network passphrase, so it is the same address on
+ * every call and a second deploy would fail — hence the check rather than a
+ * swallowed error, which would also hide an RPC that is merely down.
  */
 export async function nativeSac(): Promise<string> {
   const id = nativeSacId(NETWORK);
@@ -303,7 +305,7 @@ export async function nativeSac(): Promise<string> {
   return id;
 }
 
-/** Whether a contract instance exists at `contractId`. */
+/** Checks whether a contract instance exists at `contractId`. */
 async function isDeployed(contractId: string): Promise<boolean> {
   const { entries } = await rpc.getLedgerEntries(
     new Contract(contractId).getFootprint()
@@ -335,9 +337,9 @@ export type Stack = {
 };
 
 /**
- * Deploys a core holding the test guardian, a token, a manager and one
+ * Deploys a core holding the test guardian, a token, a manager, and one
  * transceiver, then registers the transceiver — which also raises the threshold
- * from 0 to 1. Peers are left to the caller, since half the tests are about
+ * from 0 to 1. The caller registers the peers, since half the tests are about
  * peers.
  */
 export async function deployStack(
@@ -390,7 +392,7 @@ export async function deployStack(
 }
 
 /**
- * The `ntt-with-executor` wrapper, deployed against a freshly deployed Executor
+ * Deploys the `ntt-with-executor` wrapper against a freshly deployed Executor
  * rail. The wrapper binds its executor at construction, so the two are one unit;
  * the binding takes the wrapper address as its constructor override, since
  * `STELLAR_ADDRESSES` has no localnet entry to look up.
@@ -422,7 +424,7 @@ export async function deployExecutor(
 export const adminAddress = (): StellarAddress =>
   new StellarAddress(admin.publicKey());
 
-/** `hash_address` — the identity NTT messages carry for a Stellar address. */
+/** Returns `hash_address`, the identity NTT messages carry for a Stellar address. */
 export const hashAddress = (address: string): Uint8Array =>
   new StellarAddress(address).toUniversalAddress().toUint8Array();
 
@@ -442,7 +444,7 @@ export async function mint(
   );
 }
 
-/** Balance of `holder` on a SEP-41 token contract, in the token's decimals. */
+/** Gets the balance of `holder` on a SEP-41 token contract, in the token's decimals. */
 export async function balanceOf(
   token: string,
   holder: string
@@ -458,8 +460,8 @@ export async function balanceOf(
 }
 
 /**
- * A guardian-signed VAA carrying `nttManagerPayload` from `emitter`, in the
- * `Ntt:WormholeTransfer` shape the Wormhole transceiver expects.
+ * Creates a guardian-signed VAA carrying `nttManagerPayload` from `emitter`, in
+ * the `Ntt:WormholeTransfer` shape the Wormhole transceiver expects.
  *
  * `consistencyLevel` is `ConsistencyLevel::Confirmed`; the core rejects
  * anything but 1 (Confirmed) or 32 (Finalized).
@@ -544,7 +546,7 @@ const EVENT_TIMEOUT_MS = 30_000;
  * guessed in wall-clock seconds: a slow machine then waits longer instead of
  * failing, and a transfer still held once ledger time is past its own gate is a
  * real failure. So is any error other than `TransferNotReleasable (64)`, which
- * is rethrown on the spot.
+ * the loop rethrows immediately.
  */
 export async function completeAfterWindow(
   attempt: () => Promise<unknown>,
@@ -570,9 +572,9 @@ export async function completeAfterWindow(
 }
 
 /**
- * Ledger close time in seconds, which is the clock the release gate reads.
- * Read over raw JSON-RPC because `Api.GetLatestLedgerResponse` does not carry
- * it — `@stellar/stellar-sdk@13` predates the field.
+ * Gets the ledger close time in seconds, which is the clock the release gate
+ * reads. It comes over raw JSON-RPC because `Api.GetLatestLedgerResponse` does
+ * not carry it — `@stellar/stellar-sdk@13` predates the field.
  */
 export async function ledgerTime(): Promise<bigint> {
   const closeTime = (await rpcCall("getLatestLedger", {}))["closeTime"];
@@ -585,8 +587,8 @@ export async function ledgerTime(): Promise<bigint> {
 const RELEASE_GRACE_SECONDS = 30n;
 
 /**
- * The 20-byte Ethereum address of the test guardian, which is what the core
- * stores and recovers signatures against. sdk-definitions' `SignatureUtils`
+ * Returns the 20-byte Ethereum address of the test guardian, which is what the
+ * core stores and recovers signatures against. sdk-definitions' `SignatureUtils`
  * hands back the *compressed* point, so the uncompressed one comes from Node's
  * own ECDH rather than from a new dependency.
  */
