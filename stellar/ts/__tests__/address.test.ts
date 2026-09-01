@@ -10,8 +10,8 @@ import { AddressNotFoundError, resolveAddress } from "../src/address.js";
 
 // Vectors emitted by the contracts' own `hash_address`
 // (`wormhole_soroban_client::hash_address`, pinned to keccak256 of the StrKey
-// text by stellar/contracts/manager/tests/hash_address_vectors.rs and used as
-// `stellar_addr_to_hash` in stellar/integration-tests/src/messages.rs).
+// text by `stellar/contracts/manager/tests/hash_address_vectors.rs` and used
+// as `stellar_addr_to_hash` in `stellar/integration-tests/src/messages.rs`).
 // If the shared primitive ever changes its hash input, this fails loudly.
 const HASH_ADDRESS_VECTORS = [
   {

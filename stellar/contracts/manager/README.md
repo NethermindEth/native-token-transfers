@@ -2,10 +2,10 @@
 
 The NTT manager is the Soroban contract that moves a native token across chains through Wormhole. It holds one token and does four things with it:
 
-- **custody** the token on send (lock or burn) and release it on receive (unlock or mint),
-- **sequence and dispatch** outbound messages to the registered transceivers,
-- **collect attestations** on inbound messages and execute once a threshold of transceivers agree, and
-- **rate-limit** both directions, with a queue for transfers that exceed the limit.
+- **Custody** the token on send (lock or burn) and release it on receive (unlock or mint).
+- **Sequence and dispatch** outbound messages to the registered transceivers.
+- **Collect attestations** on inbound messages and execute once a threshold of transceivers agree.
+- **Rate-limit** both directions, with a queue for transfers that exceed the limit.
 
 One manager corresponds to one token but can drive up to 64 transceivers. It is the policy layer; the [transceiver](../transceiver) is the transport layer. Shared types, wire codecs, errors, and events come from [`soroban-ntt-client`](../soroban-ntt-client); the source files in [`src/`](src) hold only the manager's own logic.
 
@@ -13,7 +13,7 @@ Package `stellar-ntt-manager`, `#![no_std]`. This is a Stellar/Soroban port of W
 
 ## Operating modes
 
-The mode is fixed at deployment and decides how custody works.
+The mode is fixed at deployment and determines how custody works.
 
 | Mode      | On send            | On receive            | Where                                          |
 | --------- | ------------------ | --------------------- | ---------------------------------------------- |
@@ -24,7 +24,7 @@ The mode is fixed at deployment and decides how custody works.
 pub enum Mode { Locking = 0, Burning = 1 }
 ```
 
-The rule that conserves supply: if the source manager locks, the destination manager must burn-and-mint, and vice versa. Both sides locking, or both minting, breaks the accounting. Locking mode works with any existing token because it only calls `transfer`. Burning mode calls `burn` and `mint`, so the token must let the manager mint. See [`token_ops.rs`](src/token_ops.rs) for the exact calls; on a stock Stellar Asset Contract, burning mode requires the manager to be the token administrator.
+The rule that conserves supply: if the source manager locks, the destination manager must burn-and-mint, and vice versa. Both sides locking, or both minting, breaks the accounting. Locking mode works with any token because it only calls `transfer`. Burning mode calls `burn` and `mint`, so the token must let the manager mint. See [`token_ops.rs`](src/token_ops.rs) for the exact calls; on a stock Stellar Asset Contract, burning mode requires the manager to be the token administrator.
 
 ## Address resolution
 
@@ -40,26 +40,26 @@ The manager learns the core address at construction (`__constructor(…, wormhol
 
 ### Transceiver registry
 
-Transceivers are tracked in a `u64` bitmap, so up to `MAX_TRANSCEIVERS = 64` can be registered. Each holds a permanent index:
+The manager tracks transceivers in a `u64` bitmap, so it holds at most `MAX_TRANSCEIVERS = 64` of them. Each holds a permanent index:
 
 ```rust
 pub struct TransceiverInfo { pub address: Address, pub enabled: bool, pub index: u32 }
 ```
 
-- An index is assigned once and never reused; disabling a transceiver frees its bit in the enabled bitmap but keeps its index.
+- The manager assigns an index once and never reuses it; disabling a transceiver frees its bit in the enabled bitmap but keeps its index.
 - The first registration sets the threshold to 1 automatically.
-- Removing the only enabled transceiver is rejected (`CannotDisableLastTransceiver`), and removing one that would leave the threshold above the enabled count lowers the threshold to match.
+- The manager rejects removing the only enabled transceiver (`CannotDisableLastTransceiver`), and removing one that would leave the threshold above the enabled count lowers the threshold to match.
 
 ### Attestation threshold
 
 An inbound message executes once enough enabled transceivers have attested:
 
-```
+```text
 attested_count = popcount(attested_bitmap & enabled_bitmap)
 approved       = attested_count >= threshold
 ```
 
-Masking by the enabled bitmap means disabling a transceiver retroactively drops its vote. Two invariants are enforced, named in the source and checkable permissionlessly through `validate_invariants`:
+Masking by the enabled bitmap means disabling a transceiver retroactively drops its vote. The manager enforces two invariants, named in the source and checkable permissionlessly through `validate_invariants`:
 
 - **INV-023**: `threshold <= enabled_transceiver_count`
 - **INV-024**: `threshold > 0` whenever any transceiver is enabled
@@ -86,7 +86,7 @@ Each direction is a token bucket:
 pub struct RateLimitParams { pub limit: u64, pub current_capacity: u64, pub last_tx_timestamp: u64 }
 ```
 
-Capacity starts full, is consumed by the trimmed transfer amount, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
+Capacity starts full, drains by the trimmed transfer amount, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
 
 **Backflow** couples them. A completed outbound transfer refills that peer's inbound bucket, and a completed inbound transfer refills the outbound bucket. This keeps ordinary bidirectional traffic from draining one direction and deadlocking users. Setting a new limit preserves the amount already consumed, so a limit change never mints or destroys capacity instantly.
 
@@ -115,7 +115,7 @@ A queued outbound transfer completes permissionlessly through `complete_queued_t
 
 The message id is the sequence number placed in the low 8 bytes of a 32-byte field. The digest is `keccak256(source_chain || message)` (see the [wire formats](../soroban-ntt-client/README.md#message-digest)).
 
-## Inbound / attestation flow
+## Inbound and attestation flow
 
 `attestation_received` in [`inbound.rs`](src/inbound.rs) requires `transceiver.require_auth()`, then:
 
@@ -129,9 +129,9 @@ The message id is the sequence number placed in the low 8 bytes of a 32-byte fie
    - untrim the amount to local decimals,
    - consume inbound capacity for the source chain.
 
-The message is marked executed in **both** the released and the queued branches, which is what prevents a replay from pushing a queued transfer's release timestamp forward. If capacity allows, release the tokens (unlock or mint), refill the outbound bucket (backflow), and emit `TransferRedeemed`. Otherwise store an inbound queued transfer for completion after the window.
+The manager marks the message executed in **both** the released and the queued branches, which is what prevents a replay from pushing a queued transfer's release timestamp forward. If capacity allows, release the tokens (unlock or mint), refill the outbound bucket (backflow), and emit `TransferRedeemed`. Otherwise store an inbound queued transfer for completion after the window.
 
-Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they `record_address`, since an unregistered recipient failed _before_ the executed flag was set.
+Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they call `record_address`, since an unregistered recipient failed _before_ the executed flag was set.
 
 ## Public API
 
@@ -146,7 +146,7 @@ __constructor(
     mode: Mode,
     chain_id: u32,            // Wormhole chain id; 61 for Stellar
     outbound_limit: u64,
-    rate_limit_duration: u64, // seconds, e.g. 86400
+    rate_limit_duration: u64, // seconds, for example 86400
     wormhole_core: Address,   // used to resolve inbound recipients
 )
 ```
@@ -285,4 +285,4 @@ Owner and pause failures are not in this enum. They come from the OpenZeppelin S
 
 `Mode`, `NttManagerPeer`, `RateLimitParams`, the message codecs, the error enum, the events, and the constants are all defined in [`soroban-ntt-client`](../soroban-ntt-client) and re-exported, not defined here.
 
-Behaviour is covered by the in-process suite under [`tests/`](tests/) and end-to-end in [`integration-tests`](../../integration-tests).
+The in-process suite under [`tests/`](tests/) covers behavior, and [`integration-tests`](../../integration-tests) covers it end to end.

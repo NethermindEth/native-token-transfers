@@ -1,15 +1,16 @@
 /**
- * Naming for the contract errors a failed NTT call reports.
+ * Names the contract errors a failed NTT call reports.
  *
- * Every write is simulated before it is yielded, so a rejection arrives as a
- * host error string carrying `Error(Contract, #N)` rather than a typed value.
+ * This package simulates every write before yielding it, so a rejection
+ * arrives as a host error string carrying `Error(Contract, #N)` rather than a
+ * typed value.
  * `N` only means something together with the contract that produced it: the
  * manager and the transceiver number their own errors independently
  * (`soroban_ntt_client::errors`), while the OpenZeppelin-derived pause and
  * ownership codes are shared by both and sit far above either range.
  */
 
-/** Which contract's error vocabulary a code should be read against. */
+/** Selects the contract whose error vocabulary names a code. */
 export type ContractErrorSpace =
   | "NttManager"
   | "Transceiver"
@@ -81,16 +82,17 @@ const TRANSCEIVER_ERRORS: Record<number, string> = {
 };
 
 /**
- * The two codes a caller has to act on rather than just read: `receive_message`
- * reports every manager failure as the first, and only the inner frames say
- * whether the cause was the second. Kept beside the tables they come from.
+ * Names the two codes a caller has to act on rather than only read:
+ * `receive_message` reports every manager failure as the first, and only the
+ * inner frames say whether the cause was the second. These sit beside the
+ * tables they come from.
  */
 export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
 
 /**
- * The code the core registry reports for a hash it has no address for.
- * `resolveAddress` turns it into `AddressNotFoundError`.
+ * Identifies the code the core registry reports for a hash it has no address
+ * for. `resolveAddress` turns it into `AddressNotFoundError`.
  */
 export const ADDRESS_NOT_FOUND = 43;
 
@@ -164,9 +166,9 @@ const TOKEN_ERRORS: Record<number, string> = {
 };
 
 /**
- * The contract error tables that have a Rust enum behind them, keyed by the
- * enum's name. `__tests__/errors.parity.test.ts` reads those enums and asserts
- * these match.
+ * Collects the contract error tables that have a Rust enum behind them, keyed
+ * by the enum's name. `__tests__/errors.parity.test.ts` reads those enums and
+ * asserts these match.
  *
  * `OZ_ERRORS`, `TOKEN_ERRORS`, and `WORMHOLE_CORE_ERRORS` are absent: they come
  * from external crates with no source in this repository to compare against.
@@ -186,7 +188,8 @@ export const ERROR_TABLES = {
  *
  * A code is only meaningful together with the contract that raised it, and a
  * host error does not say which frame that was, so a code the tables disagree
- * about is reported as every candidate rather than as a confident guess.
+ * about gets every candidate name from `errorName` rather than a confident
+ * guess.
  */
 const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // The manager custodies through the built-in token contract, so its writes
@@ -218,7 +221,7 @@ const errorName = (code: number, space: ContractErrorSpace): string =>
   SPACES[space].flatMap((table) => table[code] ?? []).join(" | ") || "Unknown";
 
 /**
- * The contract error codes a host error mentions, outermost first.
+ * Lists the contract error codes a host error mentions, outermost first.
  *
  * A simulation failure quotes the frame that failed and then its diagnostic
  * events, so a call that failed inside a sub-invocation reports the outer code

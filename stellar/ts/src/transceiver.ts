@@ -42,9 +42,10 @@ import {
  * VAAs against it, so its own state is the peer registry (one emitter per
  * chain) and the set of VAAs it has already consumed.
  *
- * Reads simulate against the transceiver's own address; writes are built by
- * the manager binding, which owns the package's only transaction builder, and
- * are decoded against the transceiver's error table rather than the manager's.
+ * Reads simulate against the transceiver's own address; the manager binding
+ * builds the writes, because it owns the package's only transaction builder,
+ * and decodes them against the transceiver's error table rather than the
+ * manager's.
  */
 export class StellarNttWormholeTransceiver<
     N extends Network,
@@ -59,7 +60,7 @@ export class StellarNttWormholeTransceiver<
     readonly address: string
   ) {}
 
-  /** `b"wormhole"`, read off the contract rather than assumed. */
+  /** Returns `b"wormhole"`, read off the contract rather than assumed. */
   async getTransceiverType(): Promise<string> {
     return encoding.bytes.decode(
       asBytes(await this.read("get_transceiver_type"))
@@ -67,15 +68,15 @@ export class StellarNttWormholeTransceiver<
   }
 
   /**
-   * The 32 bytes a peer chain registers as this transceiver's emitter.
+   * Returns the 32 bytes a peer chain registers as this transceiver's emitter.
    *
    * That is the **raw contract id** — the core takes an emitter's identity
    * from `AddressPayload::ContractIdHash` and rejects anything else — and not
    * `hash_address`, the keccak256 of the StrKey text that
    * `StellarAddress.toUniversalAddress()` produces and that NTT messages carry
-   * on the wire. The same contract has both identities (D2); registering the
-   * hashed one as this transceiver's peer emitter would fail every inbound VAA
-   * with `TransceiverError::UnexpectedEmitter`.
+   * on the wire. The same contract has both identities; registering the hashed
+   * one as this transceiver's peer emitter would fail every inbound VAA with
+   * `TransceiverError::UnexpectedEmitter`.
    */
   async getAddress(): Promise<ChainAddress<C>> {
     return {
@@ -88,8 +89,8 @@ export class StellarNttWormholeTransceiver<
 
   /**
    * Registers `peer` as this transceiver's counterpart on its chain, by the
-   * emitter address its VAAs carry — {@link getAddress} is what a Stellar peer
-   * has to be registered under. One-shot: a second call for the same chain
+   * emitter address its VAAs carry — for a Stellar peer, that address is what
+   * {@link getAddress} returns. One-shot: a second call for the same chain
    * fails with `PeerAlreadySet`, so {@link setPeerEnabled} is the way to turn
    * a peer off and a redeploy the only way to correct one.
    */
@@ -118,9 +119,9 @@ export class StellarNttWormholeTransceiver<
   }
 
   /**
-   * The peer's emitter and whether it is currently carrying messages, in one
-   * read. A disabled peer keeps its emitter, so {@link getPeer} alone cannot
-   * tell a live peer from a stopped one.
+   * Gets the peer's emitter and whether it is carrying messages, in one read.
+   * A disabled peer keeps its emitter, so {@link getPeer} alone cannot tell a
+   * live peer from a stopped one.
    */
   async getPeerInfo<P extends Chain>(
     chain: P
@@ -138,7 +139,10 @@ export class StellarNttWormholeTransceiver<
     };
   }
 
-  /** False for a chain with no peer at all, as well as for a stopped one. */
+  /**
+   * Checks whether a peer is carrying messages; false for a chain with no peer
+   * at all, as well as for a stopped one.
+   */
   async isPeerEnabled(chain: Chain): Promise<boolean> {
     return asBoolean(await this.read("is_peer_enabled", chainIdArg(chain)));
   }
@@ -159,10 +163,11 @@ export class StellarNttWormholeTransceiver<
   }
 
   /**
-   * Whether this VAA has already been delivered. Replay protection is keyed by
-   * `(emitter chain, emitter address, sequence)` rather than by the manager
-   * message digest, so this is what separates an already-redeemed transfer
-   * from one {@link receive} would reject for some other reason.
+   * Checks whether this VAA has already been delivered. The contract keys
+   * replay protection by `(emitter chain, emitter address, sequence)` rather
+   * than by the manager message digest, so this is what separates an
+   * already-redeemed transfer from one {@link receive} would reject for some
+   * other reason.
    */
   async isVaaConsumed(vaa: WormholeNttTransceiver.VAA): Promise<boolean> {
     return asBoolean(
@@ -175,7 +180,10 @@ export class StellarNttWormholeTransceiver<
     );
   }
 
-  /** The transceiver has no pauser role at all: pausing is owner-only. */
+  /**
+   * Returns `null`: the transceiver has no pauser role at all, and pausing is
+   * owner-only.
+   */
   async getPauser(): Promise<AccountAddress<C> | null> {
     return null;
   }
@@ -192,9 +200,10 @@ export class StellarNttWormholeTransceiver<
   }
 
   /**
-   * Emergency stop, owner-only — unlike the manager's, which the pauser can
-   * also call. The contract ignores the caller it is handed and enforces owner
-   * auth instead, but the argument is still part of its ABI.
+   * Pauses the transceiver as an emergency stop, owner-only — unlike the
+   * manager's, which the pauser can also call. The contract ignores the caller
+   * argument and enforces owner auth instead, but the argument is still part of
+   * its ABI.
    */
   async *pause(
     payer?: AccountAddress<C>
@@ -208,7 +217,7 @@ export class StellarNttWormholeTransceiver<
     );
   }
 
-  /** Owner-only, like {@link pause}. */
+  /** Resumes the transceiver. Owner-only, like {@link pause}. */
   async *unpause(
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
@@ -242,7 +251,7 @@ export class StellarNttWormholeTransceiver<
     });
   }
 
-  /** Simulate a read-only transceiver call and return its decoded result. */
+  /** Simulates a read-only transceiver call and returns its decoded result. */
   private read(method: string, ...args: xdr.ScVal[]): Promise<unknown> {
     return StellarPlatform.simulateRead(
       this.manager.provider,
@@ -254,8 +263,9 @@ export class StellarNttWormholeTransceiver<
   }
 
   /**
-   * A transceiver call sourced from `from`, built by the manager's transaction
-   * builder and named against the transceiver's own error table.
+   * Prepares a transceiver call sourced from `from`, using the manager's
+   * transaction builder and naming errors against the transceiver's own error
+   * table.
    */
   private write(
     from: string,
@@ -273,11 +283,14 @@ export class StellarNttWormholeTransceiver<
 }
 
 /**
+ * Explains a `ManagerRejectedMessage` rejection and passes anything else
+ * through as decoded.
+ *
  * `receive_message` forwards to the manager through `flatten_call`, which
  * collapses every manager failure into `ManagerRejectedMessage` — the real
  * cause survives only in the simulation's inner frames. The retryable one is
  * the recipient never having been recorded on the core address registry, so
- * say what to do about it. Anything else is passed through as decoded.
+ * this names it and says what to do about it.
  */
 const redeemGuidance = (error: unknown): unknown => {
   const codes = contractErrorCodes(error);

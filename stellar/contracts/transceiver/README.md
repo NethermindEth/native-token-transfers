@@ -2,7 +2,7 @@
 
 A transceiver is the transport adapter between a chain-local [NTT manager](../manager) and a remote chain. The manager owns policy: token custody, rate limits, attestation thresholds, and the peer managers it trusts. The transceiver owns transport: it carries the manager's opaque payloads over one specific messaging protocol and verifies the ones coming back.
 
-This contract is the **Wormhole** transceiver. Its two jobs:
+This contract is the **Wormhole** transceiver. It has two jobs:
 
 - **Outbound:** the manager calls `send_message`. The transceiver wraps the payload in a `TransceiverMessage` envelope and posts it to the Wormhole core contract, which the guardian network turns into a signed VAA.
 - **Inbound:** anyone submits a VAA to `receive_message`. The transceiver has the Wormhole core verify the guardian signatures, checks the VAA came from the registered peer transceiver, guards against replay, decodes the envelope, and forwards the inner payload to its manager.
@@ -72,7 +72,7 @@ Auth in one line: manager-only for `send_message`; owner-only for pause, upgrade
 4. Post to the Wormhole core via `post_message`, emitting the transceiver contract itself as the emitter.
 5. Emit `MessageSent`.
 
-The post uses a hardcoded nonce of `0` and consistency level `Confirmed` (not `Finalized`), a latency-versus-finality choice that applies to every message this contract sends. The core-assigned sequence is discarded locally; Wormhole tracks it.
+The post uses a hardcoded nonce of `0` and consistency level `Confirmed` (not `Finalized`), a latency-versus-finality choice that applies to every message this contract sends. The transceiver discards the core-assigned sequence locally; Wormhole tracks it.
 
 Note that `recipient_chain` never enters the envelope. Cross-chain routing is implicit: the destination transceiver recognizes this contract by its peer registration for Stellar (chain 61), and the `recipient_manager` field names the manager that should consume the payload. `send_message` uses `recipient_chain` only to validate a peer exists and to label the event.
 
@@ -89,7 +89,7 @@ Note that `recipient_chain` never enters the envelope. Cross-chain routing is im
 7. **Forward:** call `attestation_received` on the manager with the decoded `manager_payload`. A manager rejection surfaces as `ManagerRejectedMessage`.
 8. Emit `MessageReceived`.
 
-The transceiver reads only four VAA fields: `emitter_chain`, `emitter_address`, `sequence`, and `payload`. Finality is trusted from the core's verification, so timestamp, nonce, and consistency level are not re-checked here.
+The transceiver reads only four VAA fields: `emitter_chain`, `emitter_address`, `sequence`, and `payload`. It trusts finality from the core's verification and does not re-check timestamp, nonce, or consistency level.
 
 ## Peers
 
@@ -100,7 +100,7 @@ A transceiver peer is the sibling transceiver on another chain, keyed by chain i
 
 ## Replay protection
 
-Consumed VAAs are tracked by the tuple `(emitter_chain, emitter_address, sequence)` in persistent storage. `receive_message` marks the tuple consumed **before** forwarding to the manager. Because a manager rejection reverts the whole transaction, that mark rolls back too, so a VAA that failed only because its recipient was not yet registered can be retried once the recipient registers. `is_vaa_consumed` exposes the flag read-only.
+The transceiver tracks consumed VAAs by the tuple `(emitter_chain, emitter_address, sequence)` in persistent storage. `receive_message` marks the tuple consumed **before** forwarding to the manager. Because a manager rejection reverts the whole transaction, that mark rolls back too, so a VAA that failed only because its recipient was not yet registered can be retried once the recipient registers. `is_vaa_consumed` exposes the flag read-only.
 
 This is one of three independent replay guards in the system: the transceiver dedups VAAs here, the manager dedups by message digest and per-transceiver attestation bitmap, and the Wormhole core dedups governance VAAs.
 
@@ -120,7 +120,7 @@ This is one of three independent replay guards in the system: the transceiver de
 | `Peer(chain_id)`                                     | persistent | `PeerInfo`           |
 | `Consumed(emitter_chain, emitter_address, sequence)` | persistent | `bool` (replay flag) |
 
-Instance TTL is bumped on every access; persistent entries extend their own TTL on read and write. Both use the shared `TTL_THRESHOLD` / `TTL_EXTEND` values.
+Every access bumps the instance TTL, and persistent entries extend their own TTL on read and write. Both use the shared `TTL_THRESHOLD` / `TTL_EXTEND` values.
 
 ## Errors
 
@@ -134,4 +134,4 @@ See the `TransceiverError` ranges in the [shared library README](../soroban-ntt-
 - **`flatten_call` collapses both error layers to one variant:** a malformed VAA and a bad signature both surface as `WormholeVerificationFailed`; the underlying Wormhole error is not passed through.
 - **Chain-id bounds are checked at the `lib.rs` boundary** (`validate_chain_id`) and the non-zero check again inside the peer logic.
 
-Behaviour is covered by the in-process suite under [`tests/`](tests/) (against a mock core and mock manager) and end-to-end against a real vendored Wormhole core in [`integration-tests`](../../integration-tests).
+The in-process suite under [`tests/`](tests/) covers behavior against a mock core and mock manager, and [`integration-tests`](../../integration-tests) covers it end to end against a real vendored Wormhole core.

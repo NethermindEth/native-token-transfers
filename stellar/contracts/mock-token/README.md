@@ -6,7 +6,7 @@ Package `mock-token`, `#![no_std]`, builds as a `cdylib`. Depends only on `sorob
 
 ## Interface
 
-| Method                         | Auth     | Behaviour                                        |
+| Method                         | Auth     | Behavior                                         |
 | ------------------------------ | -------- | ------------------------------------------------ |
 | `__constructor(decimals: u32)` | deploy   | stores the decimal precision in instance storage |
 | `decimals() -> u32`            | none     | returns the configured precision                 |
@@ -19,9 +19,9 @@ Balances live in persistent storage keyed by `Address`; decimals live in instanc
 
 ## Why a custom token
 
-The choice is dictated by how the manager calls the token in burning mode:
+How the manager calls the token in burning mode dictates the choice:
 
-- Burning **outbound** calls `burn(from, amount)`, authorized by the holder. A stock Stellar Asset Contract supports this.
+- Burning **outbound** calls `burn(from, amount)`, authorized by the holder. A stock Stellar Asset Contract (SAC) supports this.
 - Burning **inbound** calls `mint(to, amount)`. On a real SAC, `mint` is an admin-only operation, so using burning mode with a SAC would require making the manager contract the token administrator.
 
 The mock sidesteps that setup by making `mint` unauthenticated. The manager can mint on inbound without being an admin, and tests can pre-fund senders directly. Parameterized decimals also let the tests exercise the manager's decimal trimming (for example a 9-decimal token trimming to the 8-decimal wire domain).
