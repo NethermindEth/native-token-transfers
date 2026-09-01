@@ -2,7 +2,7 @@
 
 End-to-end tests that deploy the whole NTT stack on a local Stellar network and drive it through the `stellar` CLI. Unlike the in-process suites under each contract's `tests/`, these run against a real Dockerized network and a real (vendored) Wormhole core, so they exercise guardian-signature verification, cross-contract auth, ledger-time rate-limit windows, and the actual deployed wasm.
 
-The one place they use the in-process Soroban `Env` is as a host-side library: to serialize wire messages, compute digests, and hash addresses with the exact encoders the contracts use, so no byte layout is hand-rolled in the tests.
+The one place they use the in-process Soroban `Env` is as a host-side library: to serialize wire messages, compute digests, and hash addresses with the exact encoders the contracts use, so the tests never hand-roll a byte layout.
 
 All tests are `#[ignore]`-gated, so a plain `cargo test --workspace` skips them on hosts without Docker. The opt-in runner is `scripts/run-tests.sh`.
 
@@ -27,13 +27,13 @@ Tests run single-threaded on purpose. Every transaction originates from the one 
 
 Configuration lives in `.env.localnet` and is exported into every script. Key values: `STELLAR_CHAIN_ID = 61` (Stellar's Wormhole chain id), `SOROBAN_RPC_URL = http://localhost:8000/soroban/rpc`, the four built wasm paths under `target/wasm32v1-none/release/` plus the vendored core and Executor rail under `vendor/`, `GUARDIAN_SECRET_HEX` (a localnet-only test guardian key), and `STELLAR_QUICKSTART_IMAGE`.
 
-That last one is `stellar/quickstart:testing`, not `:latest`, because `:latest` is still a protocol-25 host and the vendored Executor rail is built with soroban-sdk 27 — a protocol-25 host rejects it on upload with `contract protocol number is newer than host`. Everything else here targets soroban-sdk 25 and runs unchanged on the newer host.
+That last one is `stellar/quickstart:testing`, not `:latest`, because `:latest` is a protocol-25 host and the vendored Executor rail is built with soroban-sdk 27 — a protocol-25 host rejects it on upload with `contract protocol number is newer than host`. Everything else here targets soroban-sdk 25 and runs unchanged on the protocol-25 host too.
 
 ## The TypeScript suite
 
-`stellar/ts/integration/` is a second suite over the same network, driving the same contracts through the `@wormhole-foundation/sdk-stellar-ntt` bindings instead of the CLI. It reuses this directory's `.env.localnet`, vendored wasms and test guardian verbatim, so one `start-localnet.sh` serves both. Run it with `npm run test:localnet --workspace stellar/ts` (the plain `npm test` is the unit suite and needs no Docker).
+`stellar/ts/integration/` is a second suite over the same network, driving the same contracts through the `@wormhole-foundation/sdk-stellar-ntt` bindings instead of the CLI. It reuses this directory's `.env.localnet`, vendored wasms, and test guardian verbatim, so one `start-localnet.sh` serves both. Run it with `npm run test:localnet --workspace stellar/ts` (the plain `npm test` is the unit suite and needs no Docker).
 
-The two suites divide the work rather than duplicate it: the Rust tests pin the contracts' behaviour, and the TypeScript ones pin the bindings — that a read decodes the struct the contract returns, that a write's arguments arrive in the shape the ABI wants, and that the bytes a transfer puts on the wire are what the shared NTT layouts read back.
+The two suites divide the work rather than duplicate it: the Rust tests pin the contracts' behavior, and the TypeScript ones pin the bindings — that a read decodes the struct the contract returns, that a write's arguments arrive in the shape the ABI specifies, and that the bytes a transfer puts on the wire are what the shared NTT layouts read back.
 
 ## Harness modules
 
@@ -43,7 +43,7 @@ The two suites divide the work rather than duplicate it: the Rust tests pin the 
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`cli.rs`](src/cli.rs)           | The single choke point for localnet interaction. Shells out to `stellar` for `deploy` / `invoke` and to `curl` for JSON-RPC. `try_invoke` parses the contract error number out of CLI stderr, so negative tests assert on exact error codes. |
 | [`ctx.rs`](src/ctx.rs)           | `TestContext`: localnet config, the resolved `admin` identity, wasm paths, and the guardian secret. `from_env` reads every env var (and panics if any is missing), resolves the admin address, and re-registers the network alias.           |
-| [`deploy.rs`](src/deploy.rs)     | Typed deployers plus the `Stack` orchestrator, which deploys core, token, manager, and one transceiver, and exposes about forty helpers for registration, transfers, the queue lifecycle, pause, ownership, and balance checks.              |
+| [`deploy.rs`](src/deploy.rs)     | Typed deployers plus the `Stack` orchestrator, which deploys core, token, manager, and one transceiver, and exposes about 40 helpers for registration, transfers, the queue lifecycle, pause, ownership, and balance checks.                 |
 | [`vaa.rs`](src/vaa.rs)           | Re-exports the [`vaa-test-signing`](../vaa-test-signing) primitives so `deploy.rs` and `messages.rs` use them unchanged.                                                                                                                     |
 | [`messages.rs`](src/messages.rs) | Host-side wire encoders reusing the contract crates: `hash_address`, `build_inbound_vaa_hex` (serialize, sign, assemble), a tampered-signature variant, and `compute_message_digest`.                                                        |
 | [`events.rs`](src/events.rs)     | Typed wrapper over RPC `getEvents`. Because indexing lags ledger close, `find` polls until an event matches, and accessors decode topics and data so tests assert event shape without touching base64.                                       |
@@ -52,7 +52,7 @@ The two suites divide the work rather than duplicate it: the Rust tests pin the 
 
 ## Test coverage
 
-Thirty tests across four groups. The single test binary is [`tests/run.rs`](tests/run.rs); shared fixtures are in [`tests/common/`](tests/common).
+The suite has 30 tests across four groups. The single test binary is [`tests/run.rs`](tests/run.rs); shared fixtures are in [`tests/common/`](tests/common).
 
 **admin** ([`tests/admin/`](tests/admin)) governance, access control, pause
 
@@ -87,7 +87,7 @@ Thirty tests across four groups. The single test binary is [`tests/run.rs`](test
 | `burning_balances`             | sender burned, manager stays at zero                              |
 | `locking_balances`             | sender debited, manager custody rises by the exact amount         |
 | `no_peer_rejects`              | transfer to an unconfigured chain is rejected (50)                |
-| `queued_cancel_refunds`        | cancelling a queued transfer refunds the sender in full           |
+| `queued_cancel_refunds`        | canceling a queued transfer refunds the sender in full            |
 | `queued_complete_after_window` | a queued transfer releases after the window                       |
 | `rate_limit_rejects`           | over-capacity without queue is rejected (62) with no custody leak |
 
@@ -103,17 +103,17 @@ Thirty tests across four groups. The single test binary is [`tests/run.rs`](test
 
 ## Vendored contracts
 
-[`vendor/wormhole_core.wasm`](vendor/) is the Stellar port of the Wormhole core, committed as a fixed binary so the harness has a deterministic thing to deploy. Provenance is recorded in [`vendor/WORMHOLE_CORE_README.md`](vendor/WORMHOLE_CORE_README.md): built from `NethermindEth/wormhole` branch `stellar`, commit `f379981…`, with the `stellar` CLI, then optimized.
+[`vendor/wormhole_core.wasm`](vendor/) is the Stellar port of the Wormhole core, committed as a fixed binary so the harness has a deterministic thing to deploy. [`vendor/WORMHOLE_CORE_README.md`](vendor/WORMHOLE_CORE_README.md) records its provenance: built from `NethermindEth/wormhole` branch `stellar`, commit `f379981…`, with the `stellar` CLI, then optimized.
 
-[`vendor/wormhole_executors.wasm`](vendor/) is the Executor rail that `contracts/ntt-with-executor` pays, vendored for the same reason and recorded in [`vendor/WORMHOLE_EXECUTOR_README.md`](vendor/WORMHOLE_EXECUTOR_README.md). Only the TypeScript suite deploys it today.
+[`vendor/wormhole_executors.wasm`](vendor/) is the Executor rail that `contracts/ntt-with-executor` pays, vendored for the same reason and recorded in [`vendor/WORMHOLE_EXECUTOR_README.md`](vendor/WORMHOLE_EXECUTOR_README.md). Only the TypeScript suite deploys it.
 
 The workspace also depends on the same repo as a git crate (`wormhole-soroban-client`) for host-side encoders. The wasm is vendored separately because the harness needs the compiled, optimized artifact to `stellar contract deploy`, and rebuilding a moving branch tip on every run would be slow and non-deterministic. Refreshing it means rebuilding from the pinned commit and updating the recorded commit, size, and toolchain.
 
-## Prerequisites and gotchas
+## Prerequisites and constraints
 
-- **Docker** with the `stellar/quickstart:latest` image, port `8000` free, and no container already named `stellar_localnet`.
+- **Docker** with the `stellar/quickstart:testing` image, port `8000` free, and no container already named `stellar_localnet`.
 - **stellar-cli** on `PATH`. The whole harness shells out to `stellar` and `curl`.
-- **The `wasm32v1-none` target** (the newer Soroban target), and `stellar contract build --optimize` output, or the network rejects the oversized manager on upload.
+- **The `wasm32v1-none` target** (not `wasm32-unknown-unknown`), and `stellar contract build --optimize` output, or the network rejects the oversized manager on upload.
 - **Env vars are mandatory:** `TestContext::from_env` panics if any is missing. Run through `scripts/run-tests.sh`, which sources `.env.localnet`; a bare `cargo test` without the env set panics immediately.
-- **Ephemeral network:** the container runs with `--rm`, so each cycle starts from a clean ledger. Recipients must be re-registered on the core address registry each run before inbound can resolve their hashed `to`.
-- **Flakiness is handled by polling, not sleeps:** friendbot warm-up, RPC indexer lag, and ledger-time rate-limit windows are all polled with timeouts (window tests treat `TransferNotReleasable` as "not yet"), so runs stay deterministic under load.
+- **Ephemeral network:** the container runs with `--rm`, so each cycle starts from a clean ledger. Each run must re-register recipients on the core address registry before inbound can resolve their hashed `to`.
+- **Polling instead of sleeps:** the harness polls friendbot warm-up, RPC indexer lag, and ledger-time rate-limit windows with timeouts (window tests treat `TransferNotReleasable` as "not yet"), so runs stay deterministic under load.

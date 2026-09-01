@@ -1,26 +1,26 @@
-# NTT With Executor Contract
+# NTT with executor contract
 
 `NttWithExecutor` is a thin Soroban wrapper that, in a single Stellar
 transaction, initiates a Native Token Transfer through an NTT Manager **and**
 registers a matching execution request with the Wormhole Executor so a relay
 provider delivers the transfer on the destination chain.
 
-## Table of Contents
+## Table of contents
 
-- [NTT With Executor Contract](#ntt-with-executor-contract)
+- [NTT with executor contract](#ntt-with-executor-contract)
   - [Overview](#overview)
-  - [Why a Contract](#why-a-contract)
-  - [Transfer Flow](#transfer-flow)
+  - [Why a contract](#why-a-contract)
+  - [Transfer flow](#transfer-flow)
   - [Public API](#public-api)
     - [Constructor](#constructor)
     - [transfer](#transfer)
-  - [Referrer Fee](#referrer-fee)
-  - [ERN1 Request Format](#ern1-request-format)
-  - [Authorization Model](#authorization-model)
-  - [Error Codes](#error-codes)
-  - [Module Reference](#module-reference)
-  - [Executor Binding](#executor-binding)
-  - [Build & Test](#build--test)
+  - [Referrer fee](#referrer-fee)
+  - [ERN1 request format](#ern1-request-format)
+  - [Authorization model](#authorization-model)
+  - [Error codes](#error-codes)
+  - [Module reference](#module-reference)
+  - [Executor binding](#executor-binding)
+  - [Build and test](#build-and-test)
 
 ---
 
@@ -37,18 +37,18 @@ at construction, while the NTT manager is a per-call argument.
 
 ---
 
-## Why a Contract
+## Why a contract
 
 A Soroban transaction permits only **one** top-level `InvokeHostFunction`
 operation. Unlike Sui PTBs, `manager.transfer` and
-`executor.request_execution` cannot be batched client-side, so the two calls are
-composed on-chain by this wrapper instead.
+`executor.request_execution` cannot be batched client-side, so this wrapper
+composes the two calls on-chain instead.
 
 ---
 
-## Transfer Flow
+## Transfer flow
 
-```
+```text
 Sender              NttWithExecutor            Manager / Token / Executor
   │                        │                              │
   │  transfer(...)         │                              │
@@ -127,21 +127,21 @@ pub struct ExecutorArgs {
 }
 ```
 
-`should_queue` is not exposed — the wrapper always calls the manager with
+The wrapper does not expose `should_queue`; it always calls the manager with
 `should_queue = false`. A rate-limited (queued) transfer emits no message yet, so
 paying a relayer for it would be premature; the whole call reverts instead.
 
-`payee`, `signed_quote`, and `relay_instructions` are produced off-chain by the
-Executor API and validated by the executor, not by this contract.
+The Executor API produces `payee`, `signed_quote`, and `relay_instructions`
+off-chain, and the executor validates them; this contract does not.
 
 ---
 
-## Referrer Fee
+## Referrer fee
 
-The referrer fee is taken from the transfer amount, in the transfer token's own
-decimals, before the remainder is bridged:
+The wrapper takes the referrer fee from the transfer amount, in the transfer
+token's own decimals, before bridging the remainder:
 
-```
+```text
 raw = amount * dbps / 100_000
 fee = trim(raw, src_decimals, dst_decimals)   // remove_dust, matching the bridge
 ```
@@ -152,11 +152,11 @@ the bridge would silently drop. `dbps` must fit the `u16` on-wire fee field;
 
 ---
 
-## ERN1 Request Format
+## ERN1 request format
 
 The `request` bytes forwarded to the executor identify the NTT message to deliver:
 
-```
+```text
 "ERN1"(4) || srcChain(u16 BE) || srcManager(32) || messageId(32)
 ```
 
@@ -168,7 +168,7 @@ Encoding delegates to `executor_requests::make_ntt_v1_request`.
 
 ---
 
-## Authorization Model
+## Authorization model
 
 `sender.require_auth()` roots a single authorization tree. Each sub-invocation is
 authorized under it:
@@ -179,24 +179,25 @@ authorized under it:
 | `manager.transfer`            | `sender`              |
 | `executor.request_execution`  | `sender` (as `payer`) |
 
-The wrapper never holds tokens; the manager sees the real user as `sender`, and
-the executor pulls the XLM fee directly from `sender`.
+The wrapper never holds tokens; the manager receives the real user as
+`sender`, and the executor pulls the XLM fee directly from `sender`.
 
 ---
 
-## Error Codes
+## Error codes
 
-| Code | Variant              | Meaning                                    |
-| ---- | -------------------- | ------------------------------------------ |
-| 1    | `InvalidReferrerFee` | `dbps` exceeds the `u16` on-wire fee field |
-| 2    | `PeerNotFound`       | no registered peer for the recipient chain |
+| Code | Variant              | Meaning                                                                     |
+| ---- | -------------------- | --------------------------------------------------------------------------- |
+| 1    | `InvalidReferrerFee` | `dbps` exceeds the `u16` fee field, or the fee does not fit the wire amount |
+| 2    | `PeerNotFound`       | no registered peer for the recipient chain                                  |
+| 3    | `FeeExceedsAmount`   | the referrer fee exceeds the amount                                         |
 
 Manager and executor failures trap through their typed clients and revert the
 whole transaction with the underlying contract's own error code.
 
 ---
 
-## Module Reference
+## Module reference
 
 | Module          | File                           | Purpose                                                                   |
 | --------------- | ------------------------------ | ------------------------------------------------------------------------- |
@@ -208,20 +209,20 @@ whole transaction with the underlying contract's own error code.
 
 ---
 
-## Executor Binding
+## Executor binding
 
 [`executor.rs`](src/executor.rs) declares the Executor's `request_execution`
 interface and generates its `ExecutorClient` locally. The upstream
-`executor-soroban-client` targets a newer soroban-sdk than this workspace pins,
-so the binding is regenerated against the workspace SDK; the resulting
-cross-contract call is identical on the wire.
+`executor-soroban-client` targets a soroban-sdk release beyond the one this
+workspace pins, so this crate regenerates the binding against the workspace SDK;
+the resulting cross-contract call is identical on the wire.
 
 ---
 
-## Build & Test
+## Build and test
 
 ```bash
 cargo build                                   # from stellar/
 cargo test  -p stellar-ntt-with-executor
-cargo build -p stellar-ntt-with-executor --target wasm32-unknown-unknown --release
+cargo build -p stellar-ntt-with-executor --target wasm32v1-none --release
 ```

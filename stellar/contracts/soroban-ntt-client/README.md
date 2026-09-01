@@ -2,16 +2,16 @@
 
 The shared library that the [manager](../manager) and [transceiver](../transceiver) contracts both build on. It is not a deployable contract (it declares no `#[contract]` and builds as a plain `lib`). It is the single definition of everything the two contracts must agree on, both with each other and with NTT deployments on other chains:
 
-- the **cross-chain wire formats** (byte layouts and magic prefixes),
-- the **shared data types** exchanged across the two contracts,
-- the **error vocabularies**, **events**, and **protocol constants**, and
-- the **cross-contract interfaces** used to call between contracts.
+- The **cross-chain wire formats** (byte layouts and magic prefixes).
+- The **shared data types** exchanged across the two contracts.
+- The **error vocabularies**, **events**, and **protocol constants**.
+- The **cross-contract interfaces** used to call between contracts.
 
 `#![no_std]`. Depends only on `soroban-sdk` and [`wormhole-soroban-client`](https://github.com/NethermindEth/wormhole) (for the `BytesReader` decoder and Wormhole address hashing). Imported everywhere as `soroban_ntt_client::…`.
 
 ## Why the ABI lives in one crate
 
-Two facts make this crate the workspace's breaking-change surface, so any edit here should be treated as an ABI change:
+Two facts make this crate the workspace's breaking-change surface, so treat any edit here as an ABI change:
 
 1. **Interface traits are used on both sides of every cross-contract call:** each interface (`NttManagerInterface`, `TransceiverInterface`, `WormholeTransceiverInterface`, `RateLimiterInterface`) carries `#[contractclient]`. The contract _implements_ the trait (server side); the macro _generates_ a `…Client` struct used to call it (client side). The manager calls the transceiver through `TransceiverClient`; the transceiver calls back through `NttManagerClient`. One signature change moves both sides at once.
 2. **Message codecs and error discriminants are on-chain ABI:** field order in a `#[contracttype]`, the byte layout of a message, the magic prefixes, and the numeric value of each `#[contracterror]` variant are all observed off-chain and by peer chains. Appending is safe. Reordering or renumbering is not.
@@ -54,7 +54,7 @@ All multi-byte integers are big-endian. Decoders use `wormhole_soroban_client::B
 
 ### TrimmedAmount (9 bytes)
 
-Defined in [`trimmed_amount.rs`](src/messages/trimmed_amount.rs). Not a standalone framed message; it is decoded inline inside `NativeTokenTransfer`.
+Defined in [`trimmed_amount.rs`](src/messages/trimmed_amount.rs). Not a standalone framed message; the `NativeTokenTransfer` decoder reads it inline.
 
 | Offset | Size | Field      | Notes                                |
 | -----: | ---: | ---------- | ------------------------------------ |
@@ -76,7 +76,7 @@ The transfer itself. `MIN_SIZE = 79`. Defined in [`ntt_message.rs`](src/messages
 |     79 |    2 | `additional_payload_len` | present only if bytes remain                           |
 |     81 |  var | `additional_payload`     | up to 65535 bytes, else `PayloadTooLong`               |
 
-The optional payload is detected purely by "are there bytes left". That is safe because the outer `NttManagerMessage` frames this payload with an explicit length, so the slice handed to the decoder is exactly the transfer.
+The decoder detects the optional payload purely by whether bytes remain. That is safe because the outer `NttManagerMessage` frames this payload with an explicit length, so the slice handed to the decoder is exactly the transfer.
 
 ### NttManagerMessage (66+ bytes)
 
@@ -107,7 +107,7 @@ The envelope a transceiver posts to Wormhole. `MIN_SIZE = 72`. Defined in [`tran
 
 ### Accountant broadcasts
 
-Two one-way payloads announce a transceiver's configuration to the Wormhole [Global Accountant](https://wormhole.com/docs/products/token-transfers/native-token-transfers/). They are encode-only (no decoder, not `#[contracttype]`) and posted by the permissionless `broadcast_id` / `broadcast_peer` entry points on the transceiver.
+Two one-way payloads announce a transceiver's configuration to the Wormhole [Global Accountant](https://wormhole.com/docs/products/token-transfers/native-token-transfers/). They are encode-only (no decoder, not `#[contracttype]`); the permissionless `broadcast_id` and `broadcast_peer` entry points on the transceiver post them.
 
 `WormholeTransceiverInfo` (70 bytes): prefix `0x9C23BD3B`, then `manager_address(32)`, `manager_mode(1)`, `token_address(32)`, `token_decimals(1)`.
 
@@ -117,7 +117,7 @@ Two one-way payloads announce a transceiver's configuration to the Wormhole [Glo
 
 The manager tracks attestations and dedup by digest:
 
-```
+```text
 digest = keccak256( source_chain (u16, big-endian) || NttManagerMessage bytes )
 ```
 
@@ -151,7 +151,7 @@ Defined in [`constants.rs`](src/constants.rs). Shared by every contract in the w
 
 ## Error vocabularies
 
-Two `#[repr(u32)]` `#[contracterror]` enums in [`errors.rs`](src/errors.rs). Variants are grouped by numeric range so callers can classify a failure without string matching.
+Two `#[repr(u32)]` `#[contracterror]` enums in [`errors.rs`](src/errors.rs). The enums group variants by numeric range so callers can classify a failure without string matching.
 
 `NttManagerError`:
 
