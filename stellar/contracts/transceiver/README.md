@@ -35,21 +35,26 @@ The two contracts also reference each other's identity by `hash_address`, the ke
 Grouped by the trait that defines each method. Errors are [`TransceiverError`](../soroban-ntt-client/src/errors.rs).
 
 **Constructor**
+
 - `__constructor(owner, manager, wormhole_core)` stores the owner, the manager, and the Wormhole core, and sets version to 1.
 
 **Ownership and pause** (OpenZeppelin `Ownable` / `Pausable`)
+
 - Two-step ownership: `transfer_ownership`, `accept_ownership`, `renounce_ownership`, `get_owner`.
 - `pause` / `unpause`, both owner-only.
 - `upgrade(new_wasm_hash)`, owner-only.
 
 **Views** (`TransceiverInterface`)
+
 - `get_manager`, `get_manager_id`, `get_manager_token` (cross-calls the manager), `get_version`, `get_transceiver_type` (returns `b"wormhole"`).
 
 **Outbound** (`TransceiverInterface`)
+
 - `send_message(recipient_chain, recipient_manager, manager_payload)`. Manager-authorized, blocked when paused.
 - `quote_delivery_price(recipient_chain)` returns the Wormhole core message fee as `i128`.
 
 **Inbound and Wormhole management** (`WormholeTransceiverInterface`)
+
 - `receive_message(vaa_bytes)`. Permissionless and blocked when paused; the guardian signatures are the authentication.
 - `set_peer(chain_id, emitter)` (owner-only, one-shot) and `set_peer_enabled(chain_id, enabled)` (owner-only).
 - `get_peer`, `get_peer_info`, `is_peer_enabled`, `is_vaa_consumed`, `get_wormhole_core`.
@@ -88,7 +93,7 @@ The transceiver reads only four VAA fields: `emitter_chain`, `emitter_address`, 
 
 ## Peers
 
-A transceiver peer is the sibling transceiver on another chain, keyed by chain id to a 32-byte emitter address (`PeerInfo { emitter, enabled }`). This is distinct from the manager's peers, which are the remote *managers* and additionally carry token decimals and a per-chain inbound rate limit.
+A transceiver peer is the sibling transceiver on another chain, keyed by chain id to a 32-byte emitter address (`PeerInfo { emitter, enabled }`). This is distinct from the manager's peers, which are the remote _managers_ and additionally carry token decimals and a per-chain inbound rate limit.
 
 - `set_peer` validates a non-zero chain id and emitter, then registers the peer enabled. Registration is **one-shot**: a second write returns `PeerAlreadySet`. That is a deliberate security boundary, because overwriting the emitter would change which VAAs a chain authenticates against. To correct a mistake, redeploy the transceiver.
 - `set_peer_enabled` flips the flag in place, keeping the address. Disabling a peer is a kill-switch that blocks that chain in both directions, since the same enabled check gates outbound and inbound.
@@ -107,12 +112,12 @@ This is one of three independent replay guards in the system: the transceiver de
 
 `DataKey` in [`state.rs`](src/state.rs):
 
-| Key | Location | Value |
-|-----|----------|-------|
-| `Manager` | instance | manager `Address` |
-| `WormholeCore` | instance | core `Address` |
-| `Version` | instance | `u32` |
-| `Peer(chain_id)` | persistent | `PeerInfo` |
+| Key                                                  | Location   | Value                |
+| ---------------------------------------------------- | ---------- | -------------------- |
+| `Manager`                                            | instance   | manager `Address`    |
+| `WormholeCore`                                       | instance   | core `Address`       |
+| `Version`                                            | instance   | `u32`                |
+| `Peer(chain_id)`                                     | persistent | `PeerInfo`           |
 | `Consumed(emitter_chain, emitter_address, sequence)` | persistent | `bool` (replay flag) |
 
 Instance TTL is bumped on every access; persistent entries extend their own TTL on read and write. Both use the shared `TTL_THRESHOLD` / `TTL_EXTEND` values.

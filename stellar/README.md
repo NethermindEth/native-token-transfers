@@ -55,14 +55,14 @@ flowchart LR
   it --> whc
 ```
 
-| Crate | README | Purpose |
-|-------|--------|---------|
-| [`contracts/manager`](contracts/manager) | [README](contracts/manager/README.md) | The policy layer: token custody, message sequencing, M-of-N attestation, rate limiting |
-| [`contracts/transceiver`](contracts/transceiver) | [README](contracts/transceiver/README.md) | The transport layer: posts envelopes to the Wormhole core and verifies inbound VAAs |
-| [`contracts/soroban-ntt-client`](contracts/soroban-ntt-client) | [README](contracts/soroban-ntt-client/README.md) | The shared ABI: wire formats, types, errors, events, cross-contract interfaces |
-| [`contracts/mock-token`](contracts/mock-token) | [README](contracts/mock-token/README.md) | A minimal token used as a test fixture |
-| [`integration-tests`](integration-tests) | [README](integration-tests/README.md) | On-chain end-to-end tests against a local Stellar network |
-| [`vaa-test-signing`](vaa-test-signing) | [README](vaa-test-signing/README.md) | Host-side guardian signing so tests can forge valid VAAs |
+| Crate                                                          | README                                           | Purpose                                                                                |
+| -------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| [`contracts/manager`](contracts/manager)                       | [README](contracts/manager/README.md)            | The policy layer: token custody, message sequencing, M-of-N attestation, rate limiting |
+| [`contracts/transceiver`](contracts/transceiver)               | [README](contracts/transceiver/README.md)        | The transport layer: posts envelopes to the Wormhole core and verifies inbound VAAs    |
+| [`contracts/soroban-ntt-client`](contracts/soroban-ntt-client) | [README](contracts/soroban-ntt-client/README.md) | The shared ABI: wire formats, types, errors, events, cross-contract interfaces         |
+| [`contracts/mock-token`](contracts/mock-token)                 | [README](contracts/mock-token/README.md)         | A minimal token used as a test fixture                                                 |
+| [`integration-tests`](integration-tests)                       | [README](integration-tests/README.md)            | On-chain end-to-end tests against a local Stellar network                              |
+| [`vaa-test-signing`](vaa-test-signing)                         | [README](vaa-test-signing/README.md)             | Host-side guardian signing so tests can forge valid VAAs                               |
 
 ## Cross-chain compatibility
 

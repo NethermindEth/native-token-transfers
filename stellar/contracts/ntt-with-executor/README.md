@@ -173,11 +173,11 @@ Encoding delegates to `executor_requests::make_ntt_v1_request`.
 `sender.require_auth()` roots a single authorization tree. Each sub-invocation is
 authorized under it:
 
-| Sub-invocation | Auth required |
-|----------------|---------------|
-| Referrer fee `token.transfer` | `sender` |
-| `manager.transfer` | `sender` |
-| `executor.request_execution` | `sender` (as `payer`) |
+| Sub-invocation                | Auth required         |
+| ----------------------------- | --------------------- |
+| Referrer fee `token.transfer` | `sender`              |
+| `manager.transfer`            | `sender`              |
+| `executor.request_execution`  | `sender` (as `payer`) |
 
 The wrapper never holds tokens; the manager sees the real user as `sender`, and
 the executor pulls the XLM fee directly from `sender`.
@@ -186,10 +186,10 @@ the executor pulls the XLM fee directly from `sender`.
 
 ## Error Codes
 
-| Code | Variant | Meaning |
-|------|---------|---------|
-| 1 | `InvalidReferrerFee` | `dbps` exceeds the `u16` on-wire fee field |
-| 2 | `PeerNotFound` | no registered peer for the recipient chain |
+| Code | Variant              | Meaning                                    |
+| ---- | -------------------- | ------------------------------------------ |
+| 1    | `InvalidReferrerFee` | `dbps` exceeds the `u16` on-wire fee field |
+| 2    | `PeerNotFound`       | no registered peer for the recipient chain |
 
 Manager and executor failures trap through their typed clients and revert the
 whole transaction with the underlying contract's own error code.
@@ -198,13 +198,13 @@ whole transaction with the underlying contract's own error code.
 
 ## Module Reference
 
-| Module | File | Purpose |
-|--------|------|---------|
-| **lib.rs** | [lib.rs](src/lib.rs) | Contract entry points, `transfer` orchestration, argument and error types |
-| **fee.rs** | [fee.rs](src/fee.rs) | Referrer fee calculation and dust trimming |
-| **encoding.rs** | [encoding.rs](src/encoding.rs) | ERN1 request encoding |
-| **executor.rs** | [executor.rs](src/executor.rs) | Typed client binding for the Executor |
-| **tests.rs** | [tests.rs](src/tests.rs) | Boundary tests with mock manager, executor, and token |
+| Module          | File                           | Purpose                                                                   |
+| --------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| **lib.rs**      | [lib.rs](src/lib.rs)           | Contract entry points, `transfer` orchestration, argument and error types |
+| **fee.rs**      | [fee.rs](src/fee.rs)           | Referrer fee calculation and dust trimming                                |
+| **encoding.rs** | [encoding.rs](src/encoding.rs) | ERN1 request encoding                                                     |
+| **executor.rs** | [executor.rs](src/executor.rs) | Typed client binding for the Executor                                     |
+| **tests.rs**    | [tests.rs](src/tests.rs)       | Boundary tests with mock manager, executor, and token                     |
 
 ---
 

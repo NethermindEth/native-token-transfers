@@ -6,14 +6,14 @@ Package `mock-token`, `#![no_std]`, builds as a `cdylib`. Depends only on `sorob
 
 ## Interface
 
-| Method | Auth | Behaviour |
-|--------|------|-----------|
-| `__constructor(decimals: u32)` | deploy | stores the decimal precision in instance storage |
-| `decimals() -> u32` | none | returns the configured precision |
-| `balance(id) -> i128` | none | returns the balance, or 0 if unset |
-| `mint(to, amount)` | **none** | credits `to`; test-only |
-| `burn(from, amount)` | `from` | debits `from`, panics on insufficient balance |
-| `transfer(from, to, amount)` | `from` | moves `amount`, panics on insufficient balance |
+| Method                         | Auth     | Behaviour                                        |
+| ------------------------------ | -------- | ------------------------------------------------ |
+| `__constructor(decimals: u32)` | deploy   | stores the decimal precision in instance storage |
+| `decimals() -> u32`            | none     | returns the configured precision                 |
+| `balance(id) -> i128`          | none     | returns the balance, or 0 if unset               |
+| `mint(to, amount)`             | **none** | credits `to`; test-only                          |
+| `burn(from, amount)`           | `from`   | debits `from`, panics on insufficient balance    |
+| `transfer(from, to, amount)`   | `from`   | moves `amount`, panics on insufficient balance   |
 
 Balances live in persistent storage keyed by `Address`; decimals live in instance storage. There is no allowance, `transfer_from`, `burn_from`, name, symbol, or admin. This is a subset, not a full [SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) token and not a Stellar Asset Contract.
 

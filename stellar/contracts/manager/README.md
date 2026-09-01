@@ -15,10 +15,10 @@ Package `stellar-ntt-manager`, `#![no_std]`. This is a Stellar/Soroban port of W
 
 The mode is fixed at deployment and decides how custody works.
 
-| Mode | On send | On receive | Where |
-|------|---------|------------|-------|
+| Mode      | On send            | On receive            | Where                                          |
+| --------- | ------------------ | --------------------- | ---------------------------------------------- |
 | `Locking` | lock (transfer in) | unlock (transfer out) | the canonical chain that holds the real supply |
-| `Burning` | burn | mint | spoke chains holding synthetic supply |
+| `Burning` | burn               | mint                  | spoke chains holding synthetic supply          |
 
 ```rust
 pub enum Mode { Locking = 0, Burning = 1 }
@@ -125,13 +125,13 @@ The message id is the sequence number placed in the low 8 bytes of a 32-byte fie
 4. **Check the threshold:** if `popcount(attested & enabled) < threshold`, return not-approved and wait for more.
 5. **Execute:** at or above threshold:
    - target chain must match this manager's chain (`InvalidTargetChain`),
-   - resolve the recipient hash to a real address through the Wormhole core (`RecipientNotRegistered` or `WormholeCoreCallFailed` on failure, both *before* marking executed),
+   - resolve the recipient hash to a real address through the Wormhole core (`RecipientNotRegistered` or `WormholeCoreCallFailed` on failure, both _before_ marking executed),
    - untrim the amount to local decimals,
    - consume inbound capacity for the source chain.
 
 The message is marked executed in **both** the released and the queued branches, which is what prevents a replay from pushing a queued transfer's release timestamp forward. If capacity allows, release the tokens (unlock or mint), refill the outbound bucket (backflow), and emit `TransferRedeemed`. Otherwise store an inbound queued transfer for completion after the window.
 
-Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they `record_address`, since an unregistered recipient failed *before* the executed flag was set.
+Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they `record_address`, since an unregistered recipient failed _before_ the executed flag was set.
 
 ## Public API
 
@@ -153,14 +153,14 @@ __constructor(
 
 **Ownership and pause**
 
-| Method | Auth | Notes |
-|--------|------|-------|
-| `transfer_ownership` / `accept_ownership` / `renounce_ownership` / `get_owner` | OZ `Ownable` | two-step transfer |
-| `pause(caller)` | owner or pauser | emergency stop |
-| `unpause(caller)` | owner only | a compromised pauser can halt but not resume |
-| `transfer_pauser(caller, new_pauser: Option<Address>)` | owner or pauser | `None` clears the role |
-| `get_pauser() -> Option<Address>` | anyone | |
-| `upgrade(new_wasm_hash)` | owner | |
+| Method                                                                         | Auth            | Notes                                        |
+| ------------------------------------------------------------------------------ | --------------- | -------------------------------------------- |
+| `transfer_ownership` / `accept_ownership` / `renounce_ownership` / `get_owner` | OZ `Ownable`    | two-step transfer                            |
+| `pause(caller)`                                                                | owner or pauser | emergency stop                               |
+| `unpause(caller)`                                                              | owner only      | a compromised pauser can halt but not resume |
+| `transfer_pauser(caller, new_pauser: Option<Address>)`                         | owner or pauser | `None` clears the role                       |
+| `get_pauser() -> Option<Address>`                                              | anyone          |                                              |
+| `upgrade(new_wasm_hash)`                                                       | owner           |                                              |
 
 **Transceivers and threshold** (owner-gated setters)
 
@@ -202,32 +202,32 @@ complete_inbound_transfer(digest: BytesN<32>) -> Result<()>          // permissi
 
 **Instance storage** (config and counters, TTL extended on every access)
 
-| Key | Type | Default |
-|-----|------|---------|
-| `Pauser` | `Option<Address>` | none |
-| `Token` | `Address` | required |
-| `TokenDecimals` | `u32` | required (cached at construction) |
-| `Mode` | `Mode` | required |
-| `ChainId` | `u32` | required |
-| `WormholeCore` | `Address` | required |
-| `Threshold` | `u32` | 0 |
-| `NextSequence` | `u64` | 1 |
-| `Version` | `u32` | 1 |
-| `TransceiverCount` | `u32` | 0 |
-| `EnabledBitmap` | `u64` | 0 |
-| `OutboundRateLimit` | `RateLimitParams` | unlimited if unset |
-| `RateLimitDuration` | `u64` | 86400 |
+| Key                 | Type              | Default                           |
+| ------------------- | ----------------- | --------------------------------- |
+| `Pauser`            | `Option<Address>` | none                              |
+| `Token`             | `Address`         | required                          |
+| `TokenDecimals`     | `u32`             | required (cached at construction) |
+| `Mode`              | `Mode`            | required                          |
+| `ChainId`           | `u32`             | required                          |
+| `WormholeCore`      | `Address`         | required                          |
+| `Threshold`         | `u32`             | 0                                 |
+| `NextSequence`      | `u64`             | 1                                 |
+| `Version`           | `u32`             | 1                                 |
+| `TransceiverCount`  | `u32`             | 0                                 |
+| `EnabledBitmap`     | `u64`             | 0                                 |
+| `OutboundRateLimit` | `RateLimitParams` | unlimited if unset                |
+| `RateLimitDuration` | `u64`             | 86400                             |
 
 **Persistent storage** (per-entity, TTL extended on read and write)
 
-| Key | Value |
-|-----|-------|
-| `Peer(chain_id)` | `NttManagerPeer` |
-| `Transceiver(index)` | `TransceiverInfo` |
-| `TransceiverIndex(address)` | `u32` (reverse lookup) |
-| `Attestation(digest)` | `AttestationInfo` |
-| `OutboundQueue(sequence)` | `OutboundQueuedTransfer` |
-| `InboundQueue(digest)` | `InboundQueuedTransfer` |
+| Key                         | Value                    |
+| --------------------------- | ------------------------ |
+| `Peer(chain_id)`            | `NttManagerPeer`         |
+| `Transceiver(index)`        | `TransceiverInfo`        |
+| `TransceiverIndex(address)` | `u32` (reverse lookup)   |
+| `Attestation(digest)`       | `AttestationInfo`        |
+| `OutboundQueue(sequence)`   | `OutboundQueuedTransfer` |
+| `InboundQueue(digest)`      | `InboundQueuedTransfer`  |
 
 TTL values are the shared `TTL_THRESHOLD` (about 1 day) and `TTL_EXTEND` (about 30 days) from [`soroban-ntt-client`](../soroban-ntt-client/src/constants.rs). The manager uses no temporary storage.
 
@@ -235,15 +235,15 @@ TTL values are the shared `TTL_THRESHOLD` (about 1 day) and `TTL_EXTEND` (about 
 
 The `NttManagerError` enum lives in [`soroban-ntt-client`](../soroban-ntt-client/src/errors.rs), not in this crate. Discriminants are on-chain ABI.
 
-| Range | Category |
-|-------|----------|
-| 1–8 | Message encoding, decimals, chain-id, amount overflow |
-| 13 | `NotAdminOrPauser` |
-| 20, 30 | Uninitialized rate limit or state |
-| 40–49 | Transceiver registry, threshold, transceiver-call failures |
-| 50–55 | Peer registration and validation |
-| 60–67 | Transfer flow, including `RecipientNotRegistered` (66) and `WormholeCoreCallFailed` (67) |
-| 80–84 | Attestation and redemption |
+| Range  | Category                                                                                 |
+| ------ | ---------------------------------------------------------------------------------------- |
+| 1–8    | Message encoding, decimals, chain-id, amount overflow                                    |
+| 13     | `NotAdminOrPauser`                                                                       |
+| 20, 30 | Uninitialized rate limit or state                                                        |
+| 40–49  | Transceiver registry, threshold, transceiver-call failures                               |
+| 50–55  | Peer registration and validation                                                         |
+| 60–67  | Transfer flow, including `RecipientNotRegistered` (66) and `WormholeCoreCallFailed` (67) |
+| 80–84  | Attestation and redemption                                                               |
 
 Owner and pause failures are not in this enum. They come from the OpenZeppelin Stellar libraries: `OwnableError` (2100–2102), `RoleTransferError` (2200–2203), and `PausableError::EnforcedPause` (1000).
 
@@ -257,31 +257,31 @@ Owner and pause failures are not in this enum. They come from the OpenZeppelin S
 
 **Authorization**
 
-| Operation | Auth |
-|-----------|------|
-| `transfer` / `transfer_with_payload` | `sender.require_auth()` |
-| `cancel_queued_transfer` | original sender |
-| `attestation_received` | `transceiver.require_auth()`, must be registered and enabled |
-| owner setters, `upgrade`, ownership transfer | owner (OZ `Ownable`) |
-| `pause` | owner or pauser |
-| `unpause` | owner only |
-| `complete_queued_transfer`, `complete_inbound_transfer`, `execute_msg`, `validate_invariants`, all getters | permissionless |
+| Operation                                                                                                  | Auth                                                         |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `transfer` / `transfer_with_payload`                                                                       | `sender.require_auth()`                                      |
+| `cancel_queued_transfer`                                                                                   | original sender                                              |
+| `attestation_received`                                                                                     | `transceiver.require_auth()`, must be registered and enabled |
+| owner setters, `upgrade`, ownership transfer                                                               | owner (OZ `Ownable`)                                         |
+| `pause`                                                                                                    | owner or pauser                                              |
+| `unpause`                                                                                                  | owner only                                                   |
+| `complete_queued_transfer`, `complete_inbound_transfer`, `execute_msg`, `validate_invariants`, all getters | permissionless                                               |
 
 ## Modules
 
 `src/` holds eight modules plus `lib.rs`:
 
-| File | Responsibility |
-|------|----------------|
-| [`lib.rs`](src/lib.rs) | Contract struct, entry points, trait impls, constructor |
-| [`state.rs`](src/state.rs) | The `DataKey` enum |
-| [`storage.rs`](src/storage.rs) | Typed storage wrappers with TTL extension |
-| [`token_ops.rs`](src/token_ops.rs) | Lock / unlock / burn / mint dispatch by mode; decimals query |
-| [`peers.rs`](src/peers.rs) | Peer registry, per-peer inbound limit, backflow, peer verification |
-| [`transceivers.rs`](src/transceivers.rs) | Bitmap, registry add/remove, threshold, invariants |
-| [`rate_limit.rs`](src/rate_limit.rs) | Outbound consume/refill wrappers |
-| [`outbound.rs`](src/outbound.rs) | Outbound transfer lifecycle |
-| [`inbound.rs`](src/inbound.rs) | Attestation processing, threshold execution, inbound queue, `execute_msg` |
+| File                                     | Responsibility                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| [`lib.rs`](src/lib.rs)                   | Contract struct, entry points, trait impls, constructor                   |
+| [`state.rs`](src/state.rs)               | The `DataKey` enum                                                        |
+| [`storage.rs`](src/storage.rs)           | Typed storage wrappers with TTL extension                                 |
+| [`token_ops.rs`](src/token_ops.rs)       | Lock / unlock / burn / mint dispatch by mode; decimals query              |
+| [`peers.rs`](src/peers.rs)               | Peer registry, per-peer inbound limit, backflow, peer verification        |
+| [`transceivers.rs`](src/transceivers.rs) | Bitmap, registry add/remove, threshold, invariants                        |
+| [`rate_limit.rs`](src/rate_limit.rs)     | Outbound consume/refill wrappers                                          |
+| [`outbound.rs`](src/outbound.rs)         | Outbound transfer lifecycle                                               |
+| [`inbound.rs`](src/inbound.rs)           | Attestation processing, threshold execution, inbound queue, `execute_msg` |
 
 `Mode`, `NttManagerPeer`, `RateLimitParams`, the message codecs, the error enum, the events, and the constants are all defined in [`soroban-ntt-client`](../soroban-ntt-client) and re-exported, not defined here.
 
