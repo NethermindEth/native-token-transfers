@@ -24,7 +24,14 @@ pub(crate) fn referrer_fee(
     if dbps == 0 || amount <= 0 {
         return Ok(0);
     }
-    let mut raw = amount as u128 * dbps as u128 / DBPS_DENOMINATOR;
+    // `(amount * dbps) / DBPS_DENOMINATOR`, split into quotient and remainder so
+    // no intermediate exceeds `u128`. The quotient scales the bulk of the
+    // amount; the remainder carries the low digits that dividing first would
+    // drop. Floor division makes the split exact: `amount = q * D + r` gives
+    // `q * dbps + (r * dbps) / D`, and `q * D * dbps` divides by `D` evenly.
+    let (amount, dbps) = (amount as u128, dbps as u128);
+    let mut raw =
+        (amount / DBPS_DENOMINATOR) * dbps + (amount % DBPS_DENOMINATOR) * dbps / DBPS_DENOMINATOR;
     TrimmedAmount::remove_dust(&mut raw, from_decimals, to_decimals)
         .map_err(|_| WrapperError::InvalidReferrerFee)?;
     Ok(raw as i128)
@@ -86,5 +93,26 @@ mod tests {
             referrer_fee(1_234_567_000_000_000_000, 100, 18, 6),
             Ok(1_234_000_000_000_000),
         );
+    }
+
+    // The largest amount at the largest fee rate must reach a typed error
+    // rather than trap. Multiplying before dividing overflows u128 here, and
+    // `overflow-checks` turns that into an unrecoverable panic; the fee itself
+    // is far past the wire's u64, so the arithmetic must survive long enough
+    // for remove_dust to reject it.
+    #[test]
+    fn huge_amount_does_not_overflow() {
+        assert_eq!(
+            referrer_fee(i128::MAX, 65_535, 6, 6),
+            Err(WrapperError::InvalidReferrerFee)
+        );
+    }
+
+    // Amounts below the denominator must still earn their exact fee. Dividing
+    // the amount before multiplying floors it to zero here and charges nothing.
+    #[test]
+    fn precision_matches_exact_product() {
+        // 3 * 65_535 / 100_000 = 1; divide-first gives 3 / 100_000 * 65_535 = 0.
+        assert_eq!(referrer_fee(3, 65_535, 6, 6), Ok(1));
     }
 }

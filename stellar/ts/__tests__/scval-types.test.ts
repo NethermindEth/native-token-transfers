@@ -20,7 +20,7 @@ import {
 // A `#[contracttype]` struct is an ScMap keyed by symbols, so build the
 // fixtures that way and let the SDK produce the decoder's input: this pins the
 // JS types `scValToNative` yields (u32 -> number, u64/i128 -> bigint,
-// BytesN -> Buffer, Address -> StrKey string, Option::None -> null), not just
+// BytesN -> Buffer, Address -> StrKey string, Option::None -> null), not only
 // the field names.
 const struct = (fields: Record<string, xdr.ScVal>): unknown =>
   scValToNative(
@@ -210,10 +210,10 @@ describe("ScVal decoders", () => {
 describe("ScVal encoders", () => {
   it("keys a struct argument by symbol, in sorted order", () => {
     // `scValToNative` reads a string key and a symbol key back the same way, so
-    // the round-trip cannot catch this: the host is what rejects an scvString.
+    // the round-trip cannot catch this: the host is what rejects an `scvString`.
     // `ExecutorArgs`, declared in the order the Rust struct declares it. The
-    // host wants its map keys in byte order and `nativeToScVal` sorts them with
-    // `localeCompare`, so the five real names are what has to agree.
+    // host requires its map keys in byte order and `nativeToScVal` sorts them
+    // with `localeCompare`, so the five real names are what has to agree.
     const entries = structArg({
       payee: new Address(ACCOUNT).toScVal(),
       amount: i128(1n),

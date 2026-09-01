@@ -1,15 +1,16 @@
 /**
- * Naming for the contract errors a failed NTT call reports.
+ * Names the contract errors a failed NTT call reports.
  *
- * Every write is simulated before it is yielded, so a rejection arrives as a
- * host error string carrying `Error(Contract, #N)` rather than a typed value.
+ * This package simulates every write before yielding it, so a rejection
+ * arrives as a host error string carrying `Error(Contract, #N)` rather than a
+ * typed value.
  * `N` only means something together with the contract that produced it: the
  * manager and the transceiver number their own errors independently
  * (`soroban_ntt_client::errors`), while the OpenZeppelin-derived pause and
  * ownership codes are shared by both and sit far above either range.
  */
 
-/** Which contract's error vocabulary a code should be read against. */
+/** Selects the contract whose error vocabulary names a code. */
 export type ContractErrorSpace =
   | "NttManager"
   | "Transceiver"
@@ -81,17 +82,33 @@ const TRANSCEIVER_ERRORS: Record<number, string> = {
 };
 
 /**
- * The two codes a caller has to act on rather than just read: `receive_message`
- * reports every manager failure as the first, and only the inner frames say
- * whether the cause was the second. Kept beside the tables they come from.
+ * Names the two codes a caller has to act on rather than only read:
+ * `receive_message` reports every manager failure as the first, and only the
+ * inner frames say whether the cause was the second. These sit beside the
+ * tables they come from.
  */
 export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
+
+/**
+ * Identifies the code the core registry reports for a hash it has no address
+ * for. `resolveAddress` turns it into `AddressNotFoundError`.
+ */
+export const ADDRESS_NOT_FOUND = 43;
+
+/**
+ * `wormhole_soroban_client::WormholeError`, limited to the codes this package
+ * acts on. The core's full vocabulary lives in the Wormhole repository.
+ */
+const WORMHOLE_CORE_ERRORS: Record<number, string> = {
+  [ADDRESS_NOT_FOUND]: "AddressNotFound",
+};
 
 /** `stellar_ntt_with_executor::WrapperError` — its own validation, nothing else. */
 const WRAPPER_ERRORS: Record<number, string> = {
   1: "InvalidReferrerFee",
   2: "PeerNotFound",
+  3: "FeeExceedsAmount",
 };
 
 /**
@@ -149,11 +166,30 @@ const TOKEN_ERRORS: Record<number, string> = {
 };
 
 /**
+ * Collects the contract error tables that have a Rust enum behind them, keyed
+ * by the enum's name. `__tests__/errors.parity.test.ts` reads those enums and
+ * asserts these match.
+ *
+ * `OZ_ERRORS`, `TOKEN_ERRORS`, and `WORMHOLE_CORE_ERRORS` are absent: they come
+ * from external crates with no source in this repository to compare against.
+ * `ExecutorError` is checked against this crate's regenerated binding, which
+ * mirrors the Executor contract rather than defining it, so that row catches
+ * drift between two local files and not from the deployed Executor.
+ */
+export const ERROR_TABLES = {
+  NttManagerError: NTT_MANAGER_ERRORS,
+  TransceiverError: TRANSCEIVER_ERRORS,
+  WrapperError: WRAPPER_ERRORS,
+  ExecutorError: EXECUTOR_ERRORS,
+};
+
+/**
  * The vocabularies each space's codes may come from, most specific first.
  *
  * A code is only meaningful together with the contract that raised it, and a
  * host error does not say which frame that was, so a code the tables disagree
- * about is reported as every candidate rather than as a confident guess.
+ * about gets every candidate name from `errorName` rather than a confident
+ * guess.
  */
 const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // The manager custodies through the built-in token contract, so its writes
@@ -162,10 +198,10 @@ const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // No token frame surfaces here: everything below `receive_message` is masked
   // as `ManagerRejectedMessage (36)`.
   Transceiver: [TRANSCEIVER_ERRORS, OZ_ERRORS],
-  // The Wormhole core's own `WormholeError` vocabulary lives in the Wormhole
-  // repo, not here, and its registry writes move no tokens. Its codes are
-  // reported as-is rather than misread against a table they do not belong to.
-  WormholeCore: [OZ_ERRORS],
+  // Only the core codes this package acts on are named here; the rest of its
+  // vocabulary lives in the Wormhole repository. Its registry writes move no
+  // tokens, so no token frame surfaces.
+  WormholeCore: [WORMHOLE_CORE_ERRORS, OZ_ERRORS],
   // One `ntt_with_executor::transfer` reaches three contracts plus the token,
   // and a sub-call error propagates verbatim through the generated clients (no
   // `flatten_call` masking it), so the code can be any of theirs. Transceiver
@@ -185,7 +221,7 @@ const errorName = (code: number, space: ContractErrorSpace): string =>
   SPACES[space].flatMap((table) => table[code] ?? []).join(" | ") || "Unknown";
 
 /**
- * The contract error codes a host error mentions, outermost first.
+ * Lists the contract error codes a host error mentions, outermost first.
  *
  * A simulation failure quotes the frame that failed and then its diagnostic
  * events, so a call that failed inside a sub-invocation reports the outer code

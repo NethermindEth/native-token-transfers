@@ -81,7 +81,7 @@ const executor = (wrapper?: string) =>
 
 const AMOUNT = 1_000_000n;
 
-// dbps 500 over a 100_000 denominator is 0.5%: the wrapper takes 5_000 of the
+// `dbps` 500 over a 100_000 denominator is 0.5%: the wrapper takes 5_000 of the
 // amount above and bridges 995_000. Both numbers are the route's preview of the
 // split the contract makes itself.
 const quote = (): NttWithExecutor.Quote => ({
@@ -102,7 +102,7 @@ const destination = {
   address: new UniversalAddress(new Uint8Array(32).fill(0x22)),
 } as const;
 
-/** The contract, method and decoded arguments a yielded transaction invokes. */
+/** The contract, method, and decoded arguments a yielded transaction invokes. */
 const invocation = (tx: StellarUnsignedTransaction<"Testnet", "Stellar">) => {
   const [operation] = tx.transaction.operations;
   const invoke = (
@@ -224,7 +224,7 @@ describe("StellarNttWithExecutor transfer", () => {
 
   it("names a rejection against the wrapper's own error space", async () => {
     // Against the manager's space the same code reads `NttManagerError::…`, so
-    // the prefix is what pins that `prepare` was told whose contract this is.
+    // the prefix is what pins the error space this call passes to `prepare`.
     simulationError = new Error("HostError: Error(Contract, #62)");
     await expect(transfer()).rejects.toThrow(
       /NttWithExecutorError::TransferExceedsRateLimit \(62\)/
@@ -232,8 +232,8 @@ describe("StellarNttWithExecutor transfer", () => {
   });
 
   it("refuses to guess an address for an undeployed wrapper", async () => {
-    // STELLAR_ADDRESSES has no Stellar deployment yet, so there is nothing to
-    // fall back to and inventing one would be worse than failing.
+    // `STELLAR_ADDRESSES` carries no Stellar deployment, so there is nothing
+    // to fall back to and inventing one would be worse than failing.
     const txs = executor().transfer(
       SENDER as unknown as AccountAddress<"Stellar">,
       destination,

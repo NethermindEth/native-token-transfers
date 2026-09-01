@@ -1,5 +1,12 @@
-// Package entrypoint. The `registerProtocol` side-effects for "Ntt" and
-// "NttWithExecutor" land with the registration commit.
+import { registerProtocol } from "@wormhole-foundation/sdk-definitions";
+import { _platform } from "@wormhole-foundation/sdk-stellar";
+import { StellarNtt } from "./ntt.js";
+import { StellarNttWithExecutor } from "./nttWithExecutor.js";
+import "@wormhole-foundation/sdk-definitions-ntt";
+
+registerProtocol(_platform, "Ntt", StellarNtt);
+registerProtocol(_platform, "NttWithExecutor", StellarNttWithExecutor);
+
 export * from "./address.js";
 export * from "./constants.js";
 export * from "./errors.js";

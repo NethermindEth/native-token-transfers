@@ -133,12 +133,18 @@ pub struct RecordedRequest {
     pub relay_instructions: Bytes,
 }
 
-/// Requires the payer's authorization, then records the request.
+/// Requires the payer's authorization, then records the request. Returns
+/// `QuoteExpired` instead once `set_fail` arms it, standing in for any executor
+/// rejection.
 #[contract]
 pub struct MockExecutor;
 
 #[contractimpl]
 impl MockExecutor {
+    pub fn set_fail(env: Env, fail: bool) {
+        env.storage().instance().set(&symbol_short!("fail"), &fail);
+    }
+
     pub fn request_execution(
         env: Env,
         dst_chain: u32,
@@ -152,6 +158,14 @@ impl MockExecutor {
         relay_instructions: Bytes,
     ) -> Result<(), ExecutorError> {
         payer.require_auth();
+        if env
+            .storage()
+            .instance()
+            .get(&symbol_short!("fail"))
+            .unwrap_or(false)
+        {
+            return Err(ExecutorError::QuoteExpired);
+        }
         env.storage().instance().set(
             &symbol_short!("req"),
             &RecordedRequest {
@@ -443,4 +457,74 @@ fn authorized_under_single_sender_auth() {
         &f.exec,
     );
     assert_eq!(sequence, SEQUENCE);
+}
+
+// The largest fee rate the wire accepts must still leave a bridgeable
+// remainder. dbps is capped at u16::MAX, below the 100_000 denominator, which
+// is what keeps the fee under the amount and the subtraction in range.
+#[test]
+fn max_dbps_bridges_the_remainder() {
+    let env = Env::default();
+    let f = setup(&env);
+    let fee = fee::referrer_fee(
+        AMOUNT,
+        u16::MAX as u32,
+        SRC_DECIMALS as u8,
+        DST_DECIMALS as u8,
+    )
+    .unwrap();
+    assert!(fee > 0 && fee < AMOUNT);
+
+    f.wrapper.transfer(
+        &f.sender,
+        &f.manager,
+        &AMOUNT,
+        &f.destination(DEST_CHAIN),
+        &f.fee_args(u16::MAX as u32),
+        &f.exec,
+    );
+
+    assert_eq!(f.token_balance(&f.referrer), fee);
+    assert_eq!(
+        MockManagerClient::new(&env, &f.manager)
+            .last_transfer()
+            .unwrap()
+            .amount,
+        AMOUNT - fee
+    );
+}
+
+// A failing executor must leave no trace of the transfer. Soroban unwinds the
+// whole invocation when a sub-call errors, so the referrer fee and the
+// manager's lock must both roll back. The balance assertions pin that
+// atomicity: the fee transfer does run before the executor call, and only the
+// rollback puts the balances back.
+#[test]
+fn executor_error_reverts_transfer() {
+    let env = Env::default();
+    let f = setup(&env);
+    let sender_before = f.token_balance(&f.sender);
+    let referrer_before = f.token_balance(&f.referrer);
+
+    MockExecutorClient::new(&env, &f.executor).set_fail(&true);
+
+    // The executor's own error, not merely some error: a regression in the
+    // peer lookup or the fee would otherwise turn this test green.
+    assert_eq!(
+        f.wrapper.try_transfer(
+            &f.sender,
+            &f.manager,
+            &AMOUNT,
+            &f.destination(DEST_CHAIN),
+            &f.fee_args(DBPS),
+            &f.exec,
+        ),
+        Err(Err(ExecutorError::QuoteExpired.into()))
+    );
+
+    assert_eq!(f.token_balance(&f.referrer), referrer_before);
+    assert_eq!(f.token_balance(&f.sender), sender_before);
+    assert!(MockManagerClient::new(&env, &f.manager)
+        .last_transfer()
+        .is_none());
 }
