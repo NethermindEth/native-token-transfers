@@ -10,7 +10,7 @@ import {
  *
  * `manager_payload` is the opaque inner field of a `TransceiverMessage`
  * (`soroban_ntt_client::messages`); the Soroban encoding is byte-identical to
- * the shared NTT wire format, so the sdk-definitions-ntt layouts decode it
+ * the shared NTT wire format, so the `sdk-definitions-ntt` layouts decode it
  * unchanged.
  *
  * The digest the manager keys attestations and queue entries by is

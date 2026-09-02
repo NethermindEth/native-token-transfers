@@ -1,0 +1,253 @@
+/**
+ * Names the contract errors a failed NTT call reports.
+ *
+ * This package simulates every write before yielding it, so a rejection
+ * arrives as a host error string carrying `Error(Contract, #N)` rather than a
+ * typed value.
+ * `N` only means something together with the contract that produced it: the
+ * manager and the transceiver number their own errors independently
+ * (`soroban_ntt_client::errors`), while the OpenZeppelin-derived pause and
+ * ownership codes are shared by both and sit far above either range.
+ */
+
+/** Selects the contract whose error vocabulary names a code. */
+export type ContractErrorSpace =
+  | "NttManager"
+  | "Transceiver"
+  | "WormholeCore"
+  | "NttWithExecutor";
+
+const NTT_MANAGER_ERRORS: Record<number, string> = {
+  1: "MessageTooShort",
+  2: "InvalidPrefix",
+  3: "InvalidDecimals",
+  4: "ChainIdTooLarge",
+  5: "PayloadTooLong",
+  6: "DecimalMismatch",
+  7: "AmountOverflow",
+  8: "InvalidChainIdZero",
+  13: "NotAdminOrPauser",
+  20: "RateLimitNotInitialized",
+  30: "NotInitialized",
+  40: "TransceiverNotRegistered",
+  41: "MaxTransceiversReached",
+  42: "ZeroThreshold",
+  43: "ThresholdTooHigh",
+  44: "TransceiverAlreadyEnabled",
+  45: "TransceiverAlreadyDisabled",
+  46: "CannotDisableLastTransceiver",
+  47: "NoEnabledTransceivers",
+  48: "BitmapIndexOutOfRange",
+  49: "TransceiverCallFailed",
+  50: "PeerNotFound",
+  51: "InvalidPeerChainIdZero",
+  52: "InvalidPeerSameChainId",
+  53: "InvalidPeerZeroAddress",
+  54: "InvalidPeerDecimals",
+  55: "InvalidPeer",
+  60: "ZeroAmount",
+  61: "InvalidRecipient",
+  62: "TransferExceedsRateLimit",
+  63: "TransferNotQueued",
+  64: "TransferNotReleasable",
+  65: "CancellerNotSender",
+  66: "RecipientNotRegistered",
+  67: "WormholeCoreCallFailed",
+  80: "TransceiverNotEnabled",
+  81: "TransceiverAlreadyAttested",
+  82: "TransferAlreadyRedeemed",
+  83: "InvalidTargetChain",
+  84: "TransferNotApproved",
+};
+
+const TRANSCEIVER_ERRORS: Record<number, string> = {
+  1: "NotInitialized",
+  10: "InvalidPeerChainIdZero",
+  11: "InvalidPeerZeroAddress",
+  12: "PeerAlreadySet",
+  13: "PeerNotFound",
+  14: "PeerDisabled",
+  15: "ChainIdTooLarge",
+  20: "WormholeVerificationFailed",
+  21: "WormholeQueryFailed",
+  22: "WormholePostFailed",
+  23: "ManagerQueryFailed",
+  30: "InvalidTransceiverPrefix",
+  31: "MessageTooShort",
+  32: "PayloadTooLong",
+  33: "UnexpectedRecipientManager",
+  34: "ReplayDetected",
+  35: "UnexpectedEmitter",
+  36: "ManagerRejectedMessage",
+};
+
+/**
+ * Names the two codes a caller has to act on rather than only read:
+ * `receive_message` reports every manager failure as the first, and only the
+ * inner frames say whether the cause was the second. These sit beside the
+ * tables they come from.
+ */
+export const MANAGER_REJECTED_MESSAGE = 36;
+export const RECIPIENT_NOT_REGISTERED = 66;
+
+/**
+ * Identifies the code the core registry reports for a hash it has no address
+ * for. `resolveAddress` turns it into `AddressNotFoundError`.
+ */
+export const ADDRESS_NOT_FOUND = 43;
+
+/**
+ * `wormhole_soroban_client::WormholeError`, limited to the codes this package
+ * acts on. The core's full vocabulary lives in the Wormhole repository.
+ */
+const WORMHOLE_CORE_ERRORS: Record<number, string> = {
+  [ADDRESS_NOT_FOUND]: "AddressNotFound",
+};
+
+/** `stellar_ntt_with_executor::WrapperError` — its own validation, nothing else. */
+const WRAPPER_ERRORS: Record<number, string> = {
+  1: "InvalidReferrerFee",
+  2: "PeerNotFound",
+  3: "FeeExceedsAmount",
+};
+
+/**
+ * `stellar_ntt_with_executor::executor::ExecutorError`, raised by the Executor
+ * contract the wrapper pays and propagated verbatim through it.
+ */
+const EXECUTOR_ERRORS: Record<number, string> = {
+  11: "QuoteExpired",
+  12: "QuoteSrcChainMismatch",
+  13: "QuoteDstChainMismatch",
+  14: "InvalidAmount",
+  15: "InvalidQuote",
+  16: "QuotePayeeMismatch",
+};
+
+/**
+ * `stellar_contract_utils::pausable::PausableError` and
+ * `stellar_access::{ownable::OwnableError, role_transfer::RoleTransferError}`.
+ * Both contracts derive their pause and ownership gates from these, so the
+ * codes mean the same thing whichever one raised them.
+ */
+const OZ_ERRORS: Record<number, string> = {
+  1000: "EnforcedPause",
+  1001: "ExpectedPause",
+  2100: "OwnerNotSet",
+  2101: "TransferInProgress",
+  2102: "OwnerAlreadySet",
+  2200: "NoPendingTransfer",
+  2201: "InvalidLiveUntilLedger",
+  2202: "InvalidPendingAccount",
+  2203: "TransferExpired",
+};
+
+/**
+ * `soroban_env_host::builtin_contracts::ContractError`, raised by the built-in
+ * Stellar Asset Contract. Every NTT write that moves tokens has a token frame
+ * in it — the manager's custody, the wrapper's referrer fee, the executor's XLM
+ * fee — and the host reports these in the same `Error(Contract, #N)` form as a
+ * contract's own, over a range that collides with all of them.
+ */
+const TOKEN_ERRORS: Record<number, string> = {
+  1: "InternalError",
+  2: "OperationNotSupported",
+  3: "AlreadyInitialized",
+  4: "Unauthorized",
+  5: "AuthenticationError",
+  6: "AccountMissing",
+  7: "AccountIsNotClassic",
+  8: "NegativeAmount",
+  9: "AllowanceError",
+  10: "BalanceError",
+  11: "BalanceDeauthorized",
+  12: "Overflow",
+  13: "TrustlineMissing",
+};
+
+/**
+ * Collects the contract error tables that have a Rust enum behind them, keyed
+ * by the enum's name. `__tests__/errors.parity.test.ts` reads those enums and
+ * asserts these match.
+ *
+ * `OZ_ERRORS`, `TOKEN_ERRORS`, and `WORMHOLE_CORE_ERRORS` are absent: they come
+ * from external crates with no source in this repository to compare against.
+ * `ExecutorError` is checked against this crate's regenerated binding, which
+ * mirrors the Executor contract rather than defining it, so that row catches
+ * drift between two local files and not from the deployed Executor.
+ */
+export const ERROR_TABLES = {
+  NttManagerError: NTT_MANAGER_ERRORS,
+  TransceiverError: TRANSCEIVER_ERRORS,
+  WrapperError: WRAPPER_ERRORS,
+  ExecutorError: EXECUTOR_ERRORS,
+};
+
+/**
+ * The vocabularies each space's codes may come from, most specific first.
+ *
+ * A code is only meaningful together with the contract that raised it, and a
+ * host error does not say which frame that was, so a code the tables disagree
+ * about gets every candidate name from `errorName` rather than a confident
+ * guess.
+ */
+const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
+  // The manager custodies through the built-in token contract, so its writes
+  // carry a token frame.
+  NttManager: [NTT_MANAGER_ERRORS, OZ_ERRORS, TOKEN_ERRORS],
+  // No token frame surfaces here: everything below `receive_message` is masked
+  // as `ManagerRejectedMessage (36)`.
+  Transceiver: [TRANSCEIVER_ERRORS, OZ_ERRORS],
+  // Only the core codes this package acts on are named here; the rest of its
+  // vocabulary lives in the Wormhole repository. Its registry writes move no
+  // tokens, so no token frame surfaces.
+  WormholeCore: [WORMHOLE_CORE_ERRORS, OZ_ERRORS],
+  // One `ntt_with_executor::transfer` reaches three contracts plus the token,
+  // and a sub-call error propagates verbatim through the generated clients (no
+  // `flatten_call` masking it), so the code can be any of theirs. Transceiver
+  // codes are the one thing it cannot be — the manager masks those as
+  // `TransceiverCallFailed (49)`.
+  NttWithExecutor: [
+    WRAPPER_ERRORS,
+    EXECUTOR_ERRORS,
+    NTT_MANAGER_ERRORS,
+    OZ_ERRORS,
+    TOKEN_ERRORS,
+  ],
+};
+
+/** Every name `code` could have in `space`, or `"Unknown"` if it has none. */
+const errorName = (code: number, space: ContractErrorSpace): string =>
+  SPACES[space].flatMap((table) => table[code] ?? []).join(" | ") || "Unknown";
+
+/**
+ * Lists the contract error codes a host error mentions, outermost first.
+ *
+ * A simulation failure quotes the frame that failed and then its diagnostic
+ * events, so a call that failed inside a sub-invocation reports the outer code
+ * first and the inner one further along.
+ */
+export function contractErrorCodes(error: unknown): number[] {
+  const message = error instanceof Error ? error.message : String(error);
+  return [...message.matchAll(/Error\(Contract, #(\d+)\)/g)].flatMap((m) =>
+    m[1] === undefined ? [] : [Number(m[1])]
+  );
+}
+
+/**
+ * Restates a failed call with the contract error it carries named, or returns
+ * it unchanged when it carries none (an RPC or network failure, say).
+ */
+export function decodeContractError(
+  error: unknown,
+  space: ContractErrorSpace
+): Error {
+  const cause = error instanceof Error ? error : new Error(String(error));
+  const [code] = contractErrorCodes(error);
+  if (code === undefined) return cause;
+
+  return new Error(
+    `${space}Error::${errorName(code, space)} (${code}): ${cause.message}`,
+    { cause }
+  );
+}

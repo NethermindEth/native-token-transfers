@@ -1,0 +1,49 @@
+name: Stellar CI
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "stellar/**"
+      - ".github/workflows/stellar.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "stellar/**"
+      - ".github/workflows/stellar.yml"
+
+# Cancel in-progress runs on new commits to same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stellar-contracts:
+    name: Stellar Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@55c7845fad90d0ae8b2e83715cb900e5e861e8cb
+        with:
+          toolchain: stable
+          components: "clippy"
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "stellar"
+
+      # `cargo fmt --check` is not run here. The workspace predates any rustfmt
+      # run and 53 files fail it on the current tree, so enabling the check
+      # means reformatting them first, as its own change.
+      - name: Run `cargo clippy`
+        run: cargo clippy --workspace --tests --manifest-path stellar/Cargo.toml -- -D warnings
+
+      # The integration-tests crate drives a Docker localnet through
+      # scripts/start-localnet.sh. Every one of its tests carries `#[ignore]`,
+      # so this compiles them and runs everything else. Run them with
+      # `--ignored` against a started localnet, not here.
+      - name: Run `cargo test`
+        run: cargo test --workspace --manifest-path stellar/Cargo.toml
