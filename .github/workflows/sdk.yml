@@ -1,12 +1,16 @@
 name: TS SDK CI
 on:
   workflow_dispatch:
+  # `stellar/**`, not `stellar/ts/**`: the error-table parity test reads the
+  # contract enums out of stellar/contracts, so a Rust-only rename has to run
+  # this suite.
   pull_request:
     paths:
       - "sdk/**"
       - "evm/ts/**"
       - "solana/ts/**"
       - "sui/ts/**"
+      - "stellar/**"
       - "package.json"
       - "package-lock.json"
       - "tsconfig*.json"
@@ -19,6 +23,7 @@ on:
       - "evm/ts/**"
       - "solana/ts/**"
       - "sui/ts/**"
+      - "stellar/**"
       - "package.json"
       - "package-lock.json"
       - "tsconfig*.json"
@@ -40,6 +45,31 @@ jobs:
           node-version: 24.11.0
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
+      # The Stellar packages are consumed through `file:` paths pointing at a
+      # sibling checkout, so the runner needs that checkout before `npm ci` can
+      # resolve them. actions/checkout cannot write above the workspace, hence
+      # the move. Delete this step and the `file:` specifiers once
+      # @wormhole-foundation/sdk-stellar and -stellar-core are published.
+      - name: Check out the Stellar SDK packages
+        uses: actions/checkout@v5
+        with:
+          repository: NethermindEth/wormhole-sdk-ts
+          ref: 04b9806a3c2a1065e5e709d10830669c92652d80
+          path: wormhole-sdk-ts-src
+      - name: Move it beside this checkout
+        run: mv wormhole-sdk-ts-src ../wormhole-sdk-ts
+      # `npm install`, not `npm ci`: that repository's committed lockfile is out
+      # of sync with its package.json. Only the packages this repository links
+      # are built, because a full build fails on sdk-icons, which nothing here
+      # imports.
+      - name: Build the Stellar SDK packages
+        working-directory: ../wormhole-sdk-ts
+        run: |
+          npm install
+          npx turbo build \
+            --filter=@wormhole-foundation/sdk-stellar... \
+            --filter=@wormhole-foundation/sdk-stellar-core...
+
       - run: npm ci
       - run: npm run build --if-present
       - run: npm test

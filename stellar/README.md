@@ -29,7 +29,7 @@ flowchart LR
 3. On the destination, a transceiver verifies the VAA and forwards it to the manager.
 4. Once a threshold of transceivers attest, the manager mints or unlocks the token to the recipient.
 
-Both directions are rate-limited, and transfers over the limit can be queued and completed after a window. Amounts are normalized to a shared 8-decimal precision on the wire, with any finer dust left on the sender.
+The manager rate-limits both directions and can queue transfers over the limit for completion after a window. Amounts are normalized to a shared 8-decimal precision on the wire, with any finer dust left on the sender.
 
 ## Repository layout
 
@@ -44,7 +44,7 @@ flowchart TD
   root --> vaa["vaa-test-signing/"]
 ```
 
-Dependencies between the crates:
+The crates depend on each other as follows:
 
 ```mermaid
 flowchart LR
@@ -55,18 +55,20 @@ flowchart LR
   it --> whc
 ```
 
-| Crate | README | Purpose |
-|-------|--------|---------|
-| [`contracts/manager`](contracts/manager) | [README](contracts/manager/README.md) | The policy layer: token custody, message sequencing, M-of-N attestation, rate limiting |
-| [`contracts/transceiver`](contracts/transceiver) | [README](contracts/transceiver/README.md) | The transport layer: posts envelopes to the Wormhole core and verifies inbound VAAs |
-| [`contracts/soroban-ntt-client`](contracts/soroban-ntt-client) | [README](contracts/soroban-ntt-client/README.md) | The shared ABI: wire formats, types, errors, events, cross-contract interfaces |
-| [`contracts/mock-token`](contracts/mock-token) | [README](contracts/mock-token/README.md) | A minimal token used as a test fixture |
-| [`integration-tests`](integration-tests) | [README](integration-tests/README.md) | On-chain end-to-end tests against a local Stellar network |
-| [`vaa-test-signing`](vaa-test-signing) | [README](vaa-test-signing/README.md) | Host-side guardian signing so tests can forge valid VAAs |
+| Crate                                                          | README                                           | Purpose                                                                                |
+| -------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| [`contracts/manager`](contracts/manager)                       | [README](contracts/manager/README.md)            | The policy layer: token custody, message sequencing, M-of-N attestation, rate limiting |
+| [`contracts/transceiver`](contracts/transceiver)               | [README](contracts/transceiver/README.md)        | The transport layer: posts envelopes to the Wormhole core and verifies inbound VAAs    |
+| [`contracts/ntt-with-executor`](contracts/ntt-with-executor)   | [README](contracts/ntt-with-executor/README.md)  | The relay shim: transfers and pays the Wormhole Executor in one transaction            |
+| [`contracts/soroban-ntt-client`](contracts/soroban-ntt-client) | [README](contracts/soroban-ntt-client/README.md) | The shared ABI: wire formats, types, errors, events, cross-contract interfaces         |
+| [`contracts/mock-token`](contracts/mock-token)                 | [README](contracts/mock-token/README.md)         | A minimal token used as a test fixture                                                 |
+| [`integration-tests`](integration-tests)                       | [README](integration-tests/README.md)            | On-chain end-to-end tests against a local Stellar network                              |
+| [`vaa-test-signing`](vaa-test-signing)                         | [README](vaa-test-signing/README.md)             | Host-side guardian signing so tests can forge valid VAAs                               |
+| [`ts`](ts)                                                     | —                                                | `@wormhole-foundation/sdk-stellar-ntt`, the TypeScript bindings for these contracts    |
 
 ## Cross-chain compatibility
 
-The protocol is only useful if Stellar's bytes match what peer chains produce. Three things are held in common with the reference implementations:
+The protocol is only useful if Stellar's bytes match what peer chains produce. The Stellar implementation holds three things in common with the reference implementations:
 
 - **Magic prefixes:** the message prefixes (`0x994E5454` for a transfer, `0x9945FF10` for the transceiver envelope, and the two broadcast prefixes) are the canonical NTT values. A peer chain rejects anything else.
 - **Wormhole chain id:** Stellar is chain **61**. Chain ids throughout the code are Wormhole chain ids, not native chain ids.
@@ -80,7 +82,7 @@ The wire formats, byte for byte, are documented in the [shared library README](c
 - **Access control from OpenZeppelin:** ownership and pausing use the `stellar-access` and `stellar-contract-utils` libraries (two-step ownership, an owner-or-pauser split on pause). Auth failures surface as those libraries' error codes, not the NTT error enums.
 - **Wormhole core:** the contracts call a Soroban port of the Wormhole core (the `wormhole-soroban-client` crate) for posting messages, verifying VAAs, and the address registry.
 
-## Building and testing
+## Build and test
 
 Prerequisites: the Rust `wasm32v1-none` target and the `stellar` CLI. `soroban-sdk` is pinned to `25.3.0`, and release builds run with overflow checks on.
 

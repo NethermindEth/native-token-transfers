@@ -39,6 +39,11 @@ pub enum WrapperError {
     InvalidReferrerFee = 1,
     /// The manager has no registered peer for the recipient chain.
     PeerNotFound = 2,
+    /// The referrer fee exceeds the transfer amount. The `u16` ceiling on
+    /// `dbps` holds the fee below the whole amount, so no caller can reach
+    /// this; it bounds the subtraction in this file rather than relying on a
+    /// guard in another one.
+    FeeExceedsAmount = 3,
 }
 
 /// Cross-chain destination of the transfer.
@@ -129,6 +134,15 @@ impl NttWithExecutor {
             manager.token_decimals() as u8,
             peer.token_decimals as u8,
         )?;
+        // Rejected before the referrer is paid, so a failed transfer moves no
+        // tokens. checked_sub alone would only catch an i128 underflow, which
+        // two positive operands cannot reach; the sign check is what holds the
+        // invariant the error names.
+        let bridged = amount
+            .checked_sub(fee_amount)
+            .filter(|bridged| *bridged >= 0)
+            .ok_or(WrapperError::FeeExceedsAmount)?;
+
         if fee_amount > 0 {
             token::Client::new(&env, &manager.get_token()).transfer(
                 &sender,
@@ -140,7 +154,7 @@ impl NttWithExecutor {
         let sequence = manager
             .transfer(
                 &sender,
-                &(amount - fee_amount),
+                &bridged,
                 &destination.chain,
                 &destination.recipient,
                 &false,

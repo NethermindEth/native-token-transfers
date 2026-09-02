@@ -18,7 +18,7 @@ docker stop stellar_localnet >/dev/null 2>&1 || true
 docker run --rm -d \
   -p 8000:8000 \
   --name stellar_localnet \
-  stellar/quickstart:latest \
+  "$STELLAR_QUICKSTART_IMAGE" \
   --standalone
 
 echo "Waiting for localnet to be ready..."
