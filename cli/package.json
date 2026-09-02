@@ -40,6 +40,12 @@
       "@wormhole-foundation/sdk-solana": "^4.7.0",
       "@wormhole-foundation/sdk-solana-core": "^4.7.0"
     },
+    "@wormhole-foundation/sdk-stellar-ntt": {
+      "@wormhole-foundation/sdk-base": "^4.7.0",
+      "@wormhole-foundation/sdk-definitions": "^4.7.0",
+      "@wormhole-foundation/sdk-stellar": "^4.7.0",
+      "@wormhole-foundation/sdk-stellar-core": "^4.7.0"
+    },
     "@wormhole-foundation/sdk-sui-ntt": {
       "@wormhole-foundation/sdk-base": "^4.7.0",
       "@wormhole-foundation/sdk-definitions": "^4.7.0",

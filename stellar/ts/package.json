@@ -37,7 +37,9 @@
     "build:esm": "tsc -p ./tsconfig.esm.json",
     "build": "npm run build:esm && npm run build:cjs",
     "rebuild": "npm run clean && npm run build",
-    "clean": "rm -rf ./dist"
+    "clean": "rm -rf ./dist",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --config ./jest.config.ts",
+    "test:localnet": "NODE_OPTIONS=--experimental-vm-modules jest --config ./jest.localnet.config.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.0.0",
