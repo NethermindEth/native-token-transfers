@@ -9,8 +9,9 @@ import { parseNttManagerMessage } from "../src/messages.js";
 
 // Produced by the contracts' own encoders — `NttManagerMessage::to_bytes` and
 // `::compute_digest(source_chain = 61)` from soroban-ntt-client, the same ones
-// stellar/integration-tests/src/messages.rs drives — over a message whose
-// sender is hash_address(G...) and whose source token is hash_address(C...).
+// `stellar/integration-tests/src/messages.rs` drives — over a message whose
+// sender is `hash_address(G...)` and whose source token is
+// `hash_address(C...)`.
 const ACCOUNT = "GA5KWLHVHDUXW4YUM7A5MFEJ3CDNN4C3Z3T3VGG2DQUWIZMJSWIN56CF";
 const CONTRACT = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
 const MANAGER_MESSAGE =
