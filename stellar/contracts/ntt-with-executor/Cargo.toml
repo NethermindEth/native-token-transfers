@@ -1,0 +1,24 @@
+[package]
+name = "stellar-ntt-with-executor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "stellar_ntt_with_executor"
+
+[dependencies]
+# `alloc` provides the global allocator required by executor-requests, which
+# builds its request payloads with alloc::Vec.
+soroban-sdk = { workspace = true, features = ["alloc"] }
+soroban-ntt-client = { workspace = true }
+wormhole-soroban-client = { workspace = true }
+executor-requests = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lints.clippy]
+# The executor's request_execution binding mirrors a fixed on-chain ABI whose
+# argument count cannot be reduced without breaking the cross-contract call.
+too_many_arguments = "allow"

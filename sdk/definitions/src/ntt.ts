@@ -465,6 +465,12 @@ export interface EvmNttTransceiver<
   A extends Ntt.Attestation,
 > extends NttTransceiver<N, C, A> {}
 
+export interface StellarNttTransceiver<
+  N extends Network,
+  C extends Chain,
+  A extends Ntt.Attestation,
+> extends NttTransceiver<N, C, A> {}
+
 declare module "@wormhole-foundation/sdk-definitions" {
   export namespace WormholeRegistry {
     interface ProtocolToInterfaceMapping<N, C> {

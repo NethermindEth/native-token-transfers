@@ -41,6 +41,7 @@ jobs:
             --workspace evm/ts \
             --workspace solana \
             --workspace sui \
+            --workspace stellar/ts \
             --workspace sdk/route
         # OIDC authentication is used automatically by npm CLI 11.5.1+
         # No NPM_TOKEN secret needed - authentication happens via OpenID Connect

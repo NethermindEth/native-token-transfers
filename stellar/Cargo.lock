@@ -597,6 +597,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
 
 [[package]]
+name = "executor-requests"
+version = "0.1.0"
+source = "git+https://github.com/NethermindEth/example-messaging-executor?rev=5319457430c45ffcfa165b6628f5ff45ffedf16a#5319457430c45ffcfa165b6628f5ff45ffedf16a"
+
+[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1606,6 +1611,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-ntt-with-executor"
+version = "0.1.0"
+dependencies = [
+ "executor-requests",
+ "soroban-ntt-client",
+ "soroban-sdk",
+ "wormhole-soroban-client",
+]
+
+[[package]]
 name = "stellar-strkey"
 version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1926,7 +1941,7 @@ dependencies = [
 [[package]]
 name = "wormhole-soroban-client"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/wormhole?branch=stellar#f379981979269c7baae15b3b8df2f4c50d61cd91"
+source = "git+https://github.com/NethermindEth/wormhole?rev=f379981979269c7baae15b3b8df2f4c50d61cd91#f379981979269c7baae15b3b8df2f4c50d61cd91"
 dependencies = [
  "soroban-sdk",
 ]
