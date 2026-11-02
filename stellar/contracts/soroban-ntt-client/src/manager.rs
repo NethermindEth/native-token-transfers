@@ -45,8 +45,8 @@ pub trait NttManagerInterface {
     ) -> Result<TransferResult, NttManagerError>;
     /// Completes an outbound transfer previously queued due to rate limiting.
     ///
-    /// Only succeeds once the rate limit window has refilled enough capacity
-    /// to release the queued amount.
+    /// Only succeeds once `rate_limit_duration` has passed since the transfer
+    /// was queued.
     fn complete_queued_transfer(env: Env, sequence: u64)
         -> Result<TransferResult, NttManagerError>;
     /// Cancels an outbound transfer that is still queued.
