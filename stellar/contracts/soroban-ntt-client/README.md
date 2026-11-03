@@ -130,6 +130,7 @@ Different chains hold the same token at different decimal precisions, and the wi
 - The target precision is `min(8, source_decimals, destination_decimals)`. The ceiling is `TrimmedAmount::MAX_DECIMALS = 8`; it is not always 8.
 - `trim(amount, from, to)` returns `(TrimmedAmount, dust)`, where `dust` is the sub-precision remainder that cannot be represented. The manager leaves dust with the sender rather than destroying it, so accounting stays exact.
 - `untrim(to_decimals)` expands a trimmed amount back to a local precision on the receiving side.
+- `shift(to_decimals)` rescales to `min(8, to_decimals)` decimals, or errors with `AmountOverflow` past `u64`. The manager counts rate limits in these units.
 
 `checked_add` / `checked_sub` require matching decimals and error with `DecimalMismatch` otherwise. Note that the arithmetic itself saturates rather than erroring, so those methods guard decimals, not numeric overflow.
 

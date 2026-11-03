@@ -39,14 +39,15 @@ fn transfer_retains_sub_precision_dust() {
     let mock = MockTokenClient::new(&env, &token);
     assert_eq!(mock.balance(&sender), 42); // dust retained
     assert_eq!(mock.balance(&client.address), 250 * scale); // only the trimmed amount is locked
+    assert_eq!(client.get_outbound_capacity(), u64::MAX - 250); // rate-limited at 8 decimals
 
     let sent = MockTransceiverClient::new(&env, &transceiver).last_sent().unwrap();
     let decoded = NttManagerMessage::from_bytes(&env, &sent.manager_payload).unwrap();
     assert_eq!(decoded.payload.amount, TrimmedAmount::new(250, 8).unwrap());
 }
 
-/// An amount whose trimmed value would exceed `u64` is rejected with
-/// `AmountOverflow` before any tokens are taken.
+/// An amount whose trimmed or rate-limit value would exceed `u64` is rejected
+/// with `AmountOverflow` before any tokens are taken.
 #[test]
 fn transfer_rejects_amount_overflow() {
     let env = Env::default();
@@ -61,6 +62,17 @@ fn transfer_rejects_amount_overflow() {
     let huge = (u64::MAX as i128 + 1) * 1_000_000;
     assert_eq!(
         client.try_transfer(&sender, &huge, &DEST_CHAIN, &recipient, &false),
+        Err(Ok(NttManagerError::AmountOverflow))
+    );
+
+    // This trims to u64::MAX at 1 decimal, which overflows at the 7 local decimals.
+    let wide = u64::MAX as i128 * 1_000_000;
+    assert_eq!(
+        client.try_transfer(&sender, &wide, &DEST_CHAIN, &recipient, &false),
+        Err(Ok(NttManagerError::AmountOverflow))
+    );
+    assert_eq!(
+        client.try_quote_transfer(&wide, &DEST_CHAIN),
         Err(Ok(NttManagerError::AmountOverflow))
     );
 }

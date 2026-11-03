@@ -171,6 +171,8 @@ impl ManagerContract {
             our_decimals as u8,
             peer.token_decimals as u8,
         )?;
+        // `transfer` also rejects an amount whose rate-limit value overflows.
+        trimmed.shift(our_decimals as u8)?;
 
         Ok((trimmed.amount, dust as u64))
     }

@@ -71,6 +71,15 @@ impl TrimmedAmount {
         }
     }
 
+    /// Rescales this amount to `min(8, to_decimals)` decimals, the units rate
+    /// limits are kept in.
+    ///
+    /// Returns `AmountOverflow` when the result does not fit in a `u64`.
+    pub fn shift(&self, to_decimals: u8) -> Result<u64, NttManagerError> {
+        u64::try_from(self.untrim(Self::MAX_DECIMALS.min(to_decimals)))
+            .map_err(|_| NttManagerError::AmountOverflow)
+    }
+
     /// Trims an amount in place and subtracts the discarded dust.
     pub fn remove_dust(
         amount: &mut u128,
