@@ -86,7 +86,7 @@ Each direction is a token bucket:
 pub struct RateLimitParams { pub limit: u64, pub current_capacity: u64, pub last_tx_timestamp: u64 }
 ```
 
-Capacity starts full, drains by the trimmed transfer amount, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
+Limits and capacity are in `min(8, local_decimals)` units, whatever the peer's decimals. Capacity starts full, drains by the transfer amount in those units, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
 
 **Backflow** couples them. A completed outbound transfer refills that peer's inbound bucket, and a completed inbound transfer refills the outbound bucket. This keeps ordinary bidirectional traffic from draining one direction and deadlocking users. Setting a new limit preserves the amount already consumed, so a limit change never mints or destroys capacity instantly.
 
@@ -97,7 +97,7 @@ Capacity starts full, drains by the trimmed transfer amount, and refills linearl
 1. **Validate:** amount must be positive, recipient non-zero, a peer must exist for the destination chain, and at least one transceiver must be enabled.
 2. **Trim:** the amount is normalized to `min(8, local_decimals, peer_decimals)` decimals. The dust below that precision stays with the sender; only the trimmed-back amount is custodied.
 3. **Custody:** lock (transfer in) or burn the trimmed amount, before the rate-limit check.
-4. **Rate-limit check:** consume outbound capacity for the trimmed amount.
+4. **Rate-limit check:** consume outbound capacity for the trimmed amount, rescaled to `min(8, local_decimals)` decimals.
    - **Within capacity**: assign a sequence, build the `NttManagerMessage`, dispatch `send_message` to every enabled transceiver, refill the peer's inbound bucket (backflow), and return `TransferResult::immediate`.
    - **Over capacity, `should_queue = false`**: refund the custodied amount and return `TransferExceedsRateLimit`.
    - **Over capacity, `should_queue = true`**: store the queued transfer with a release timestamp, emit the queue events, and return `TransferResult::queued`. No dispatch and no backflow until it completes.

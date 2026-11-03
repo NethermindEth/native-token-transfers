@@ -128,8 +128,9 @@ fn execute_inbound_transfer(
 
     let our_decimals = get_token_decimals(env)?;
     let release_amount = transfer.amount.untrim(our_decimals as u8) as i128;
+    let rate_amount = transfer.amount.shift(our_decimals as u8)?;
 
-    let rate_result = consume_or_delay_inbound(env, source_chain, transfer.amount.amount)?;
+    let rate_result = consume_or_delay_inbound(env, source_chain, rate_amount)?;
 
     // Mark as executed in both branches to prevent replay. For queued transfers,
     // complete_inbound_queued_transfer uses queue entry removal as its guard.
@@ -142,7 +143,7 @@ fn execute_inbound_transfer(
         RateLimitResult::Consumed => {
             release_tokens(env, &recipient, release_amount)?;
 
-            refill_outbound(env, transfer.amount.amount);
+            refill_outbound(env, rate_amount);
             emit_transfer_redeemed(env, digest);
 
             Ok(AttestationResult::executed())
@@ -151,7 +152,7 @@ fn execute_inbound_transfer(
             let queued = InboundQueuedTransfer {
                 recipient,
                 amount: release_amount,
-                trimmed_amount: transfer.amount.amount,
+                trimmed_amount: rate_amount,
                 release_timestamp,
             };
 

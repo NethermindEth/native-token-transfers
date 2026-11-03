@@ -141,10 +141,11 @@ pub fn transfer_internal(
         our_decimals as u8,
         peer.token_decimals as u8,
     )?;
+    let rate_amount = trimmed.shift(our_decimals as u8)?;
 
     custody_tokens(env, sender, transfer_amount as i128)?;
 
-    let rate_result = consume_or_delay_outbound(env, trimmed.amount);
+    let rate_result = consume_or_delay_outbound(env, rate_amount);
 
     let source_token = hash_address(env, &token);
     let sequence = storage.use_sequence();
@@ -161,7 +162,7 @@ pub fn transfer_internal(
             };
             let digest = send_transfer(env, sender, sequence, &message)?;
 
-            refill_inbound(env, recipient_chain, trimmed.amount);
+            refill_inbound(env, recipient_chain, rate_amount);
 
             Ok(TransferResult::immediate(sequence, digest))
         }
@@ -178,7 +179,7 @@ pub fn transfer_internal(
                 env,
                 sender,
                 sequence,
-                trimmed.amount,
+                rate_amount,
                 current_capacity,
             );
 
@@ -257,7 +258,8 @@ pub fn complete_outbound_queued_transfer(
     };
     let digest = send_transfer(env, &queued.sender, sequence, &message)?;
 
-    refill_inbound(env, queued.recipient_chain, queued.amount.amount);
+    let rate_amount = queued.amount.shift(get_token_decimals(env)? as u8)?;
+    refill_inbound(env, queued.recipient_chain, rate_amount);
 
     Ok(TransferResult::immediate(sequence, digest))
 }
