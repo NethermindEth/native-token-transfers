@@ -33,7 +33,8 @@ pub trait NttManagerInterface {
     ///
     /// Equivalent to [`transfer`](Self::transfer) but attaches
     /// `additional_payload` to the NTT message so the recipient manager can
-    /// forward it to a downstream consumer.
+    /// forward it to a downstream consumer. An empty `additional_payload` is
+    /// sent as no payload, as on EVM.
     fn transfer_with_payload(
         env: Env,
         sender: Address,
