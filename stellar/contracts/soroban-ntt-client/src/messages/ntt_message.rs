@@ -131,13 +131,15 @@ impl NttManagerMessage {
 
     /// Serializes to the cross-chain wire format.
     ///
-    /// Propagates errors from [`NativeTokenTransfer::to_bytes`].
+    /// Returns `PayloadTooLong` if the encoded transfer exceeds 65535 bytes,
+    /// or propagates errors from [`NativeTokenTransfer::to_bytes`].
     pub fn to_bytes(&self, env: &Env) -> Result<Bytes, NttManagerError> {
         let mut buf = Bytes::from_array(env, &self.id.to_array());
         buf.extend_from_array(&self.sender.to_array());
 
         let payload_bytes = self.payload.to_bytes(env)?;
-        let payload_len = payload_bytes.len() as u16;
+        let payload_len =
+            u16::try_from(payload_bytes.len()).map_err(|_| NttManagerError::PayloadTooLong)?;
         buf.extend_from_array(&payload_len.to_be_bytes());
         buf.append(&payload_bytes);
 
@@ -179,5 +181,35 @@ impl NttManagerMessage {
         let mut data = Bytes::from_array(env, &source_chain.to_be_bytes());
         data.append(&self.to_bytes(env)?);
         Ok(env.crypto().keccak256(&data).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The transfer encodes to 81 bytes plus the additional payload, so 65_454
+    // additional bytes is the most the `u16` length can frame.
+    #[test]
+    fn ntt_manager_message_rejects_oversized_payload() {
+        let env = Env::default();
+        let message = |additional_payload| NttManagerMessage {
+            id: BytesN::from_array(&env, &[1; 32]),
+            sender: BytesN::from_array(&env, &[2; 32]),
+            payload: NativeTokenTransfer {
+                amount: TrimmedAmount::new(1, 8).unwrap(),
+                source_token: BytesN::from_array(&env, &[3; 32]),
+                to: BytesN::from_array(&env, &[4; 32]),
+                to_chain: 1,
+                additional_payload: Some(additional_payload),
+            },
+        };
+        let payload = Bytes::from_slice(&env, &[0; 65_455]);
+
+        assert!(message(payload.slice(1..)).to_bytes(&env).is_ok());
+        assert_eq!(
+            message(payload).to_bytes(&env).err(),
+            Some(NttManagerError::PayloadTooLong)
+        );
     }
 }
