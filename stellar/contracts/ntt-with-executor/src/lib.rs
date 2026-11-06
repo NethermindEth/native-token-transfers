@@ -103,8 +103,8 @@ impl NttWithExecutor {
     /// Transfers `amount` through `ntt_manager` and pays the executor to relay
     /// it, returning the manager's message sequence.
     ///
-    /// All token movements — the optional referrer fee, the manager's
-    /// lock/burn, and the executor's XLM fee — run under the single auth tree
+    /// All token movements — the optional referrer fee, the manager's lock/burn
+    /// and transceiver fees, and the executor's XLM fee — share one auth tree
     /// rooted at `sender`; the wrapper takes no custody. `should_queue` is
     /// forced to `false`: a rate-limited transfer emits no message, so paying a
     /// relayer for it would be premature and the whole call reverts instead.
