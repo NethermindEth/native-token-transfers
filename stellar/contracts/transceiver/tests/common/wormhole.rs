@@ -1,5 +1,7 @@
+use soroban_ntt_client::{flatten_call, native_sac};
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, token::TokenClient, Address, Bytes, BytesN,
+    Env, Symbol, Vec,
 };
 use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
 
@@ -33,8 +35,9 @@ pub struct LastPosted {
 
 /// Wormhole-core stand-in exposing the three methods the transceiver calls:
 /// `parse_and_verify_vaa` returns the configured VAA (or fails verification),
-/// `post_message` records what it received, and `get_message_fee` returns the
-/// configured fee. Real signature verification lives in the IT suite.
+/// `post_message` collects the fee and records what it received, and
+/// `get_message_fee` returns the configured fee. Real signature verification
+/// lives in the IT suite.
 #[contract]
 pub struct MockWormholeCore;
 
@@ -116,6 +119,15 @@ impl MockWormholeCore {
         let c = cfg(&env);
         if c.fail_post {
             return Err(WormholeError::InsufficientFeePaid);
+        }
+        if c.fee > 0 {
+            // Collects the fee as the core does, from the emitter's allowance.
+            let this = env.current_contract_address();
+            let xlm = TokenClient::new(&env, &native_sac(&env));
+            flatten_call(
+                xlm.try_transfer_from(&this, &emitter, &this, &i128::from(c.fee)),
+                WormholeError::InsufficientFeePaid,
+            )?;
         }
         env.storage().instance().set(&POSTED, &LastPosted { emitter, nonce, payload });
         Ok(c.sequence)
