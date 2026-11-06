@@ -113,6 +113,8 @@ flowchart TD
 
 A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, and works even while the contract is paused.
 
+Before each `send_message`, the manager pays that transceiver its `quote_delivery_price` in XLM: from the sender, or from the `payer` that completes a queued transfer. `TransferSent.fee` reports the total.
+
 The message id is the sequence number placed in the low 8 bytes of a 32-byte field. The digest is `keccak256(source_chain || message)` (see the [wire formats](../soroban-ntt-client/README.md#message-digest)).
 
 ## Inbound and attestation flow
@@ -177,7 +179,7 @@ transfer(sender, amount: i128, recipient_chain: u32, recipient: BytesN<32>, shou
     -> Result<TransferResult>
 transfer_with_payload(sender, amount, recipient_chain, recipient, should_queue, additional_payload: Bytes)
     -> Result<TransferResult>
-complete_queued_transfer(sequence: u64) -> Result<TransferResult>   // permissionless
+complete_queued_transfer(payer, sequence: u64) -> Result<TransferResult>  // permissionless
 cancel_queued_transfer(sender, sequence: u64) -> Result<()>          // original sender
 ```
 
@@ -194,7 +196,7 @@ complete_inbound_transfer(digest: BytesN<32>) -> Result<()>          // permissi
 
 `quote_transfer(amount, recipient_chain) -> (trimmed, dust)`, `quote_delivery_price(recipient_chain) -> Vec<TransceiverFee>`, `is_message_executed`, `is_message_approved`, `message_attestations`, `transceiver_attested_to_message`, `get_attestation_info`, `get_next_sequence`, `get_mode`, `get_token`, `get_chain_id`, `token_decimals`, `get_version`, `get_wormhole_core`, and the queue views `get_outbound_queue_item` / `get_inbound_queue_item`.
 
-`quote_delivery_price` makes one cross-contract call per enabled transceiver and reports each fee as `Option`, so one failing transceiver shows as `None` instead of failing the whole query.
+`quote_delivery_price` makes one cross-contract call per enabled transceiver and reports each fee as `Option`, so one failing transceiver shows as `None` instead of failing the whole query. A transfer pays every quote, so it fails with `TransceiverCallFailed` while any quote is `None`.
 
 ## Storage model
 

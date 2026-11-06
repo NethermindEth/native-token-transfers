@@ -8,10 +8,10 @@
 use soroban_ntt_client::{
     emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
     emit_outbound_transfer_rate_limited, emit_transfer_sent, flatten_call, is_zero_bytes32,
-    sequence_to_message_id, NativeTokenTransfer, NttManagerError, NttManagerMessage,
+    native_sac, sequence_to_message_id, NativeTokenTransfer, NttManagerError, NttManagerMessage,
     TransceiverClient, TrimmedAmount,
 };
-use soroban_sdk::{Address, Bytes, BytesN, Env};
+use soroban_sdk::{token, Address, Bytes, BytesN, Env};
 use wormhole_soroban_client::hash_address;
 
 use crate::{
@@ -39,9 +39,11 @@ struct OutboundMessage {
 /// Creates an NTT message, computes its digest, and dispatches it to each
 /// enabled transceiver for cross-chain delivery. Assigns a unique sequence
 /// number, and returns the sequence and digest for tracking and verification.
+/// `payer` pays each transceiver its delivery quote in XLM before dispatch.
 fn send_transfer(
     env: &Env,
     sender: &Address,
+    payer: &Address,
     msg: &OutboundMessage,
 ) -> Result<(u64, BytesN<32>), NttManagerError> {
     let storage = InstanceStorage::new(env);
@@ -71,13 +73,20 @@ fn send_transfer(
         return Err(NttManagerError::NoEnabledTransceivers);
     }
 
+    let xlm = token::Client::new(env, &native_sac(env));
+    let mut total_fee = 0;
     for transceiver in transceivers.iter() {
+        let client = TransceiverClient::new(env, &transceiver);
+        let fee = flatten_call(
+            client.try_quote_delivery_price(&msg.recipient_chain),
+            NttManagerError::TransceiverCallFailed,
+        )?;
+        if fee > 0 {
+            xlm.transfer(payer, &transceiver, &fee);
+            total_fee += fee;
+        }
         flatten_call(
-            TransceiverClient::new(env, &transceiver).try_send_message(
-                &msg.recipient_chain,
-                &msg.recipient_ntt_manager,
-                &payload,
-            ),
+            client.try_send_message(&msg.recipient_chain, &msg.recipient_ntt_manager, &payload),
             NttManagerError::TransceiverCallFailed,
         )?;
     }
@@ -86,7 +95,7 @@ fn send_transfer(
         env,
         &msg.recipient,
         msg.amount.amount,
-        0,
+        total_fee,
         msg.recipient_chain,
         sequence,
         &digest,
@@ -158,7 +167,7 @@ pub fn transfer_internal(
                 source_token: source_token.clone(),
                 additional_payload: additional_payload.clone(),
             };
-            let (sequence, digest) = send_transfer(env, sender, &message)?;
+            let (sequence, digest) = send_transfer(env, sender, sender, &message)?;
 
             refill_inbound(env, recipient_chain, trimmed.amount);
 
@@ -230,6 +239,7 @@ pub fn transfer_internal(
 /// - `TransferNotReleasable` if current time is before release timestamp
 pub fn complete_outbound_queued_transfer(
     env: &Env,
+    payer: &Address,
     sequence: u64,
 ) -> Result<TransferResult, NttManagerError> {
     let entry = OutboundQueueEntry::new(env, sequence);
@@ -254,7 +264,7 @@ pub fn complete_outbound_queued_transfer(
         source_token: queued.source_token.clone(),
         additional_payload: queued.additional_payload.clone(),
     };
-    let (new_sequence, digest) = send_transfer(env, &queued.sender, &message)?;
+    let (new_sequence, digest) = send_transfer(env, &queued.sender, payer, &message)?;
 
     refill_inbound(env, queued.recipient_chain, queued.amount.amount);
 

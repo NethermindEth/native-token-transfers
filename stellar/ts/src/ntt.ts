@@ -270,15 +270,18 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Dispatches an outbound transfer the rate limiter held back, keyed by the
    * sequence {@link getOutboundQueuedTransfer} reports. Also permissionless
    * once the delay has been served; the message is sent under a *new* sequence.
+   * `payer` authorizes the call and pays every transceiver's quote in XLM.
    */
   async *completeOutboundQueuedTransfer(
     sequence: bigint,
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
+    const from = this.source(payer, "the payer");
     yield await this.prepare(
-      this.source(payer, "the payer"),
+      from,
       new Contract(this.managerAddress).call(
         "complete_queued_transfer",
+        addressArg(from),
         sequenceArg(sequence)
       ),
       "Ntt.completeOutboundQueuedTransfer"
@@ -334,9 +337,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 
   /**
    * Returns the cost of dispatching a transfer, in stroops: the sum of every
-   * enabled transceiver's quote. A transceiver whose own quote failed reports
-   * `None` and drops out of the sum, so a broken transceiver does not lose the
-   * whole quote.
+   * enabled transceiver's quote. Throws if a transceiver could not quote,
+   * because the manager pays every quote and the transfer would fail too.
    */
   async quoteDeliveryPrice(
     destination: Chain,
@@ -353,7 +355,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       throw new Error(`Expected a Vec<TransceiverFee>, got ${typeof quotes}`);
 
     return quotes
-      .map((quote) => decodeTransceiverFee(quote).fee ?? 0n)
+      .map((quote) => {
+        const { transceiver, fee } = decodeTransceiverFee(quote);
+        if (fee === null)
+          throw new Error(`Transceiver ${transceiver} could not quote a fee`);
+        return fee;
+      })
       .reduce((total, fee) => total + fee, 0n);
   }
 
@@ -377,8 +384,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    *
    * The manager takes custody with the token's own `transfer`/`burn`, both of
    * which authorize `sender` rather than an allowance, so the caller needs no
-   * separate approve step. The transceiver pays the Wormhole message fee out of its
-   * own balance — see {@link quoteDeliveryPrice} for what that costs.
+   * separate approve step. The sender also pays every transceiver's quote in
+   * XLM (see {@link quoteDeliveryPrice}); a queued transfer charges whoever
+   * completes it instead.
    */
   async *transfer(
     sender: AccountAddress<C>,

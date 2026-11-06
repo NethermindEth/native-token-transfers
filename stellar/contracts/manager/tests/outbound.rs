@@ -1,13 +1,16 @@
 #![cfg(test)]
 
 mod common;
+#[path = "common/token.rs"]
+mod token;
 #[path = "common/transceiver.rs"]
 mod transceiver;
 
 use common::setup_manager;
 use soroban_ntt_client::{
-    sequence_to_message_id, Mode, NttManagerError, NttManagerMessage, OutboundTransferCancelled,
-    OutboundTransferQueued, OutboundTransferRateLimited, TransferSent, TrimmedAmount,
+    native_sac, sequence_to_message_id, Mode, NttManagerError, NttManagerMessage,
+    OutboundTransferCancelled, OutboundTransferQueued, OutboundTransferRateLimited, TransferSent,
+    TrimmedAmount,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
@@ -15,6 +18,7 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, Event,
 };
 use stellar_ntt_manager::ManagerContractClient;
+use token::{MockToken, MockTokenClient};
 use transceiver::{add_transceiver, MockTransceiver, MockTransceiverClient};
 use wormhole_soroban_client::hash_address;
 
@@ -244,19 +248,19 @@ fn complete_queued_transfer_releases_after_window() {
     let sequence = queued.sequence;
 
     assert_eq!(
-        client.try_complete_queued_transfer(&sequence),
+        client.try_complete_queued_transfer(&sender, &sequence),
         Err(Ok(NttManagerError::TransferNotReleasable))
     );
 
     let release_at = client.get_outbound_queue_item(&sequence).unwrap().release_timestamp;
     env.ledger().set_timestamp(release_at);
 
-    let completed = client.complete_queued_transfer(&sequence);
+    let completed = client.complete_queued_transfer(&sender, &sequence);
     assert!(!completed.queued);
     assert!(MockTransceiverClient::new(&env, &transceiver).last_sent().is_some());
 
     assert_eq!(
-        client.try_complete_queued_transfer(&sequence),
+        client.try_complete_queued_transfer(&sender, &sequence),
         Err(Ok(NttManagerError::TransferNotQueued))
     );
 }
@@ -312,9 +316,84 @@ fn complete_queued_transfer_blocked_when_paused() {
     client.pause(&owner);
 
     assert_eq!(
-        client.try_complete_queued_transfer(&queued.sequence),
+        client.try_complete_queued_transfer(&sender, &queued.sequence),
         Err(Err(soroban_sdk::InvokeError::Contract(1000)))
     );
+}
+
+/// A sent transfer pays each enabled transceiver its quote in XLM from the
+/// sender and reports the total as the `TransferSent` fee. A transceiver that
+/// can't quote fails the transfer rather than going unpaid.
+#[test]
+fn transfer_pays_transceiver_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, _, sender) = outbound_setup(&env, Mode::Locking, u64::MAX);
+    let first = add_transceiver(&env, &client, 100, false);
+    let second = add_transceiver(&env, &client, 50, false);
+    let xlm = env.register_at(&native_sac(&env), MockToken, (7u32,));
+    let xlm = MockTokenClient::new(&env, &xlm);
+    xlm.mint(&sender, &1000);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+
+    let result = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &false);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![TransferSent {
+            recipient_chain: DEST_CHAIN,
+            digest: result.digest,
+            recipient: recipient.clone(),
+            amount: 100,
+            fee: 150,
+            msg_sequence: result.sequence,
+        }
+        .to_xdr(&env, &client.address)]
+    );
+
+    assert_eq!(xlm.balance(&sender), 850);
+    assert_eq!(xlm.balance(&first), 100);
+    assert_eq!(xlm.balance(&second), 50);
+
+    add_transceiver(&env, &client, 0, true);
+    assert_eq!(
+        client.try_transfer(&sender, &100, &DEST_CHAIN, &recipient, &false),
+        Err(Ok(NttManagerError::TransceiverCallFailed))
+    );
+}
+
+/// Queueing charges no fee. Completing the transfer needs `payer`'s signature
+/// and charges the quotes to `payer`. The payer can't be the manager itself,
+/// whose XLM custody its own token call would otherwise authorize.
+#[test]
+fn complete_queued_transfer_charges_payer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, _, sender) = outbound_setup(&env, Mode::Locking, 50);
+    let transceiver = add_transceiver(&env, &client, 100, false);
+    let payer = Address::generate(&env);
+    let xlm = env.register_at(&native_sac(&env), MockToken, (7u32,));
+    let xlm = MockTokenClient::new(&env, &xlm);
+    xlm.mint(&payer, &1000);
+    xlm.mint(&client.address, &1000);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+
+    let queued = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &true);
+    let entry = client.get_outbound_queue_item(&queued.sequence).unwrap();
+    env.ledger().set_timestamp(entry.release_timestamp);
+
+    env.mock_auths(&[]);
+    for unsigned in [&payer, &client.address] {
+        assert!(client
+            .try_complete_queued_transfer(unsigned, &queued.sequence)
+            .is_err());
+    }
+    env.mock_all_auths();
+    client.complete_queued_transfer(&payer, &queued.sequence);
+
+    assert_eq!(xlm.balance(&sender), 0);
+    assert_eq!(xlm.balance(&payer), 900);
+    assert_eq!(xlm.balance(&client.address), 1000);
+    assert_eq!(xlm.balance(&transceiver), 100);
 }
 
 /// Each transfer gets a distinct sequence, so two otherwise-identical transfers

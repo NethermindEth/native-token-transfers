@@ -34,7 +34,8 @@ pub trait TransceiverInterface {
     /// envelope (prefix, routing fields) and emits it via its transport
     /// (e.g. by posting a Wormhole message).
     ///
-    /// Only the owning manager is authorized to call this.
+    /// Only the owning manager may call this, after paying this transceiver its
+    /// [`quote_delivery_price`](Self::quote_delivery_price) in XLM.
     fn send_message(
         env: Env,
         recipient_chain: u32,

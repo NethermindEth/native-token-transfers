@@ -94,9 +94,9 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
    * read slightly high.
    *
    * `sender` alone authorizes every token movement — the referrer fee, the
-   * manager's lock or burn, and the executor's XLM fee — and also sources the
-   * transaction, so the envelope signature covers the whole auth tree and no
-   * auth entry needs a separate signature.
+   * manager's lock or burn and transceiver fees, and the executor's XLM fee —
+   * and also sources the transaction, so the envelope signature covers the
+   * whole auth tree and no auth entry needs a separate signature.
    *
    * `wrapNative` has nothing to do here: XLM is already a SEP-41 contract on
    * Stellar, so the native token needs no wrapper. The contract also does not

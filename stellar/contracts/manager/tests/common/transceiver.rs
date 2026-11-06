@@ -1,5 +1,8 @@
-use soroban_ntt_client::TransceiverError;
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env};
+use soroban_ntt_client::{native_sac, TransceiverError};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, token::TokenClient, Address, Bytes, BytesN,
+    Env,
+};
 use stellar_ntt_manager::ManagerContractClient;
 
 #[contracttype]
@@ -49,6 +52,11 @@ impl MockTransceiver {
         let cfg: TransceiverConfig = env.storage().instance().get(&symbol_short!("cfg")).unwrap();
         if cfg.fail_send {
             return Err(TransceiverError::WormholePostFailed);
+        }
+        if cfg.quote > 0 {
+            // The real transceiver spends its quote on the post, so the manager must pay first.
+            let xlm = TokenClient::new(&env, &native_sac(&env));
+            assert!(xlm.balance(&env.current_contract_address()) >= cfg.quote);
         }
         env.storage().instance().set(
             &symbol_short!("sent"),
