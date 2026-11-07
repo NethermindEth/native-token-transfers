@@ -68,7 +68,6 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    */
   readonly transceiverAddress: string | undefined;
   readonly coreAddress: string;
-  private tokenDecimals: Promise<number> | undefined;
 
   constructor(
     readonly network: N,
@@ -130,12 +129,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return asNumber(await this.read("get_threshold"));
   }
 
-  /**
-   * Caches after the first read: the manager sets `token_decimals` once, in
-   * its constructor.
-   */
   async getTokenDecimals(): Promise<number> {
-    return (this.tokenDecimals ??= this.read("token_decimals").then(asNumber));
+    return asNumber(await this.read("token_decimals"));
   }
 
   /**
