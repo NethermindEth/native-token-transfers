@@ -314,6 +314,7 @@ impl NttManagerInterface for ManagerContract {
         complete_outbound_queued_transfer(&env, sequence)
     }
 
+    #[when_not_paused]
     fn cancel_queued_transfer(
         env: Env,
         sender: Address,

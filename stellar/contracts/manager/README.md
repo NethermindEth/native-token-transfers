@@ -111,7 +111,7 @@ flowchart TD
   q -->|yes| store["store queued transfer<br/>with release_timestamp"]
 ```
 
-A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, and works even while the contract is paused.
+A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, except while the contract is paused.
 
 The message id is the sequence number placed in the low 8 bytes of a 32-byte field. The digest is `keccak256(source_chain || message)` (see the [wire formats](../soroban-ntt-client/README.md#message-digest)).
 
@@ -253,7 +253,7 @@ Owner and pause failures are not in this enum. They come from the OpenZeppelin S
 
 **Replay protection:** each message has a digest that binds it to its source chain. Attestations are recorded per transceiver per digest, so no transceiver counts twice. The executed flag is set in both the released and queued inbound branches. `execute_msg` and repeat attestations are idempotent.
 
-**Pausing:** `#[when_not_paused]` covers `transfer`, `transfer_with_payload`, `complete_queued_transfer`, `complete_inbound_transfer`, `attestation_received`, and `execute_msg`. `cancel_queued_transfer` is intentionally left uncovered so refunds work during a pause.
+**Pausing:** `#[when_not_paused]` covers `transfer`, `transfer_with_payload`, `complete_queued_transfer`, `cancel_queued_transfer`, `complete_inbound_transfer`, `attestation_received`, and `execute_msg`, as on EVM.
 
 **Authorization**
 

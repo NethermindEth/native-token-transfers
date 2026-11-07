@@ -317,6 +317,29 @@ fn complete_queued_transfer_blocked_when_paused() {
     );
 }
 
+/// `cancel_queued_transfer` is also gated, as on EVM: while paused the sender
+/// cannot take the queued amount back, and after unpausing the cancel refunds.
+#[test]
+fn cancel_queued_transfer_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, client, token, _, sender) = outbound_setup(&env, Mode::Locking, 50);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+
+    let queued = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &true);
+    client.pause(&owner);
+
+    assert_eq!(
+        client.try_cancel_queued_transfer(&sender, &queued.sequence),
+        Err(Err(soroban_sdk::InvokeError::Contract(1000)))
+    );
+    assert_eq!(TokenClient::new(&env, &token).balance(&sender), 900);
+
+    client.unpause(&owner);
+    client.cancel_queued_transfer(&sender, &queued.sequence);
+    assert_eq!(TokenClient::new(&env, &token).balance(&sender), 1000);
+}
+
 /// Each transfer gets a distinct sequence, so two otherwise-identical transfers
 /// produce distinct digests and cannot collide on the receiving side.
 #[test]
