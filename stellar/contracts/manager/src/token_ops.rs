@@ -32,20 +32,18 @@ use crate::{state::Mode, storage::InstanceStorage};
 /// Queries the token contract for its decimal precision.
 ///
 /// Makes a cross-contract call to the token's `decimals()` function.
-/// Used during initialization to cache the token decimals in storage.
 pub fn query_token_decimals(env: &Env, token: &Address) -> u32 {
     let client = token::Client::new(env, token);
     client.decimals()
 }
 
-/// Retrieves the cached token decimals from storage.
-///
-/// Decimals are queried once during initialization and cached. This avoids
-/// repeated cross-contract calls when normalizing transfer amounts.
+/// Queries the managed token for its decimals on every call, as EVM, Solana
+/// and Sui do, rather than caching them.
 ///
 /// Returns `NotInitialized` if the contract has not been initialized.
 pub fn get_token_decimals(env: &Env) -> Result<u32, NttManagerError> {
-    InstanceStorage::new(env).token_decimals()
+    let token = InstanceStorage::new(env).token()?;
+    Ok(query_token_decimals(env, &token))
 }
 
 /// Transfers tokens from the sender to this contract (locking mode).

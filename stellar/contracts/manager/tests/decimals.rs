@@ -8,12 +8,28 @@ mod transceiver;
 
 use common::{setup_manager, setup_manager_with_token};
 use soroban_ntt_client::{Mode, NttManagerError, NttManagerMessage, TrimmedAmount};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, BytesN, Env};
 use token::{MockToken, MockTokenClient};
 use transceiver::{add_transceiver, MockTransceiverClient};
 
 const OUR_CHAIN: u32 = 2;
 const DEST_CHAIN: u32 = 6;
+
+/// `token_decimals` reads the token on every call rather than a value cached
+/// at construction, so it reports a change made after deployment.
+#[test]
+fn token_decimals_reads_token_live() {
+    let env = Env::default();
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) =
+        setup_manager_with_token(&env, Mode::Locking, OUR_CHAIN, u64::MAX, 3600, &token);
+
+    env.as_contract(&token, || {
+        env.storage().instance().set(&symbol_short!("dec"), &9u32)
+    });
+
+    assert_eq!(client.token_decimals(), 9);
+}
 
 /// Amounts are normalized to at most 8 decimals (`MAX_DECIMALS`): on an
 /// 18-decimal token the sub-precision remainder is dust that stays with the

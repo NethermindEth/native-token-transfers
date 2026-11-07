@@ -1,13 +1,10 @@
 #![cfg(test)]
 
 mod common;
-#[path = "common/token.rs"]
-mod token;
 
 use common::{setup_manager, setup_manager_with_token};
 use soroban_ntt_client::Mode;
-use soroban_sdk::Env;
-use token::MockToken;
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 /// The constructor persists every config field and initial counter — owner,
 /// token, mode, chain id, threshold 0, version 1, full outbound capacity, and
@@ -47,13 +44,11 @@ fn constructor_rejects_zero_chain_id() {
 }
 
 /// The constructor reads decimals from the token contract rather than assuming
-/// the SAC's 7, caching whatever the token reports (18 here).
+/// the address is a token, so a deploy over any other address fails.
 #[test]
-fn constructor_queries_token_decimals() {
-    // SAC tokens are fixed at 7 decimals; an 18-decimal token proves the
-    // constructor reads decimals from the token rather than assuming 7.
+#[should_panic(expected = "Error(Storage, MissingValue)")]
+fn constructor_rejects_non_token() {
     let env = Env::default();
-    let token = env.register(MockToken, (18u32,));
-    let (_, client) = setup_manager_with_token(&env, Mode::Locking, 1, 1000, 3600, &token);
-    assert_eq!(client.token_decimals(), 18);
+    let not_a_token = Address::generate(&env);
+    setup_manager_with_token(&env, Mode::Locking, 1, 1000, 3600, &not_a_token);
 }
