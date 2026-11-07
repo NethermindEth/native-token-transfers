@@ -131,8 +131,6 @@ Different chains hold the same token at different decimal precisions, and the wi
 - `trim(amount, from, to)` returns `(TrimmedAmount, dust)`, where `dust` is the sub-precision remainder that cannot be represented. The manager leaves dust with the sender rather than destroying it, so accounting stays exact.
 - `untrim(to_decimals)` expands a trimmed amount back to a local precision on the receiving side.
 
-`checked_add` / `checked_sub` require matching decimals and error with `DecimalMismatch` otherwise. Note that the arithmetic itself saturates rather than erroring, so those methods guard decimals, not numeric overflow.
-
 ## Protocol constants
 
 Defined in [`constants.rs`](src/constants.rs). Shared by every contract in the workspace.
@@ -191,7 +189,6 @@ Event structs live here so any observer (indexers, the Global Accountant, the in
 
 ## Notes for auditors
 
-- **`checked_add` / `checked_sub` saturate:** they only error on decimal mismatch. Despite the name, numeric overflow silently clamps to `u64::MAX` or `0`.
 - **All decoder failures collapse to `MessageTooShort`:** the `From<WormholeError>` bridge maps every `BytesReader` error to one variant, so a bad internal length prefix that over-reads is indistinguishable from a truncated buffer.
 - **Chain ids are `u32` in structs but `u16` on the wire:** `validate_chain_id` narrows and rejects anything above `u16::MAX` with `ChainIdTooLarge`. Chain ids throughout are Wormhole chain ids (Stellar is 61), not native chain ids.
 - **The attested bitmap is a `u64`:** this is why `MAX_TRANSCEIVERS` is 64. A transceiver's permanent index is its bit position.
