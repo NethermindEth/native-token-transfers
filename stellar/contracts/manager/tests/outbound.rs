@@ -261,6 +261,41 @@ fn complete_queued_transfer_releases_after_window() {
     );
 }
 
+/// Completing a queued transfer sends it under the queue sequence, so the
+/// sequence and digest returned at queue time are the ones on the wire, and no
+/// second sequence is taken.
+#[test]
+fn complete_queued_transfer_reuses_queue_sequence() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, transceiver, sender) = outbound_setup(&env, Mode::Locking, 50);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+
+    let queued = client.transfer(&sender, &100, &DEST_CHAIN, &recipient, &true);
+    let release_at = client.get_outbound_queue_item(&queued.sequence).unwrap().release_timestamp;
+    env.ledger().set_timestamp(release_at);
+
+    let completed = client.complete_queued_transfer(&queued.sequence);
+    assert_eq!(completed.sequence, queued.sequence);
+    assert_eq!(completed.digest, queued.digest);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![TransferSent {
+            recipient_chain: DEST_CHAIN,
+            digest: queued.digest,
+            recipient,
+            amount: 100,
+            fee: 0,
+            msg_sequence: 1,
+        }
+        .to_xdr(&env, &client.address)]
+    );
+    let sent = MockTransceiverClient::new(&env, &transceiver).last_sent().unwrap();
+    let decoded = NttManagerMessage::from_bytes(&env, &sent.manager_payload).unwrap();
+    assert_eq!(decoded.id, sequence_to_message_id(&env, 1));
+    assert_eq!(client.get_next_sequence(), 2);
+}
+
 /// Only the original sender can cancel a queued transfer (`CancellerNotSender`
 /// otherwise); cancelling refunds the sender, emits `OutboundTransferCancelled`,
 /// and consumes the entry (`TransferNotQueued` on retry).
