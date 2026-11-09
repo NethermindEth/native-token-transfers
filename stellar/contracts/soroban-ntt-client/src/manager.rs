@@ -86,7 +86,7 @@ pub trait NttManagerInterface {
         source_ntt_manager: BytesN<32>,
         payload: Bytes,
     ) -> Result<AttestationResult, NttManagerError>;
-    /// Returns the decimal precision of the managed token as stored at init.
+    /// Returns the decimal precision the managed token reports.
     fn token_decimals(env: Env) -> Result<u32, NttManagerError>;
     /// Returns the registered peer for `chain_id`, or `None` if unregistered.
     fn get_peer(env: Env, chain_id: u32) -> Option<NttManagerPeer>;

@@ -111,7 +111,7 @@ flowchart TD
   q -->|yes| store["store queued transfer<br/>with release_timestamp"]
 ```
 
-A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, and works even while the contract is paused.
+A queued outbound transfer completes permissionlessly through `complete_queued_transfer` once its release timestamp passes; it dispatches under the original sender and skips a second rate-limit check, because the delay already served that purpose. `cancel_queued_transfer` lets the original sender reclaim the funds, expanded back to local decimals, except while the contract is paused.
 
 The message id is the sequence number placed in the low 8 bytes of a 32-byte field. The digest is `keccak256(source_chain || message)` (see the [wire formats](../soroban-ntt-client/README.md#message-digest)).
 
@@ -131,7 +131,7 @@ The message id is the sequence number placed in the low 8 bytes of a 32-byte fie
 
 The manager marks the message executed in **both** the released and the queued branches, which is what prevents a replay from pushing a queued transfer's release timestamp forward. If capacity allows, release the tokens (unlock or mint), refill the outbound bucket (backflow), and emit `TransferRedeemed`. Otherwise store an inbound queued transfer for completion after the window.
 
-Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they call `record_address`, since an unregistered recipient failed _before_ the executed flag was set.
+Two permissionless entry points cover the tail cases. `complete_inbound_transfer` releases a queued inbound transfer after its window (the queue-entry removal is the replay guard, since the attestation is already marked executed). It pays the amount untrimmed when the transfer was queued, so if the token's decimals change in between, it pays at the old scale; EVM untrims at completion. `execute_msg` retries an approved-but-unexecuted message; this is the path a recipient takes after they call `record_address`, since an unregistered recipient failed _before_ the executed flag was set.
 
 ## Public API
 
@@ -202,21 +202,20 @@ complete_inbound_transfer(digest: BytesN<32>) -> Result<()>          // permissi
 
 **Instance storage** (config and counters, TTL extended on every access)
 
-| Key                 | Type              | Default                           |
-| ------------------- | ----------------- | --------------------------------- |
-| `Pauser`            | `Option<Address>` | none                              |
-| `Token`             | `Address`         | required                          |
-| `TokenDecimals`     | `u32`             | required (cached at construction) |
-| `Mode`              | `Mode`            | required                          |
-| `ChainId`           | `u32`             | required                          |
-| `WormholeCore`      | `Address`         | required                          |
-| `Threshold`         | `u32`             | 0                                 |
-| `NextSequence`      | `u64`             | 1                                 |
-| `Version`           | `u32`             | 1                                 |
-| `TransceiverCount`  | `u32`             | 0                                 |
-| `EnabledBitmap`     | `u64`             | 0                                 |
-| `OutboundRateLimit` | `RateLimitParams` | unlimited if unset                |
-| `RateLimitDuration` | `u64`             | 86400                             |
+| Key                 | Type              | Default            |
+| ------------------- | ----------------- | ------------------ |
+| `Pauser`            | `Option<Address>` | none               |
+| `Token`             | `Address`         | required           |
+| `Mode`              | `Mode`            | required           |
+| `ChainId`           | `u32`             | required           |
+| `WormholeCore`      | `Address`         | required           |
+| `Threshold`         | `u32`             | 0                  |
+| `NextSequence`      | `u64`             | 1                  |
+| `Version`           | `u32`             | 1                  |
+| `TransceiverCount`  | `u32`             | 0                  |
+| `EnabledBitmap`     | `u64`             | 0                  |
+| `OutboundRateLimit` | `RateLimitParams` | unlimited if unset |
+| `RateLimitDuration` | `u64`             | 86400              |
 
 **Persistent storage** (per-entity, TTL extended on read and write)
 
@@ -253,7 +252,7 @@ Owner and pause failures are not in this enum. They come from the OpenZeppelin S
 
 **Replay protection:** each message has a digest that binds it to its source chain. Attestations are recorded per transceiver per digest, so no transceiver counts twice. The executed flag is set in both the released and queued inbound branches. `execute_msg` and repeat attestations are idempotent.
 
-**Pausing:** `#[when_not_paused]` covers `transfer`, `transfer_with_payload`, `complete_queued_transfer`, `complete_inbound_transfer`, `attestation_received`, and `execute_msg`. `cancel_queued_transfer` is intentionally left uncovered so refunds work during a pause.
+**Pausing:** `#[when_not_paused]` covers `transfer`, `transfer_with_payload`, `complete_queued_transfer`, `cancel_queued_transfer`, `complete_inbound_transfer`, `attestation_received`, and `execute_msg`, as on EVM.
 
 **Authorization**
 

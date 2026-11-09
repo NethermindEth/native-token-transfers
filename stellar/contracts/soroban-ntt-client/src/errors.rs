@@ -35,7 +35,7 @@ pub enum NttManagerError {
     ChainIdTooLarge = 4,
     /// Additional transfer payload exceeds the maximum encodable length.
     PayloadTooLong = 5,
-    /// Source and destination token decimals cannot be reconciled without loss.
+    /// Reserved: not returned, kept so that code 6 is never reassigned.
     DecimalMismatch = 6,
     /// Arithmetic overflow while normalizing or summing a transfer amount.
     AmountOverflow = 7,

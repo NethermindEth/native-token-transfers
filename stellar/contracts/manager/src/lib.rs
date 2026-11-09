@@ -32,7 +32,7 @@ use storage::{
     AttestationEntry, InboundQueueEntry, InstanceStorage, OutboundQueueEntry, PeerEntry,
     TransceiverEntry,
 };
-use token_ops::query_token_decimals;
+use token_ops::{get_token_decimals, query_token_decimals};
 use transceivers::{
     check_threshold_invariants, get_enabled_transceivers,
     remove_transceiver as remove_transceiver_internal, set_threshold_value,
@@ -56,7 +56,8 @@ impl ManagerContract {
     /// - Rate limiting parameters with configurable duration
     /// - Initial sequence number and counters
     ///
-    /// The token's decimal precision is queried and stored for amount normalization.
+    /// The token's decimals are queried so that an address that is not a token
+    /// fails the deploy.
     #[allow(clippy::too_many_arguments)]
     pub fn __constructor(
         env: Env,
@@ -68,7 +69,7 @@ impl ManagerContract {
         rate_limit_duration: u64,
         wormhole_core: Address,
     ) {
-        let token_decimals = query_token_decimals(&env, &token);
+        query_token_decimals(&env, &token);
         let storage = InstanceStorage::new(&env);
 
         if chain_id == 0 {
@@ -81,7 +82,6 @@ impl ManagerContract {
         ownable::set_owner(&env, &owner);
         storage.set_token(&token);
         storage.set_wormhole_core(&wormhole_core);
-        storage.set_token_decimals(token_decimals);
         storage.set_mode(&mode);
         storage.set_chain_id(chain_id);
         storage.set_threshold(0);
@@ -148,7 +148,7 @@ impl ManagerContract {
     ///
     /// # Errors
     /// - `PeerNotFound` if no peer is registered for `recipient_chain`
-    /// - `NotInitialized` if token decimals are not set
+    /// - `NotInitialized` if the token is not set
     pub fn quote_transfer(
         env: Env,
         amount: i128,
@@ -160,11 +160,9 @@ impl ManagerContract {
             return Err(NttManagerError::ZeroAmount);
         }
 
-        let storage = InstanceStorage::new(&env);
-
         let peer = PeerEntry::new(&env, recipient_chain).get_or_err()?;
 
-        let our_decimals = storage.token_decimals()?;
+        let our_decimals = get_token_decimals(&env)?;
 
         let (trimmed, dust) = TrimmedAmount::trim(
             amount as u128,
@@ -314,6 +312,7 @@ impl NttManagerInterface for ManagerContract {
         complete_outbound_queued_transfer(&env, sequence)
     }
 
+    #[when_not_paused]
     fn cancel_queued_transfer(
         env: Env,
         sender: Address,
@@ -359,7 +358,7 @@ impl NttManagerInterface for ManagerContract {
     }
 
     fn token_decimals(env: Env) -> Result<u32, NttManagerError> {
-        InstanceStorage::new(&env).token_decimals()
+        get_token_decimals(&env)
     }
 
     fn get_peer(env: Env, chain_id: u32) -> Option<NttManagerPeer> {

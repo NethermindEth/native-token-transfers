@@ -66,11 +66,6 @@ impl<'a> InstanceStorage<'a> {
     }
 
     #[inline]
-    pub fn token_decimals(&self) -> Result<u32, NttManagerError> {
-        self.read_key(&DataKey::TokenDecimals)
-    }
-
-    #[inline]
     pub fn mode(&self) -> Result<Mode, NttManagerError> {
         self.read_key(&DataKey::Mode)
     }
@@ -130,11 +125,6 @@ impl<'a> InstanceStorage<'a> {
     #[inline]
     pub fn set_token(&self, token: &Address) {
         self.write_key(&DataKey::Token, token);
-    }
-
-    #[inline]
-    pub fn set_token_decimals(&self, decimals: u32) {
-        self.write_key(&DataKey::TokenDecimals, &decimals);
     }
 
     #[inline]
