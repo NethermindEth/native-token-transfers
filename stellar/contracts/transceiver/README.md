@@ -72,7 +72,7 @@ Auth in one line: manager-only for `send_message`; owner-only for pause, upgrade
 4. Post to the Wormhole core via `post_message`, emitting the transceiver contract itself as the emitter. A message fee, which the manager has already paid the transceiver, is first approved to the core for this ledger only; the core collects it with `transfer_from`.
 5. Emit `MessageSent`.
 
-The post uses a hardcoded nonce of `0` and consistency level `Confirmed` (not `Finalized`), a latency-versus-finality choice that applies to every message this contract sends. The transceiver discards the core-assigned sequence locally; Wormhole tracks it.
+The post uses a hardcoded nonce of `0` and consistency level `1` (Wormhole's "confirmed") for every message this contract sends. The transceiver discards the core-assigned sequence locally; Wormhole tracks it.
 
 Note that `recipient_chain` never enters the envelope. Cross-chain routing is implicit: the destination transceiver recognizes this contract by its peer registration for Stellar (chain 61), and the `recipient_manager` field names the manager that should consume the payload. `send_message` uses `recipient_chain` only to validate a peer exists and to label the event.
 
@@ -89,7 +89,7 @@ Note that `recipient_chain` never enters the envelope. Cross-chain routing is im
 7. **Forward:** call `attestation_received` on the manager with the decoded `manager_payload`. A manager rejection surfaces as `ManagerRejectedMessage`.
 8. Emit `MessageReceived`.
 
-The transceiver reads only four VAA fields: `emitter_chain`, `emitter_address`, `sequence`, and `payload`. It trusts finality from the core's verification and does not re-check timestamp, nonce, or consistency level.
+The transceiver reads only four VAA fields: `emitter_chain`, `emitter_address`, `sequence`, and `payload`. It trusts finality from the core's verification and does not re-check timestamp, nonce, or consistency level. With a core at or after `946cef0d`, a peer may post at any level, such as Sui's 0 or the 202 the NTT CLI deploys EVM transceivers with.
 
 ## Peers
 
@@ -128,7 +128,7 @@ See the `TransceiverError` ranges in the [shared library README](../soroban-ntt-
 
 ## Notes for auditors
 
-- **Consistency level is `Confirmed`, not `Finalized`**, on every outbound post. This trades finality for latency uniformly.
+- **Consistency level is a fixed `1`** on every outbound post, not configurable as on EVM. The Stellar guardian watcher copies it into the VAA and does not wait on it.
 - **The transceiver is its own Wormhole emitter:** peer registrations on other chains must point at Stellar (chain 61) and this contract's 32-byte id.
 - **`quote_delivery_price` returns only the core message fee:** there is no relayer leg, so the same fee is quoted for every destination chain.
 - **`flatten_call` collapses both error layers to one variant:** a malformed VAA and a bad signature both surface as `WormholeVerificationFailed`; the underlying Wormhole error is not passed through.

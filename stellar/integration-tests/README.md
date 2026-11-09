@@ -103,11 +103,11 @@ The suite has 30 tests across four groups. The single test binary is [`tests/run
 
 ## Vendored contracts
 
-[`vendor/wormhole_core.wasm`](vendor/) is the Stellar port of the Wormhole core, committed as a fixed binary so the harness has a deterministic thing to deploy. [`vendor/WORMHOLE_CORE_README.md`](vendor/WORMHOLE_CORE_README.md) records its provenance: built from `NethermindEth/wormhole` branch `stellar`, commit `f379981…`, with the `stellar` CLI, then optimized.
+[`vendor/wormhole_core.wasm`](vendor/) is the Stellar port of the Wormhole core, committed as a fixed binary so the harness has a deterministic thing to deploy. [`vendor/WORMHOLE_CORE_README.md`](vendor/WORMHOLE_CORE_README.md) records its provenance: built from `NethermindEth/wormhole` branch `ext-integration/stellar`, commit `946cef0…`, with the `stellar` CLI, then optimized.
 
 [`vendor/wormhole_executors.wasm`](vendor/) is the Executor rail that `contracts/ntt-with-executor` pays, vendored for the same reason and recorded in [`vendor/WORMHOLE_EXECUTOR_README.md`](vendor/WORMHOLE_EXECUTOR_README.md). Only the TypeScript suite deploys it.
 
-The workspace also depends on the same repo as a git crate (`wormhole-soroban-client`) for host-side encoders. The wasm is vendored separately because the harness needs the compiled, optimized artifact to `stellar contract deploy`, and rebuilding a moving branch tip on every run would be slow and non-deterministic. Refreshing it means rebuilding from the pinned commit and updating the recorded commit, size, and toolchain.
+The workspace also depends on the same repo as a git crate (`wormhole-soroban-client`) for host-side encoders. The wasm is vendored separately because the harness needs the compiled, optimized artifact to `stellar contract deploy`, and rebuilding a moving branch tip on every run would be slow and non-deterministic. Refreshing it means rebuilding from the pinned commit and updating the recorded commit, size, SHA-256, and toolchain.
 
 ## Prerequisites and constraints
 

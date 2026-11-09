@@ -73,6 +73,21 @@ fn receive_message_forwards_and_emits_and_marks_consumed() {
     assert!(t.is_vaa_consumed(&PEER_CHAIN, &peer, &7));
 }
 
+/// The core passes the source chain's consistency level through as a `u32`, so
+/// VAAs from EVM (202) and Sui (0) must be accepted like Solana's 1.
+#[test]
+fn receive_message_accepts_any_consistency_level() {
+    let env = Env::default();
+    let (t, core, manager_id) = setup_with_peer(&env);
+    let manager_payload = Bytes::from_array(&env, &[1, 2, 3, 4]);
+
+    for (sequence, level) in [(1, 202), (2, 0)] {
+        core.set_consistency_level(&level);
+        arrives(&env, &core, &manager_id, sequence, &manager_payload);
+        assert_eq!(t.try_receive_message(&Bytes::new(&env)), Ok(Ok(())));
+    }
+}
+
 /// A VAA the core rejects on verification → `WormholeVerificationFailed`. (Real
 /// signature verification is exercised in the IT suite; here the mapping is.)
 #[test]
