@@ -77,9 +77,9 @@ Sender              NttWithExecutor            Manager / Token / Executor
   │        sequence        │                               │
 ```
 
-All three token movements — the optional referrer fee, the manager's lock/burn,
-and the executor's XLM fee — settle under one authorization tree rooted at
-`sender`.
+All token movements — the optional referrer fee, the manager's lock/burn and
+transceiver fees, and the executor's XLM fee — settle under one authorization
+tree rooted at `sender`.
 
 ---
 

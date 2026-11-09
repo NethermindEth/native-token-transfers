@@ -21,6 +21,7 @@ pub trait NttManagerInterface {
     /// The `sender` must have authorized the call. If the amount exceeds
     /// the outbound rate limit, the behavior depends on `should_queue`:
     /// queued for later completion if `true`, rejected otherwise.
+    /// Unless queued, `sender` pays every transceiver's delivery quote in XLM.
     fn transfer(
         env: Env,
         sender: Address,
@@ -47,8 +48,14 @@ pub trait NttManagerInterface {
     ///
     /// Only succeeds once the rate limit window has refilled enough capacity
     /// to release the queued amount.
-    fn complete_queued_transfer(env: Env, sequence: u64)
-        -> Result<TransferResult, NttManagerError>;
+    ///
+    /// Anyone may complete it: `payer` authorizes the call and pays each
+    /// enabled transceiver's delivery quote in XLM.
+    fn complete_queued_transfer(
+        env: Env,
+        payer: Address,
+        sequence: u64,
+    ) -> Result<TransferResult, NttManagerError>;
     /// Cancels an outbound transfer that is still queued.
     ///
     /// Only the original sender may cancel; the locked/burned tokens are

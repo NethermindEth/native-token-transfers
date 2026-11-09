@@ -180,7 +180,8 @@ impl ManagerContract {
     /// Returns one [`TransceiverFee`] per enabled transceiver, in registry
     /// order. A transceiver whose quote call fails yields `fee: None` rather
     /// than failing the whole query, so the caller can see which transceiver
-    /// is unavailable. Sum the `Some` values for the total dispatch cost.
+    /// is unavailable. A transfer pays every quote, so it fails with
+    /// `TransceiverCallFailed` while any fee is `None`.
     ///
     /// Makes one cross-contract call per enabled transceiver, so cost scales
     /// linearly with the registry size; intended as an off-chain query rather
@@ -309,9 +310,11 @@ impl NttManagerInterface for ManagerContract {
     #[when_not_paused]
     fn complete_queued_transfer(
         env: Env,
+        payer: Address,
         sequence: u64,
     ) -> Result<TransferResult, NttManagerError> {
-        complete_outbound_queued_transfer(&env, sequence)
+        payer.require_auth();
+        complete_outbound_queued_transfer(&env, &payer, sequence)
     }
 
     fn cancel_queued_transfer(

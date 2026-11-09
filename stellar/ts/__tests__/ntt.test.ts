@@ -363,16 +363,16 @@ describe("StellarNtt delivery quotes", () => {
     expect(calls[0]!.args[0]!.u32()).toEqual(2);
   });
 
-  it("skips a transceiver that could not quote", async () => {
+  it("fails when a transceiver could not quote", async () => {
     overrides = {
       quote_delivery_price: [
         { transceiver: TRANSCEIVER, fee: null },
         { transceiver: MANAGER, fee: 250n },
       ],
     };
-    await expect(
-      ntt().quoteDeliveryPrice("Ethereum", options)
-    ).resolves.toEqual(250n);
+    await expect(ntt().quoteDeliveryPrice("Ethereum", options)).rejects.toThrow(
+      `Transceiver ${TRANSCEIVER} could not quote a fee`
+    );
   });
 
   it("never advertises relaying: Stellar has no quoter", async () => {
@@ -679,7 +679,7 @@ describe("StellarNtt queue completion", () => {
     expect(invocation(completed!)).toEqual({
       contract: MANAGER,
       method: "complete_queued_transfer",
-      args: [7n],
+      args: [OWNER, 7n],
     });
 
     // Canceling is sender-gated, so the sender goes over the ABI as well.

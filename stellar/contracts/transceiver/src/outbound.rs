@@ -1,8 +1,8 @@
 use soroban_ntt_client::{
-    emit_message_sent, flatten_call, validate_chain_id, NttManagerClient, TransceiverError,
-    TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
+    emit_message_sent, flatten_call, native_sac, validate_chain_id, NttManagerClient,
+    TransceiverError, TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
-use soroban_sdk::{Bytes, BytesN, Env};
+use soroban_sdk::{token, Address, Bytes, BytesN, Env};
 use wormhole_soroban_client::{hash_address, ConsistencyLevel, WormholeClient};
 
 use crate::peers::{get_peer_info, load_enabled_peer};
@@ -26,7 +26,8 @@ pub fn send_message(
     }
     .to_bytes(env)?;
 
-    post_message(env, payload)?;
+    // The manager pays the quote to this contract before calling.
+    post_message(env, payload, None)?;
     emit_message_sent(env, recipient_chain, &recipient_manager, &manager_payload);
     Ok(())
 }
@@ -40,7 +41,7 @@ pub fn quote_delivery_price(env: &Env) -> Result<i128, TransceiverError> {
     Ok(fee as i128)
 }
 
-pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
+pub fn broadcast_id(env: &Env, payer: &Address) -> Result<(), TransceiverError> {
     let manager = InstanceStorage::new(env).manager()?;
     let manager_client = NttManagerClient::new(env, &manager);
     let err = TransceiverError::ManagerQueryFailed;
@@ -56,10 +57,10 @@ pub fn broadcast_id(env: &Env) -> Result<(), TransceiverError> {
     }
     .to_bytes(env);
 
-    post_message(env, payload)
+    post_message(env, payload, Some(payer))
 }
 
-pub fn broadcast_peer(env: &Env, chain_id: u32) -> Result<(), TransceiverError> {
+pub fn broadcast_peer(env: &Env, payer: &Address, chain_id: u32) -> Result<(), TransceiverError> {
     let chain_id_u16 = validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
     let peer = get_peer_info(env, chain_id).ok_or(TransceiverError::PeerNotFound)?;
 
@@ -69,11 +70,27 @@ pub fn broadcast_peer(env: &Env, chain_id: u32) -> Result<(), TransceiverError> 
     }
     .to_bytes(env);
 
-    post_message(env, payload)
+    post_message(env, payload, Some(payer))
 }
 
-fn post_message(env: &Env, payload: Bytes) -> Result<(), TransceiverError> {
+/// Posts `payload` to the Wormhole core, paying its message fee from `payer`,
+/// or from this contract's balance when `payer` is `None`.
+fn post_message(
+    env: &Env,
+    payload: Bytes,
+    payer: Option<&Address>,
+) -> Result<(), TransceiverError> {
     let core = InstanceStorage::new(env).wormhole_core()?;
+    let fee = quote_delivery_price(env)?;
+    if fee > 0 {
+        let xlm = token::Client::new(env, &native_sac(env));
+        let this = env.current_contract_address();
+        if let Some(payer) = payer {
+            xlm.transfer(payer, &this, &fee);
+        }
+        // The core collects the fee with `transfer_from` within `post_message`.
+        xlm.approve(&this, &core, &fee, &env.ledger().sequence());
+    }
     flatten_call(
         WormholeClient::new(env, &core).try_post_message(
             &env.current_contract_address(),

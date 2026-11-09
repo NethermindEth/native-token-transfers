@@ -144,13 +144,15 @@ impl WormholeTransceiverInterface for TransceiverContract {
     }
 
     #[when_not_paused]
-    fn broadcast_id(env: Env) -> Result<(), TransceiverError> {
-        outbound::broadcast_id(&env)
+    fn broadcast_id(env: Env, payer: Address) -> Result<(), TransceiverError> {
+        payer.require_auth();
+        outbound::broadcast_id(&env, &payer)
     }
 
     #[when_not_paused]
-    fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError> {
+    fn broadcast_peer(env: Env, payer: Address, chain_id: u32) -> Result<(), TransceiverError> {
+        payer.require_auth();
         validate_chain_id(chain_id).ok_or(TransceiverError::ChainIdTooLarge)?;
-        outbound::broadcast_peer(&env, chain_id)
+        outbound::broadcast_peer(&env, &payer, chain_id)
     }
 }

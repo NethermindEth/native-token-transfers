@@ -1,6 +1,6 @@
 //! Cross-contract conversion and validation helpers.
 
-use soroban_sdk::{BytesN, Env};
+use soroban_sdk::{Address, BytesN, Env};
 
 /// Encodes a manager sequence number as the canonical 32-byte message ID.
 ///
@@ -10,6 +10,16 @@ pub fn sequence_to_message_id(env: &Env, sequence: u64) -> BytesN<32> {
     let mut bytes = [0u8; 32];
     bytes[24..32].copy_from_slice(&sequence.to_be_bytes());
     BytesN::from_array(env, &bytes)
+}
+
+/// Returns the native XLM Stellar Asset Contract on the current network.
+///
+/// The contract ID depends on the network passphrase, so it is derived from
+/// the `Asset::Native` XDR rather than hardcoded.
+pub fn native_sac(env: &Env) -> Address {
+    env.deployer()
+        .with_stellar_asset([0u8; 4])
+        .deployed_address()
 }
 
 /// Returns `true` if every byte of `b` is zero.
