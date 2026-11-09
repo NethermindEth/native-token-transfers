@@ -2,7 +2,7 @@
 
 End-to-end tests that deploy the whole NTT stack on a local Stellar network and drive it through the `stellar` CLI. Unlike the in-process suites under each contract's `tests/`, these run against a real Dockerized network and a real (vendored) Wormhole core, so they exercise guardian-signature verification, cross-contract auth, ledger-time rate-limit windows, and the actual deployed wasm.
 
-The one place they use the in-process Soroban `Env` is as a host-side library: to serialize wire messages, compute digests, and hash addresses with the exact encoders the contracts use, so the tests never hand-roll a byte layout.
+The one place they use the in-process Soroban `Env` is as a host-side library: to serialize wire messages, compute digests, and hash addresses with the exact encoders the contracts use, so the tests never hand-roll an NTT byte layout.
 
 All tests are `#[ignore]`-gated, so a plain `cargo test --workspace` skips them on hosts without Docker. The opt-in runner is `scripts/run-tests.sh`.
 
@@ -45,14 +45,14 @@ The two suites divide the work rather than duplicate it: the Rust tests pin the 
 | [`ctx.rs`](src/ctx.rs)           | `TestContext`: localnet config, the resolved `admin` identity, wasm paths, and the guardian secret. `from_env` reads every env var (and panics if any is missing), resolves the admin address, and re-registers the network alias.           |
 | [`deploy.rs`](src/deploy.rs)     | Typed deployers plus the `Stack` orchestrator, which deploys core, token, manager, and one transceiver, and exposes about 40 helpers for registration, transfers, the queue lifecycle, pause, ownership, and balance checks.                 |
 | [`vaa.rs`](src/vaa.rs)           | Re-exports the [`vaa-test-signing`](../vaa-test-signing) primitives so `deploy.rs` and `messages.rs` use them unchanged.                                                                                                                     |
-| [`messages.rs`](src/messages.rs) | Host-side wire encoders reusing the contract crates: `hash_address`, `build_inbound_vaa_hex` (serialize, sign, assemble), a tampered-signature variant, and `compute_message_digest`.                                                        |
+| [`messages.rs`](src/messages.rs) | Host-side wire encoders reusing the contract crates: `hash_address`, `build_inbound_vaa_hex` (serialize, sign, assemble), a tampered-signature variant, `compute_message_digest`, and `build_set_message_fee_vaa_hex`.                       |
 | [`events.rs`](src/events.rs)     | Typed wrapper over RPC `getEvents`. Because indexing lags ledger close, `find` polls until an event matches, and accessors decode topics and data so tests assert event shape without touching base64.                                       |
 
 **Lifecycle of one test:** `setup()` builds a `TestContext`, then `Stack::deploy` performs four real on-chain deploys (core, token, manager, transceiver). The test registers the transceiver (which auto-sets the threshold to 1) and the peer (on both the manager's and the transceiver's peer tables), funds a recipient, and for inbound tests registers that recipient on the core address registry. The body then builds a guardian-signed VAA off-chain, submits it, and asserts on balances and events. Negative tests use `try_*` helpers and assert `err.code`.
 
 ## Test coverage
 
-The suite has 30 tests across four groups. The single test binary is [`tests/run.rs`](tests/run.rs); shared fixtures are in [`tests/common/`](tests/common).
+The suite has 31 tests across four groups. The single test binary is [`tests/run.rs`](tests/run.rs); shared fixtures are in [`tests/common/`](tests/common).
 
 **admin** ([`tests/admin/`](tests/admin)) governance, access control, pause
 
@@ -90,6 +90,7 @@ The suite has 30 tests across four groups. The single test binary is [`tests/run
 | `queued_cancel_refunds`        | canceling a queued transfer refunds the sender in full            |
 | `queued_complete_after_window` | a queued transfer releases after the window                       |
 | `rate_limit_rejects`           | over-capacity without queue is rejected (62) with no custody leak |
+| `transfer_with_message_fee`    | the core fee is quoted and paid on transfer and broadcast         |
 
 **cross_cutting** ([`tests/cross_cutting/`](tests/cross_cutting)) properties spanning both paths
 

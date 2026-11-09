@@ -1,19 +1,24 @@
 //! Host-side encoders for the NTT manager + transceiver wire messages, plus
 //! [`build_inbound_vaa_hex`] which composes the full inbound VAA a test
-//! wants to submit, and [`stellar_addr_to_hash`] for cross-chain
-//! recipient encoding.
+//! wants to submit, [`build_set_message_fee_vaa_hex`] for the core's fee
+//! governance VAA, and [`stellar_addr_to_hash`] for cross-chain recipient
+//! encoding.
 //!
 //! The contract-side encoders in `soroban-ntt-client` and the VAA body
 //! serializer in `wormhole-soroban-client` both require a Soroban `Env` to
 //! allocate, so the harness instantiates a `testutils` `Env` locally and
 //! reuses them. This keeps those crates as the single source of truth for
-//! the on-the-wire format — no hand-rolled byte layouts here.
+//! the on-the-wire format. The one hand-rolled layout is the `SetMessageFee`
+//! governance payload, which the client crate only parses.
 
 use soroban_ntt_client::messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec as SorobanVec};
-use wormhole_soroban_client::{hash_address, VAA};
+use wormhole_soroban_client::{
+    hash_address, ACTION_SET_MESSAGE_FEE, CHAIN_ID_STELLAR, GOVERNANCE_CHAIN_ID,
+    GOVERNANCE_EMITTER, MODULE_CORE, U256_PADDING_BYTES, VAA,
+};
 
 use crate::vaa::{self, GuardianSignature};
 
@@ -64,6 +69,38 @@ pub fn build_inbound_vaa_hex(inputs: &InboundVaaInputs<'_>) -> String {
     let sig: GuardianSignature = vaa::sign(&body, inputs.guardian_secret, 0);
     let assembled = vaa::assemble(0, std::slice::from_ref(&sig), &body);
     hex::encode(assembled)
+}
+
+/// Builds a guardian-signed `SetMessageFee` governance VAA that sets the core's
+/// message fee on Stellar to `fee` stroops, hex-encoded for the core's
+/// `submit_set_message_fee`.
+pub fn build_set_message_fee_vaa_hex(fee: u64, guardian_secret: &[u8; 32]) -> String {
+    let env = Env::default();
+    let payload = [
+        &MODULE_CORE[..],
+        &[ACTION_SET_MESSAGE_FEE],
+        &CHAIN_ID_STELLAR.to_be_bytes(),
+        &[0; U256_PADDING_BYTES as usize],
+        &fee.to_be_bytes(),
+    ]
+    .concat();
+    let body: Vec<u8> = VAA {
+        version: 1,
+        guardian_set_index: 0,
+        signatures: SorobanVec::new(&env),
+        timestamp: 0,
+        nonce: 0,
+        emitter_chain: GOVERNANCE_CHAIN_ID,
+        emitter_address: BytesN::from_array(&env, &GOVERNANCE_EMITTER),
+        sequence: 0,
+        consistency_level: 1,
+        payload: Bytes::from_slice(&env, &payload),
+    }
+    .serialize_body(&env)
+    .iter()
+    .collect();
+    let sig = vaa::sign(&body, guardian_secret, 0);
+    hex::encode(vaa::assemble(0, std::slice::from_ref(&sig), &body))
 }
 
 /// Same as [`build_inbound_vaa_hex`] but flips one byte of the guardian
