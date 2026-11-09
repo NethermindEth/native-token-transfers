@@ -228,8 +228,8 @@ describe("burning manager", () => {
  * the second transfer has `OVER_LIMIT / 2.5` = 30 ledger-seconds to be
  * simulated, after which capacity has caught up, it is not over the limit any
  * more and there is no queue entry to assert on. One submission is about three
- * seconds here, so the headroom is ~10x. Its window once queued —
- * `deficit × duration / limit` — is about 20 seconds.
+ * seconds here, so the headroom is ~10x. Once queued, it waits the full
+ * `duration`, 60 seconds.
  */
 describe("rate limiting", () => {
   const LIMIT = 150n;
