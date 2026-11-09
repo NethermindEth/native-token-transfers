@@ -269,7 +269,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * Dispatches an outbound transfer the rate limiter held back, keyed by the
    * sequence {@link getOutboundQueuedTransfer} reports. Also permissionless
-   * once the delay has been served; the message is sent under a *new* sequence.
+   * once the delay has been served; the message is sent under the same sequence.
    */
   async *completeOutboundQueuedTransfer(
     sequence: bigint,
