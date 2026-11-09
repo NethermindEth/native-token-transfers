@@ -146,7 +146,7 @@ __constructor(
     mode: Mode,
     chain_id: u32,            // Wormhole chain id; 61 for Stellar
     outbound_limit: u64,
-    rate_limit_duration: u64, // seconds, for example 86400
+    rate_limit_duration: u64, // seconds, nonzero, for example 86400
     wormhole_core: Address,   // used to resolve inbound recipients
 )
 ```

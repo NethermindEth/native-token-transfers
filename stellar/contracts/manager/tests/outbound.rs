@@ -100,6 +100,25 @@ fn transfer_with_payload_dispatches_additional_payload() {
     assert_eq!(decoded.payload.additional_payload, Some(payload));
 }
 
+/// An empty payload is sent as no payload: `Some(empty)` would add a trailing
+/// zero length that Solana cannot parse.
+#[test]
+fn transfer_with_empty_payload_sends_no_payload() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _, transceiver, sender) = outbound_setup(&env, Mode::Locking, u64::MAX);
+    let recipient = BytesN::from_array(&env, &RECIPIENT);
+    let payload = Bytes::new(&env);
+
+    client.transfer_with_payload(&sender, &100, &DEST_CHAIN, &recipient, &false, &payload);
+
+    let sent = MockTransceiverClient::new(&env, &transceiver)
+        .last_sent()
+        .unwrap();
+    let decoded = NttManagerMessage::from_bytes(&env, &sent.manager_payload).unwrap();
+    assert_eq!(decoded.payload.additional_payload, None);
+}
+
 /// A burning transfer reduces the sender's balance without the manager holding
 /// custody (supply leaves this chain), and still dispatches the message.
 #[test]

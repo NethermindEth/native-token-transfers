@@ -46,6 +46,14 @@ fn constructor_rejects_zero_chain_id() {
     setup_manager(&env, Mode::Locking, 0, 1000, 3600);
 }
 
+/// A zero rate-limit duration would divide by zero on every capacity read.
+#[test]
+#[should_panic(expected = "Error(Contract, #20)")]
+fn constructor_rejects_zero_rate_limit_duration() {
+    let env = Env::default();
+    setup_manager(&env, Mode::Locking, 1, 1000, 0);
+}
+
 /// The constructor reads decimals from the token contract rather than assuming
 /// the SAC's 7, caching whatever the token reports (18 here).
 #[test]
