@@ -13,7 +13,7 @@ use soroban_ntt_client::messages::{
     NativeTokenTransfer, NttManagerMessage, TransceiverMessage, TrimmedAmount,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Vec as SorobanVec};
-use wormhole_soroban_client::{hash_address, ConsistencyLevel, VAA};
+use wormhole_soroban_client::{hash_address, VAA};
 
 use crate::vaa::{self, GuardianSignature};
 
@@ -110,7 +110,7 @@ fn serialize_inbound_vaa_body(inputs: &InboundVaaInputs<'_>) -> Vec<u8> {
         emitter_chain: u32::from(inputs.emitter_chain),
         emitter_address: BytesN::from_array(&env, &inputs.emitter_address),
         sequence: inputs.sequence,
-        consistency_level: ConsistencyLevel::Confirmed,
+        consistency_level: 1,
         payload: transceiver_payload,
     };
     vaa_for_body.serialize_body(&env).iter().collect()

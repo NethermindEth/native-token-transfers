@@ -3,20 +3,21 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token::TokenClient, Address, Bytes, BytesN,
     Env, Symbol, Vec,
 };
-use wormhole_soroban_client::{ConsistencyLevel, WormholeError, VAA};
+use wormhole_soroban_client::{WormholeError, VAA};
 
 const CFG: Symbol = symbol_short!("cfg");
 const POSTED: Symbol = symbol_short!("posted");
 
 /// The parsed VAA `parse_and_verify_vaa` returns, plus failure knobs and the
-/// message fee. Tests set the parsed fields with `set_vaa` and flip flags with
-/// the `fail_*` setters.
+/// message fee. Tests set the parsed fields with `set_vaa` and
+/// `set_consistency_level`, and flip flags with the `fail_*` setters.
 #[contracttype]
 #[derive(Clone)]
 struct Config {
     emitter_chain: u32,
     emitter_address: BytesN<32>,
     sequence: u64,
+    consistency_level: u32,
     payload: Bytes,
     fee: u64,
     fail_verify: bool,
@@ -31,6 +32,7 @@ pub struct LastPosted {
     pub emitter: Address,
     pub nonce: u32,
     pub payload: Bytes,
+    pub consistency_level: u32,
 }
 
 /// Wormhole-core stand-in exposing the three methods the transceiver calls:
@@ -50,6 +52,7 @@ impl MockWormholeCore {
                 emitter_chain: 0,
                 emitter_address: BytesN::from_array(&env, &[0; 32]),
                 sequence: 0,
+                consistency_level: 1,
                 payload: Bytes::new(&env),
                 fee,
                 fail_verify: false,
@@ -63,6 +66,12 @@ impl MockWormholeCore {
         let mut c = cfg(&env);
         (c.emitter_chain, c.emitter_address, c.sequence, c.payload) =
             (emitter_chain, emitter_address, sequence, payload);
+        env.storage().instance().set(&CFG, &c);
+    }
+
+    pub fn set_consistency_level(env: Env, consistency_level: u32) {
+        let mut c = cfg(&env);
+        c.consistency_level = consistency_level;
         env.storage().instance().set(&CFG, &c);
     }
 
@@ -104,7 +113,7 @@ impl MockWormholeCore {
             emitter_chain: c.emitter_chain,
             emitter_address: c.emitter_address,
             sequence: c.sequence,
-            consistency_level: ConsistencyLevel::Confirmed,
+            consistency_level: c.consistency_level,
             payload: c.payload,
         })
     }
@@ -114,7 +123,7 @@ impl MockWormholeCore {
         emitter: Address,
         nonce: u32,
         payload: Bytes,
-        _consistency_level: ConsistencyLevel,
+        consistency_level: u32,
     ) -> Result<u64, WormholeError> {
         let c = cfg(&env);
         if c.fail_post {
@@ -129,7 +138,15 @@ impl MockWormholeCore {
                 WormholeError::InsufficientFeePaid,
             )?;
         }
-        env.storage().instance().set(&POSTED, &LastPosted { emitter, nonce, payload });
+        env.storage().instance().set(
+            &POSTED,
+            &LastPosted {
+                emitter,
+                nonce,
+                payload,
+                consistency_level,
+            },
+        );
         Ok(c.sequence)
     }
 
