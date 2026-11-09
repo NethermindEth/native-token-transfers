@@ -9,7 +9,8 @@ use integration_tests::TestContext;
 
 use crate::common::{complete_after_window, peer_inbound_vaa, PEER_ADDR, PEER_CHAIN, PEER_DECIMALS};
 
-const INBOUND_LIMIT: u64 = 150_000_000;
+// Limits count min(8, local) = 7-decimal units; the wire amounts below are at 8.
+const INBOUND_LIMIT: u64 = 15_000_000;
 const RATE_LIMIT_DURATION: u64 = 60;
 const PRIMER_TRIMMED: u64 = 100_000_000;
 const QUEUED_TRIMMED: u64 = 75_000_000;
