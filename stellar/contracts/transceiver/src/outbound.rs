@@ -3,10 +3,13 @@ use soroban_ntt_client::{
     TransceiverError, TransceiverMessage, WormholeTransceiverInfo, WormholeTransceiverRegistration,
 };
 use soroban_sdk::{token, Address, Bytes, BytesN, Env};
-use wormhole_soroban_client::{hash_address, ConsistencyLevel, WormholeClient};
+use wormhole_soroban_client::{hash_address, WormholeClient};
 
 use crate::peers::{get_peer_info, load_enabled_peer};
 use crate::storage::InstanceStorage;
+
+/// Wormhole's "confirmed" consistency level, used for every post.
+const CONSISTENCY_LEVEL_CONFIRMED: u32 = 1;
 
 pub fn send_message(
     env: &Env,
@@ -96,7 +99,7 @@ fn post_message(
             &env.current_contract_address(),
             &0u32,
             &payload,
-            &ConsistencyLevel::Confirmed,
+            &CONSISTENCY_LEVEL_CONFIRMED,
         ),
         TransceiverError::WormholePostFailed,
     )?;

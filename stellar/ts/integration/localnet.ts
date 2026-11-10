@@ -462,9 +462,6 @@ export async function balanceOf(
 /**
  * Creates a guardian-signed VAA carrying `nttManagerPayload` from `emitter`, in
  * the `Ntt:WormholeTransfer` shape the Wormhole transceiver expects.
- *
- * `consistencyLevel` is `ConsistencyLevel::Confirmed`; the core rejects
- * anything but 1 (Confirmed) or 32 (Finalized).
  */
 export function inboundVaa(args: {
   emitterChain: Chain;
