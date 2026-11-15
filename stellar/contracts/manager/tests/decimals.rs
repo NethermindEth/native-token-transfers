@@ -7,8 +7,15 @@ mod token;
 mod transceiver;
 
 use common::{setup_manager, setup_manager_with_token};
-use soroban_ntt_client::{Mode, NttManagerError, NttManagerMessage, TrimmedAmount};
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, BytesN, Env};
+use soroban_ntt_client::{
+    Mode, NttManagerError, NttManagerMessage, OutboundTransferQueued, OutboundTransferRateLimited,
+    TrimmedAmount,
+};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events as _},
+    Address, BytesN, Env, Event,
+};
 use token::{MockToken, MockTokenClient};
 use transceiver::{add_transceiver, MockTransceiverClient};
 
@@ -90,5 +97,48 @@ fn transfer_rejects_amount_overflow() {
     assert_eq!(
         client.try_quote_transfer(&wide, &DEST_CHAIN),
         Err(Ok(NttManagerError::AmountOverflow))
+    );
+}
+
+/// `OutboundTransferRateLimited` reports the queued amount and the capacity in
+/// the token's decimals, as on EVM, not at the 8 rate-limit decimals. 100
+/// tokens of an 18-decimal token is 10^20, more than a `u64` holds, and the 7
+/// units of dust stay with the sender.
+#[test]
+fn queued_transfer_events_use_token_decimals() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env.register(MockToken, (18u32,));
+    // An outbound limit of 10 tokens at 8 decimals.
+    let (_, client) =
+        setup_manager_with_token(&env, Mode::Locking, OUR_CHAIN, 1_000_000_000, 3600, &token);
+    add_transceiver(&env, &client, 0, false);
+    client.set_peer(
+        &DEST_CHAIN,
+        &BytesN::from_array(&env, &[0xAA; 32]),
+        &6,
+        &u64::MAX,
+    );
+    let sender = Address::generate(&env);
+    let amount = 100 * 10i128.pow(18);
+    MockTokenClient::new(&env, &token).mint(&sender, &(amount + 7));
+    let recipient = BytesN::from_array(&env, &[0x22; 32]);
+
+    let queued = client.transfer(&sender, &(amount + 7), &DEST_CHAIN, &recipient, &true);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![
+            OutboundTransferRateLimited {
+                sender: sender.clone(),
+                sequence: queued.sequence,
+                amount,
+                current_capacity: 10 * 10i128.pow(18),
+            }
+            .to_xdr(&env, &client.address),
+            OutboundTransferQueued {
+                queue_sequence: queued.sequence
+            }
+            .to_xdr(&env, &client.address),
+        ]
     );
 }

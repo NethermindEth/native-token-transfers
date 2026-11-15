@@ -196,22 +196,23 @@ pub fn emit_outbound_transfer_queued(env: &Env, queue_sequence: u64) {
 }
 
 /// Companion to [`OutboundTransferQueued`] carrying the sender context.
+/// `amount` and `current_capacity` are in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutboundTransferRateLimited {
     #[topic]
     pub sender: Address,
     pub sequence: u64,
-    pub amount: u64,
-    pub current_capacity: u64,
+    pub amount: i128,
+    pub current_capacity: i128,
 }
 
 pub fn emit_outbound_transfer_rate_limited(
     env: &Env,
     sender: &Address,
     sequence: u64,
-    amount: u64,
-    current_capacity: u64,
+    amount: i128,
+    current_capacity: i128,
 ) {
     OutboundTransferRateLimited {
         sender: sender.clone(),

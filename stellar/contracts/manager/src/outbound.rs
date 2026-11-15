@@ -175,12 +175,16 @@ pub fn transfer_internal(
             let current_capacity = storage
                 .outbound_rate_limit()
                 .capacity_at(env, storage.rate_limit_duration());
+            let capacity = TrimmedAmount::new(
+                current_capacity,
+                TrimmedAmount::MAX_DECIMALS.min(our_decimals as u8),
+            )?;
             emit_outbound_transfer_rate_limited(
                 env,
                 sender,
                 sequence,
-                rate_amount,
-                current_capacity,
+                transfer_amount as i128,
+                capacity.untrim(our_decimals as u8) as i128,
             );
 
             let queued = OutboundQueuedTransfer {

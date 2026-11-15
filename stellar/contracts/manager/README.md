@@ -86,7 +86,7 @@ Each direction is a token bucket:
 pub struct RateLimitParams { pub limit: u64, pub current_capacity: u64, pub last_tx_timestamp: u64 }
 ```
 
-Limits and capacity are in `min(8, local_decimals)` units, whatever the peer's decimals. Capacity starts full, drains by the transfer amount in those units, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
+Limits and capacity are in `min(8, local_decimals)` units, whatever the peer's decimals, though `OutboundTransferRateLimited` reports the capacity in the token's decimals. Capacity starts full, drains by the transfer amount in those units, and refills linearly over `RateLimitDuration` (default 86400 seconds). A transfer that exceeds the remaining capacity is either queued (if `should_queue`) or rejected. There are two independent buckets: one global outbound bucket, and one inbound bucket per peer.
 
 **Backflow** couples them. A completed outbound transfer refills that peer's inbound bucket, and a completed inbound transfer refills the outbound bucket. This keeps ordinary bidirectional traffic from draining one direction and deadlocking users. Setting a new limit preserves the amount already consumed, so a limit change never mints or destroys capacity instantly.
 
