@@ -215,6 +215,25 @@ fn attestation_received_executes_at_quorum() {
     assert_eq!(MockTokenClient::new(&env, &token).balance(&recipient), 100);
 }
 
+/// Sui encodes an empty payload as a trailing zero length. The manager keys
+/// that message by the digest without it, which `Ntt.messageDigest` computes.
+#[test]
+fn attestation_received_digests_empty_payload_as_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, transceiver, source_manager) = burning_inbound(&env, u64::MAX);
+
+    let recipient_hash = record_recipient(&env, &client, &Address::generate(&env));
+    let (payload, digest) = ntt_message(&env, 100, 7, &recipient_hash, OUR_CHAIN, SRC_CHAIN);
+    let mut sui_payload = payload.slice(..64);
+    sui_payload.extend_from_array(&(payload.len() as u16 - 64).to_be_bytes());
+    sui_payload.append(&payload.slice(66..));
+    sui_payload.extend_from_array(&[0, 0]);
+
+    client.attestation_received(&transceiver, &SRC_CHAIN, &source_manager, &sui_payload);
+    assert!(client.is_message_executed(&digest));
+}
+
 /// Locking-mode release unlocks the manager's held tokens to the recipient (a
 /// `transfer` out), mirroring burning-mode mint but moving custody rather than
 /// creating supply.

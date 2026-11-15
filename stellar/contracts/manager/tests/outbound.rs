@@ -100,8 +100,8 @@ fn transfer_with_payload_dispatches_additional_payload() {
     assert_eq!(decoded.payload.additional_payload, Some(payload));
 }
 
-/// An empty payload is sent as no payload: `Some(empty)` would add a trailing
-/// zero length that Solana cannot parse.
+/// An empty payload is sent as no payload, since Solana cannot parse a
+/// trailing zero length.
 #[test]
 fn transfer_with_empty_payload_sends_no_payload() {
     let env = Env::default();

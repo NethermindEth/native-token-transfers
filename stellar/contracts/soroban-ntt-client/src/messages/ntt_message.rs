@@ -31,7 +31,8 @@ pub struct NativeTokenTransfer {
     /// Destination Wormhole chain ID. Stored as `u32` for Soroban
     /// compatibility, serialized as `u16`.
     pub to_chain: u32,
-    /// Optional payload for custom integrations.
+    /// Optional payload for custom integrations. An empty payload encodes the
+    /// same as `None`, as on EVM.
     pub additional_payload: Option<Bytes>,
 }
 
@@ -52,7 +53,7 @@ impl NativeTokenTransfer {
         buf.extend_from_array(&self.to.to_array());
         buf.extend_from_array(&to_chain.to_be_bytes());
 
-        if let Some(ref payload) = self.additional_payload {
+        if let Some(payload) = self.additional_payload.as_ref().filter(|p| !p.is_empty()) {
             if payload.len() > u16::MAX as u32 {
                 return Err(NttManagerError::PayloadTooLong);
             }

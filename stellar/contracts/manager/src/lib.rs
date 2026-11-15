@@ -305,7 +305,7 @@ impl NttManagerInterface for ManagerContract {
             recipient_chain,
             &recipient,
             should_queue,
-            Some(additional_payload).filter(|p| !p.is_empty()),
+            Some(additional_payload),
         )
     }
 
