@@ -8,8 +8,8 @@ mod transceiver;
 
 use common::{setup_manager, setup_manager_with_token};
 use soroban_ntt_client::{
-    Mode, NttManagerError, NttManagerMessage, OutboundTransferQueued, OutboundTransferRateLimited,
-    TrimmedAmount,
+    Mode, NttManagerError, NttManagerMessage, OutboundTransferCancelled, OutboundTransferQueued,
+    OutboundTransferRateLimited, TrimmedAmount,
 };
 use soroban_sdk::{
     symbol_short,
@@ -100,10 +100,11 @@ fn transfer_rejects_amount_overflow() {
     );
 }
 
-/// `OutboundTransferRateLimited` reports the queued amount and the capacity in
-/// the token's decimals, as on EVM, not at the 8 rate-limit decimals. 100
-/// tokens of an 18-decimal token is 10^20, more than a `u64` holds, and the 7
-/// units of dust stay with the sender.
+/// `OutboundTransferRateLimited` (with the capacity) and
+/// `OutboundTransferCancelled` report the queued amount in the token's
+/// decimals, as on EVM, not at the 8 rate-limit or 6 wire decimals. 100 tokens
+/// of an 18-decimal token is 10^20, more than a `u64` holds, and the 7 units of
+/// dust stay with the sender.
 #[test]
 fn queued_transfer_events_use_token_decimals() {
     let env = Env::default();
@@ -140,5 +141,20 @@ fn queued_transfer_events_use_token_decimals() {
             }
             .to_xdr(&env, &client.address),
         ]
+    );
+
+    client.cancel_queued_transfer(&sender, &queued.sequence);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![OutboundTransferCancelled {
+            sequence: queued.sequence,
+            recipient: sender.clone(),
+            amount,
+        }
+        .to_xdr(&env, &client.address)]
+    );
+    assert_eq!(
+        MockTokenClient::new(&env, &token).balance(&sender),
+        amount + 7
     );
 }

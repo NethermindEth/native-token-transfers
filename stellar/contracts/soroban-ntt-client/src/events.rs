@@ -159,21 +159,22 @@ pub fn emit_peer_updated(
     .publish(env);
 }
 
-/// Queued outbound transfer cancelled by its original sender.
+/// Queued outbound transfer cancelled by its original sender. `amount` is the
+/// refund, in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutboundTransferCancelled {
     #[topic]
     pub sequence: u64,
     pub recipient: Address,
-    pub amount: u64,
+    pub amount: i128,
 }
 
 pub fn emit_outbound_transfer_cancelled(
     env: &Env,
     sequence: u64,
     recipient: &Address,
-    amount: u64,
+    amount: i128,
 ) {
     OutboundTransferCancelled {
         sequence,

@@ -293,10 +293,9 @@ pub fn cancel_outbound_queued_transfer(
 
     let token_decimals = get_token_decimals(env)?;
     let refund_amount = queued.amount.untrim(token_decimals as u8) as i128;
-    let cancelled_amount = queued.amount.amount;
 
     release_tokens(env, sender, refund_amount)?;
-    emit_outbound_transfer_cancelled(env, sequence, sender, cancelled_amount);
+    emit_outbound_transfer_cancelled(env, sequence, sender, refund_amount);
 
     Ok(())
 }
