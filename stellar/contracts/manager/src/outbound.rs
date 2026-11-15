@@ -3,7 +3,7 @@
 //! This module handles the complete lifecycle of outbound cross-chain transfers:
 //! - Immediate transfers that pass rate limiting
 //! - Queued transfers that exceed rate limits
-//! - Queue completion and cancellation (implemented in tasks 7.4)
+//! - Queue completion and cancellation
 
 use soroban_ntt_client::{
     emit_outbound_transfer_cancelled, emit_outbound_transfer_queued,
