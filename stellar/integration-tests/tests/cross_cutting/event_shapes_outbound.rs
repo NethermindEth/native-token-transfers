@@ -7,7 +7,6 @@ use crate::common::{DUMMY_RECIPIENT, EVENT_TIMEOUT, PEER_ADDR, PEER_CHAIN};
 
 const SUPPLY: i128 = 100_000_000;
 const TRANSFER_AMOUNT: i128 = 10_000_000;
-const TRIMMED_AMOUNT: u64 = 10_000_000;
 
 struct Fixture {
     ctx: TestContext,
@@ -46,9 +45,9 @@ fn transfer_sent_event_carries_typed_topics_and_data_fields() {
         "topic[1] must be recipient_chain"
     );
     assert_eq!(
-        event.data_u64("amount"),
-        Some(TRIMMED_AMOUNT),
-        "data.amount must be the trimmed u64"
+        event.data_i128("amount"),
+        Some(TRANSFER_AMOUNT),
+        "data.amount must be the i128 token amount"
     );
     assert_eq!(
         event.data_u64("msg_sequence"),

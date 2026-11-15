@@ -1,4 +1,4 @@
-//! Asserts the manager trims sub-canonical-decimal dust on outbound and emits the trimmed amount in the `transfer_sent` event.
+//! Asserts the manager trims sub-canonical-decimal dust on outbound and reports the custodied amount in the `transfer_sent` event.
 
 use integration_tests::deploy::{Stack, StackOptions};
 use integration_tests::TestContext;
@@ -9,7 +9,6 @@ const SOURCE_DECIMALS: u32 = 9;
 const SUPPLY: i128 = 1_000_000_003;
 const TRANSFER_AMOUNT: i128 = 1_000_000_003;
 const EXPECTED_DUST: i128 = 3;
-const EXPECTED_TRIMMED_AMOUNT: u64 = 100_000_000;
 
 struct Fixture {
     ctx: TestContext,
@@ -31,11 +30,10 @@ fn setup() -> Fixture {
     Fixture { ctx, stack }
 }
 
-/// Catches: a regression in `TrimmedAmount::remove_dust` letting non-canonical
-/// decimals leak across the wire (off-chain integrators decode garbage), or
-/// silently dropping the dust on the sender (manager burns/locks the full
-/// pre-trim amount instead of `amount - dust`). Asserts both the on-chain
-/// dust-retention invariant and the wire amount + decimals carried in
+/// Catches: a regression in `TrimmedAmount::remove_dust` silently dropping
+/// the dust on the sender (manager burns/locks the full pre-trim amount
+/// instead of `amount - dust`). Asserts both the on-chain dust-retention
+/// invariant and the custodied amount, in token decimals, carried in
 /// `transfer_sent.amount`.
 #[test]
 #[ignore]
@@ -56,8 +54,8 @@ fn outbound_trims_to_canonical_decimals_keeps_dust_on_sender() {
         .find_with_topic("transfer_sent", EVENT_TIMEOUT)
         .expect("transfer_sent must fire");
     assert_eq!(
-        event.data_u64("amount"),
-        Some(EXPECTED_TRIMMED_AMOUNT),
-        "wire amount must be the trimmed value (8-dec canonical), not the raw pre-trim amount"
+        event.data_i128("amount"),
+        Some(TRANSFER_AMOUNT - EXPECTED_DUST),
+        "transfer_sent must report the custodied amount, not the raw pre-trim amount"
     );
 }

@@ -177,7 +177,7 @@ Owner and pause failures do not appear in these enums. They surface from the Ope
 
 ## Events
 
-Event structs live here so any observer (indexers, the Global Accountant, the integration tests) reads them from one definition. Each has an `emit_*` helper the contracts call after a successful state change. The manager emits `TransferSent`, `TransferRedeemed`, `MessageAttestedTo`, `ThresholdChanged`, `TransceiverAdded`, `TransceiverRemoved`, `PeerUpdated`, `OutboundTransferCancelled`, `OutboundTransferQueued`, `OutboundTransferRateLimited`, `InboundTransferQueued`, and `MessageAlreadyExecuted`. The transceiver emits `MessageSent`, `MessageReceived`, and `PeerSet`. See [`events.rs`](src/events.rs) for the exact topics and fields.
+Event structs live here so any observer (indexers, the Global Accountant, the integration tests) reads them from one definition. Each has an `emit_*` helper the contracts call after a successful state change. The manager emits `TransferSent`, `TransferRedeemed`, `MessageAttestedTo`, `ThresholdChanged`, `TransceiverAdded`, `TransceiverRemoved`, `PeerUpdated`, `OutboundTransferCancelled`, `OutboundTransferQueued`, `OutboundTransferRateLimited`, `InboundTransferQueued`, and `MessageAlreadyExecuted`. The transceiver emits `MessageSent`, `MessageReceived`, and `PeerSet`. `TransferSent`, `OutboundTransferRateLimited`, and `OutboundTransferCancelled` report amounts in the token's decimals, as on EVM. See [`events.rs`](src/events.rs) for the exact topics and fields.
 
 ## Cross-contract interfaces
 

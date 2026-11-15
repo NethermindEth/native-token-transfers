@@ -9,11 +9,11 @@ mod transceiver;
 use common::{setup_manager, setup_manager_with_token};
 use soroban_ntt_client::{
     Mode, NttManagerError, NttManagerMessage, OutboundTransferCancelled, OutboundTransferQueued,
-    OutboundTransferRateLimited, TrimmedAmount,
+    OutboundTransferRateLimited, TransferSent, TrimmedAmount,
 };
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     Address, BytesN, Env, Event,
 };
 use token::{MockToken, MockTokenClient};
@@ -100,11 +100,11 @@ fn transfer_rejects_amount_overflow() {
     );
 }
 
-/// `OutboundTransferRateLimited` (with the capacity) and
-/// `OutboundTransferCancelled` report the queued amount in the token's
-/// decimals, as on EVM, not at the 8 rate-limit or 6 wire decimals. 100 tokens
-/// of an 18-decimal token is 10^20, more than a `u64` holds, and the 7 units of
-/// dust stay with the sender.
+/// A queued transfer's events (`OutboundTransferRateLimited` with the capacity,
+/// then `OutboundTransferCancelled` or `TransferSent`) report the queued amount
+/// in the token's decimals, as on EVM, not at the 8 rate-limit or 6 wire
+/// decimals. 100 tokens of an 18-decimal token is 10^20, more than a `u64`
+/// holds, and the 7 units of dust stay with the sender.
 #[test]
 fn queued_transfer_events_use_token_decimals() {
     let env = Env::default();
@@ -156,5 +156,22 @@ fn queued_transfer_events_use_token_decimals() {
     assert_eq!(
         MockTokenClient::new(&env, &token).balance(&sender),
         amount + 7
+    );
+
+    let queued = client.transfer(&sender, &(amount + 7), &DEST_CHAIN, &recipient, &true);
+    let item = client.get_outbound_queue_item(&queued.sequence).unwrap();
+    env.ledger().set_timestamp(item.release_timestamp);
+    let sent = client.complete_queued_transfer(&queued.sequence);
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        std::vec![TransferSent {
+            recipient_chain: DEST_CHAIN,
+            digest: sent.digest,
+            recipient,
+            amount,
+            fee: 0,
+            msg_sequence: sent.sequence,
+        }
+        .to_xdr(&env, &client.address)]
     );
 }

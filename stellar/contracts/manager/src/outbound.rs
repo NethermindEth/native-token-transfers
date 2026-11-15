@@ -85,7 +85,7 @@ fn send_transfer(
     emit_transfer_sent(
         env,
         &msg.recipient,
-        msg.amount.amount,
+        msg.amount.untrim(get_token_decimals(env)? as u8) as i128,
         0,
         msg.recipient_chain,
         sequence,

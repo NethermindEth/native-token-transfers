@@ -72,7 +72,7 @@ fn queued_outbound_releases_after_window() {
     // the queue entry vanished.
     let released = f.stack.manager_events(&f.ctx).find(EVENT_TIMEOUT, |ev| {
         ev.topic_symbol(0).as_deref() == Some("transfer_sent")
-            && ev.data_u64("amount") == Some(QUEUED_AMOUNT as u64)
+            && ev.data_i128("amount") == Some(QUEUED_AMOUNT)
     });
     assert!(
         released.is_some(),

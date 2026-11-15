@@ -9,7 +9,8 @@ use soroban_sdk::{contractevent, Address, Bytes, BytesN, Env};
 
 // Manager events.
 
-/// Outbound transfer initiated and forwarded to enabled transceivers.
+/// Outbound transfer initiated and forwarded to enabled transceivers. `amount`
+/// is in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransferSent {
@@ -18,7 +19,7 @@ pub struct TransferSent {
     #[topic]
     pub digest: BytesN<32>,
     pub recipient: BytesN<32>,
-    pub amount: u64,
+    pub amount: i128,
     pub fee: i128,
     pub msg_sequence: u64,
 }
@@ -26,7 +27,7 @@ pub struct TransferSent {
 pub fn emit_transfer_sent(
     env: &Env,
     recipient: &BytesN<32>,
-    amount: u64,
+    amount: i128,
     fee: i128,
     recipient_chain: u32,
     msg_sequence: u64,
