@@ -262,9 +262,6 @@ pub fn complete_outbound_queued_transfer(
     };
     let digest = send_transfer(env, &queued.sender, sequence, &message)?;
 
-    let rate_amount = queued.amount.shift(get_token_decimals(env)? as u8)?;
-    refill_inbound(env, queued.recipient_chain, rate_amount);
-
     Ok(TransferResult::immediate(sequence, digest))
 }
 

@@ -13,13 +13,11 @@ mod transceiver;
 use common::{setup_manager, setup_manager_with_token};
 use recipient::record_recipient;
 use messages::ntt_message;
-use soroban_ntt_client::{
-    Mode, NttManagerError, OutboundTransferQueued, OutboundTransferRateLimited,
-};
+use soroban_ntt_client::{Mode, NttManagerError};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger as _},
+    testutils::{Address as _, Ledger as _},
     token::StellarAssetClient,
-    Address, BytesN, Env, Event,
+    Address, BytesN, Env,
 };
 use token::{MockToken, MockTokenClient};
 use transceiver::add_transceiver;
@@ -42,7 +40,7 @@ fn circular_rate_limit_backflow() {
     let peer_manager = BytesN::from_array(&env, &[0x11; 32]);
     client.set_peer(&PEER_CHAIN, &peer_manager, &6, &1000);
     let sender = Address::generate(&env);
-    MockTokenClient::new(&env, &token).mint(&sender, &1500);
+    MockTokenClient::new(&env, &token).mint(&sender, &1000);
 
     assert_eq!(client.get_outbound_capacity(), 1000);
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(1000));
@@ -65,33 +63,6 @@ fn circular_rate_limit_backflow() {
     client.transfer(&sender, &200, &PEER_CHAIN, &recipient, &false);
     assert_eq!(client.get_outbound_capacity(), 700); // 900 - 200
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(900)); // 700 + 200 backflow
-
-    // A queued transfer backflows on completion. Emptying the inbound bucket at
-    // release time keeps its time-based refill out of the count.
-    let queued = client.transfer(&sender, &900, &PEER_CHAIN, &recipient, &true);
-    assert_eq!(
-        env.events().all().filter_by_contract(&client.address),
-        std::vec![
-            OutboundTransferRateLimited {
-                sender: sender.clone(),
-                sequence: queued.sequence,
-                amount: 900,
-                current_capacity: 700,
-            }
-            .to_xdr(&env, &client.address),
-            OutboundTransferQueued {
-                queue_sequence: queued.sequence
-            }
-            .to_xdr(&env, &client.address),
-        ]
-    );
-    let item = client.get_outbound_queue_item(&queued.sequence).unwrap();
-    env.ledger().set_timestamp(item.release_timestamp);
-    let (payload, _) = ntt_message(&env, 100, 6, &inbound_recipient_hash, OUR_CHAIN, PEER_CHAIN);
-    client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
-    assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(0));
-    client.complete_queued_transfer(&queued.sequence);
-    assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(900));
 }
 
 /// Consumed outbound capacity refills linearly over the rate-limit duration:
@@ -217,4 +188,60 @@ fn lower_decimal_peer_consumes_local_units() {
     client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
     let queued = client.get_inbound_queue_item(&digest).unwrap();
     assert_eq!(queued.trimmed_amount, 10_000);
+}
+
+/// Completing a queued outbound transfer leaves the peer's inbound bucket alone:
+/// the transfer never consumed outbound capacity, so it has nothing to backflow.
+#[test]
+fn completing_queued_outbound_does_not_refill_inbound() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) = setup_manager_with_token(&env, Mode::Burning, OUR_CHAIN, 1000, 3600, &token);
+    let transceiver = add_transceiver(&env, &client, 0, false);
+    let peer_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&PEER_CHAIN, &peer_manager, &7, &1000);
+    let sender = Address::generate(&env);
+    MockTokenClient::new(&env, &token).mint(&sender, &1500);
+
+    let recipient = BytesN::from_array(&env, &[0x22; 32]);
+    let queued = client.transfer(&sender, &1500, &PEER_CHAIN, &recipient, &true);
+    let item = client.get_outbound_queue_item(&queued.sequence).unwrap();
+    env.ledger().set_timestamp(item.release_timestamp);
+
+    let to = record_recipient(&env, &client, &Address::generate(&env));
+    let (payload, _) = ntt_message(&env, 600, 7, &to, OUR_CHAIN, PEER_CHAIN);
+    client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
+    assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(400));
+
+    client.complete_queued_transfer(&queued.sequence);
+    assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(400));
+}
+
+/// Completing a queued inbound transfer leaves the outbound bucket alone: the
+/// transfer never consumed inbound capacity, so it has nothing to backflow.
+#[test]
+fn completing_queued_inbound_does_not_refill_outbound() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) = setup_manager_with_token(&env, Mode::Burning, OUR_CHAIN, 1000, 3600, &token);
+    let transceiver = add_transceiver(&env, &client, 0, false);
+    let peer_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&PEER_CHAIN, &peer_manager, &7, &1000);
+    let sender = Address::generate(&env);
+    MockTokenClient::new(&env, &token).mint(&sender, &600);
+
+    let to = record_recipient(&env, &client, &Address::generate(&env));
+    let (payload, digest) = ntt_message(&env, 1500, 7, &to, OUR_CHAIN, PEER_CHAIN);
+    client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
+    let item = client.get_inbound_queue_item(&digest).unwrap();
+    env.ledger().set_timestamp(item.release_timestamp);
+
+    let recipient = BytesN::from_array(&env, &[0x22; 32]);
+    client.transfer(&sender, &600, &PEER_CHAIN, &recipient, &false);
+    assert_eq!(client.get_outbound_capacity(), 400);
+
+    client.complete_inbound_transfer(&digest);
+    assert_eq!(client.get_outbound_capacity(), 400);
 }

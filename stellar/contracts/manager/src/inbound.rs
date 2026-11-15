@@ -174,8 +174,6 @@ fn execute_inbound_transfer(
 /// already marked as executed when the transfer was first queued (in
 /// `execute_inbound_transfer`), so `execute_msg_internal` cannot re-queue it.
 ///
-/// Also refills the outbound rate limit using the stored trimmed amount (backflow).
-///
 /// # Errors
 /// - `TransferNotQueued` if no queued transfer exists for the digest
 /// - `TransferNotReleasable` if current time is before `release_timestamp`
@@ -194,7 +192,6 @@ pub fn complete_inbound_queued_transfer(
     queue_entry.remove();
 
     release_tokens(env, &queued.recipient, queued.amount)?;
-    refill_outbound(env, queued.trimmed_amount);
     emit_transfer_redeemed(env, digest);
 
     Ok(())
