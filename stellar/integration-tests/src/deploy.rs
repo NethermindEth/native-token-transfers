@@ -616,7 +616,7 @@ impl Stack {
             &ctx.admin_identity,
             &self.manager,
             "complete_queued_transfer",
-            &["--sequence", &s],
+            &["--payer", &ctx.admin_address, "--sequence", &s],
         );
     }
 
@@ -633,7 +633,7 @@ impl Stack {
             &ctx.admin_identity,
             &self.manager,
             "complete_queued_transfer",
-            &["--sequence", &s],
+            &["--payer", &ctx.admin_address, "--sequence", &s],
         )
     }
 

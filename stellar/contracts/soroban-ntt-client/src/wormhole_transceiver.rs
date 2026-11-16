@@ -62,12 +62,14 @@ pub trait WormholeTransceiverInterface {
     /// Publishes a `WormholeTransceiverInfo` to the NTT Accountant.
     ///
     /// Permissionless — any party may re-broadcast if the registration is
-    /// dropped off-chain. Caller pays the Wormhole post-message fee.
-    fn broadcast_id(env: Env) -> Result<(), TransceiverError>;
+    /// dropped off-chain. `payer` authorizes the call and pays the Wormhole
+    /// message fee in XLM.
+    fn broadcast_id(env: Env, payer: Address) -> Result<(), TransceiverError>;
     /// Publishes a `WormholeTransceiverRegistration` for `chain_id` to the
     /// NTT Accountant. Errors with `PeerNotFound` if no peer is registered.
     ///
     /// Permissionless — any party may re-broadcast if the registration is
-    /// dropped off-chain. Caller pays the Wormhole post-message fee.
-    fn broadcast_peer(env: Env, chain_id: u32) -> Result<(), TransceiverError>;
+    /// dropped off-chain. `payer` authorizes the call and pays the Wormhole
+    /// message fee in XLM.
+    fn broadcast_peer(env: Env, payer: Address, chain_id: u32) -> Result<(), TransceiverError>;
 }

@@ -58,7 +58,7 @@ Grouped by the trait that defines each method. Errors are [`TransceiverError`](.
 - `receive_message(vaa_bytes)`. Permissionless and blocked when paused; the guardian signatures are the authentication.
 - `set_peer(chain_id, emitter)` (owner-only, one-shot) and `set_peer_enabled(chain_id, enabled)` (owner-only).
 - `get_peer`, `get_peer_info`, `is_peer_enabled`, `is_vaa_consumed`, `get_wormhole_core`.
-- `broadcast_id()` and `broadcast_peer(chain_id)`, permissionless, blocked when paused.
+- `broadcast_id(payer)` and `broadcast_peer(payer, chain_id)`, permissionless, blocked when paused.
 
 Auth in one line: manager-only for `send_message`; owner-only for pause, upgrade, and peer setters; everything else (views, `receive_message`, broadcasts, quote) is permissionless.
 
@@ -69,7 +69,7 @@ Auth in one line: manager-only for `send_message`; owner-only for pause, upgrade
 1. `manager.require_auth()`. Only the owning manager may send.
 2. Load the peer for `recipient_chain`; it must exist and be enabled, else `PeerNotFound` or `PeerDisabled`.
 3. Build `TransceiverMessage { source_manager: manager_id, recipient_manager, manager_payload, transceiver_payload: empty }` and serialize it.
-4. Post to the Wormhole core via `post_message`, emitting the transceiver contract itself as the emitter.
+4. Post to the Wormhole core via `post_message`, emitting the transceiver contract itself as the emitter. A message fee, which the manager has already paid the transceiver, is first approved to the core for this ledger only; the core collects it with `transfer_from`.
 5. Emit `MessageSent`.
 
 The post uses a hardcoded nonce of `0` and consistency level `Confirmed` (not `Finalized`), a latency-versus-finality choice that applies to every message this contract sends. The transceiver discards the core-assigned sequence locally; Wormhole tracks it.
@@ -106,7 +106,7 @@ This is one of three independent replay guards in the system: the transceiver de
 
 ## Accountant broadcasts
 
-`broadcast_id` and `broadcast_peer` post the two encode-only payloads from [`soroban-ntt-client`](../soroban-ntt-client) (`WormholeTransceiverInfo`, `WormholeTransceiverRegistration`) to the Wormhole core for the Global Accountant to consume. Both are permissionless and the caller pays the post fee. `broadcast_id` reads the manager's mode, token, and decimals; any failure there is `ManagerQueryFailed`. `broadcast_peer` requires a registered peer for the chain.
+`broadcast_id` and `broadcast_peer` post the two encode-only payloads from [`soroban-ntt-client`](../soroban-ntt-client) (`WormholeTransceiverInfo`, `WormholeTransceiverRegistration`) to the Wormhole core for the Global Accountant to consume. Both are permissionless; `payer` authorizes the call and pays the message fee, so a broadcast never spends the transceiver's own XLM. `broadcast_id` reads the manager's mode, token, and decimals; any failure there is `ManagerQueryFailed`. `broadcast_peer` requires a registered peer for the chain.
 
 ## Storage
 

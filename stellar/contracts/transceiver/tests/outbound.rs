@@ -1,6 +1,8 @@
 #![cfg(test)]
 
 mod common;
+#[path = "common/xlm.rs"]
+mod xlm;
 
 use common::setup;
 use common::wormhole::MockWormholeCoreClient;
@@ -8,6 +10,7 @@ use soroban_ntt_client::{MessageSent, TransceiverError, TransceiverMessage};
 use soroban_sdk::{
     testutils::Events as _, Bytes, BytesN, Env, Event,
 };
+use xlm::deploy_xlm;
 
 const PEER_CHAIN: u32 = 2;
 const PEER_EMITTER: [u8; 32] = [0xCC; 32];
@@ -46,6 +49,25 @@ fn send_message_posts_envelope_and_emits() {
     assert_eq!(envelope.recipient_manager, recipient_manager);
     assert_eq!(envelope.manager_payload, manager_payload);
     assert_eq!(envelope.transceiver_payload, Bytes::new(&env));
+}
+
+/// `send_message` approves the core for its message fee, so the core's
+/// `transfer_from` collects it from the balance the manager funded.
+#[test]
+fn send_message_pays_core_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let t = setup(&env);
+    let core = MockWormholeCoreClient::new(&env, &t.get_wormhole_core());
+    t.set_peer(&PEER_CHAIN, &BytesN::from_array(&env, &PEER_EMITTER));
+    core.set_fee(&100);
+    let xlm = deploy_xlm(&env, &t.address, 1000);
+    let recipient_manager = BytesN::from_array(&env, &RECIPIENT_MANAGER);
+
+    t.send_message(&PEER_CHAIN, &recipient_manager, &Bytes::new(&env));
+
+    assert_eq!(xlm.balance(&t.address), 900);
+    assert_eq!(xlm.balance(&core.address), 100);
 }
 
 /// Only the registered manager can dispatch outbound. Without the gate any

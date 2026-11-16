@@ -69,8 +69,7 @@ impl TransferResult {
 ///
 /// `fee` is `None` when that transceiver could not produce a quote, so a
 /// caller sees exactly which transceiver is unavailable rather than losing
-/// the whole result to one failure. Sum the `Some` values for the total cost
-/// of dispatching a transfer.
+/// the whole result to one failure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[contracttype]
 pub struct TransceiverFee {

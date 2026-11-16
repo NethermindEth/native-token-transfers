@@ -161,7 +161,7 @@ fn queued_transfer_events_use_token_decimals() {
     let queued = client.transfer(&sender, &(amount + 7), &DEST_CHAIN, &recipient, &true);
     let item = client.get_outbound_queue_item(&queued.sequence).unwrap();
     env.ledger().set_timestamp(item.release_timestamp);
-    let sent = client.complete_queued_transfer(&queued.sequence);
+    let sent = client.complete_queued_transfer(&sender, &queued.sequence);
     assert_eq!(
         env.events().all().filter_by_contract(&client.address),
         std::vec![TransferSent {

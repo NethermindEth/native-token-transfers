@@ -114,13 +114,13 @@ fn queued_outbound_waits_full_duration() {
     env.ledger().set_timestamp(3599);
     for sequence in &sequences {
         assert_eq!(
-            client.try_complete_queued_transfer(sequence),
+            client.try_complete_queued_transfer(&sender, sequence),
             Err(Ok(NttManagerError::TransferNotReleasable))
         );
     }
     env.ledger().set_timestamp(3600);
     for sequence in &sequences {
-        client.complete_queued_transfer(sequence);
+        client.complete_queued_transfer(&sender, sequence);
     }
 }
 
@@ -214,7 +214,7 @@ fn completing_queued_outbound_does_not_refill_inbound() {
     client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(400));
 
-    client.complete_queued_transfer(&queued.sequence);
+    client.complete_queued_transfer(&sender, &queued.sequence);
     assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(400));
 }
 
