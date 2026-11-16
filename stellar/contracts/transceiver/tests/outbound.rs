@@ -49,6 +49,7 @@ fn send_message_posts_envelope_and_emits() {
     assert_eq!(envelope.recipient_manager, recipient_manager);
     assert_eq!(envelope.manager_payload, manager_payload);
     assert_eq!(envelope.transceiver_payload, Bytes::new(&env));
+    assert_eq!(core.last_posted().unwrap().consistency_level, 1);
 }
 
 /// `send_message` approves the core for its message fee, so the core's

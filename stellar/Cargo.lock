@@ -1941,7 +1941,7 @@ dependencies = [
 [[package]]
 name = "wormhole-soroban-client"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/wormhole?rev=f379981979269c7baae15b3b8df2f4c50d61cd91#f379981979269c7baae15b3b8df2f4c50d61cd91"
+source = "git+https://github.com/NethermindEth/wormhole?rev=946cef0d25f2b49de37d1ce5192248409dd44a2e#946cef0d25f2b49de37d1ce5192248409dd44a2e"
 dependencies = [
  "soroban-sdk",
 ]
