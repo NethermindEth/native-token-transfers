@@ -36,16 +36,16 @@ struct OutboundMessage {
 
 /// Sends a transfer message to all enabled transceivers.
 ///
-/// Creates an NTT message, computes its digest, and dispatches it to each
-/// enabled transceiver for cross-chain delivery. Assigns a unique sequence
-/// number, and returns the sequence and digest for tracking and verification.
+/// Creates an NTT message with id `sequence`, computes its digest, and
+/// dispatches it to each enabled transceiver for cross-chain delivery. Returns
+/// the digest for tracking and verification.
 fn send_transfer(
     env: &Env,
     sender: &Address,
+    sequence: u64,
     msg: &OutboundMessage,
-) -> Result<(u64, BytesN<32>), NttManagerError> {
+) -> Result<BytesN<32>, NttManagerError> {
     let storage = InstanceStorage::new(env);
-    let sequence = storage.use_sequence();
     let message_id = sequence_to_message_id(env, sequence);
     let sender_bytes = hash_address(env, sender);
 
@@ -92,7 +92,7 @@ fn send_transfer(
         &digest,
     );
 
-    Ok((sequence, digest))
+    Ok(digest)
 }
 
 /// Core transfer logic with rate limiting and queuing support.
@@ -147,6 +147,7 @@ pub fn transfer_internal(
     let rate_result = consume_or_delay_outbound(env, trimmed.amount);
 
     let source_token = hash_address(env, &token);
+    let sequence = storage.use_sequence();
 
     match rate_result {
         RateLimitResult::Consumed => {
@@ -158,7 +159,7 @@ pub fn transfer_internal(
                 source_token: source_token.clone(),
                 additional_payload: additional_payload.clone(),
             };
-            let (sequence, digest) = send_transfer(env, sender, &message)?;
+            let digest = send_transfer(env, sender, sequence, &message)?;
 
             refill_inbound(env, recipient_chain, trimmed.amount);
 
@@ -170,7 +171,6 @@ pub fn transfer_internal(
                 return Err(NttManagerError::TransferExceedsRateLimit);
             }
 
-            let sequence = storage.use_sequence();
             let current_capacity = storage
                 .outbound_rate_limit()
                 .capacity_at(env, storage.rate_limit_duration());
@@ -223,7 +223,8 @@ pub fn transfer_internal(
 /// from the queue and sends the message to transceivers. The rate limit check is
 /// skipped because the delay period has already been served.
 ///
-/// The returned sequence number is a *new* sequence (not the original queue sequence).
+/// The message is sent under the queue sequence, so its sequence and digest
+/// match those returned when the transfer was queued.
 ///
 /// # Errors
 /// - `TransferNotQueued` if no transfer exists for the given sequence
@@ -254,11 +255,11 @@ pub fn complete_outbound_queued_transfer(
         source_token: queued.source_token.clone(),
         additional_payload: queued.additional_payload.clone(),
     };
-    let (new_sequence, digest) = send_transfer(env, &queued.sender, &message)?;
+    let digest = send_transfer(env, &queued.sender, sequence, &message)?;
 
     refill_inbound(env, queued.recipient_chain, queued.amount.amount);
 
-    Ok(TransferResult::immediate(new_sequence, digest))
+    Ok(TransferResult::immediate(sequence, digest))
 }
 
 /// Cancels a queued outbound transfer and refunds tokens to the sender.
