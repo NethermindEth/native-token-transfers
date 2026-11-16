@@ -85,7 +85,7 @@ fn send_transfer(
     emit_transfer_sent(
         env,
         &msg.recipient,
-        msg.amount.amount,
+        msg.amount.untrim(get_token_decimals(env)? as u8) as i128,
         0,
         msg.recipient_chain,
         sequence,
@@ -141,10 +141,11 @@ pub fn transfer_internal(
         our_decimals as u8,
         peer.token_decimals as u8,
     )?;
+    let rate_amount = trimmed.shift(our_decimals as u8)?;
 
     custody_tokens(env, sender, transfer_amount as i128)?;
 
-    let rate_result = consume_or_delay_outbound(env, trimmed.amount);
+    let rate_result = consume_or_delay_outbound(env, rate_amount);
 
     let source_token = hash_address(env, &token);
     let sequence = storage.use_sequence();
@@ -161,7 +162,7 @@ pub fn transfer_internal(
             };
             let digest = send_transfer(env, sender, sequence, &message)?;
 
-            refill_inbound(env, recipient_chain, trimmed.amount);
+            refill_inbound(env, recipient_chain, rate_amount);
 
             Ok(TransferResult::immediate(sequence, digest))
         }
@@ -174,12 +175,16 @@ pub fn transfer_internal(
             let current_capacity = storage
                 .outbound_rate_limit()
                 .capacity_at(env, storage.rate_limit_duration());
+            let capacity = TrimmedAmount::new(
+                current_capacity,
+                TrimmedAmount::MAX_DECIMALS.min(our_decimals as u8),
+            )?;
             emit_outbound_transfer_rate_limited(
                 env,
                 sender,
                 sequence,
-                trimmed.amount,
-                current_capacity,
+                transfer_amount as i128,
+                capacity.untrim(our_decimals as u8) as i128,
             );
 
             let queued = OutboundQueuedTransfer {
@@ -257,7 +262,8 @@ pub fn complete_outbound_queued_transfer(
     };
     let digest = send_transfer(env, &queued.sender, sequence, &message)?;
 
-    refill_inbound(env, queued.recipient_chain, queued.amount.amount);
+    let rate_amount = queued.amount.shift(get_token_decimals(env)? as u8)?;
+    refill_inbound(env, queued.recipient_chain, rate_amount);
 
     Ok(TransferResult::immediate(sequence, digest))
 }
@@ -287,10 +293,9 @@ pub fn cancel_outbound_queued_transfer(
 
     let token_decimals = get_token_decimals(env)?;
     let refund_amount = queued.amount.untrim(token_decimals as u8) as i128;
-    let cancelled_amount = queued.amount.amount;
 
     release_tokens(env, sender, refund_amount)?;
-    emit_outbound_transfer_cancelled(env, sequence, sender, cancelled_amount);
+    emit_outbound_transfer_cancelled(env, sequence, sender, refund_amount);
 
     Ok(())
 }

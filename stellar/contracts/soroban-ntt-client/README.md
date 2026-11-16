@@ -130,6 +130,7 @@ Different chains hold the same token at different decimal precisions, and the wi
 - The target precision is `min(8, source_decimals, destination_decimals)`. The ceiling is `TrimmedAmount::MAX_DECIMALS = 8`; it is not always 8.
 - `trim(amount, from, to)` returns `(TrimmedAmount, dust)`, where `dust` is the sub-precision remainder that cannot be represented. The manager leaves dust with the sender rather than destroying it, so accounting stays exact.
 - `untrim(to_decimals)` expands a trimmed amount back to a local precision on the receiving side.
+- `shift(to_decimals)` rescales to `min(8, to_decimals)` decimals, or errors with `AmountOverflow` past `u64`. The manager counts rate limits in these units.
 
 ## Protocol constants
 
@@ -176,7 +177,7 @@ Owner and pause failures do not appear in these enums. They surface from the Ope
 
 ## Events
 
-Event structs live here so any observer (indexers, the Global Accountant, the integration tests) reads them from one definition. Each has an `emit_*` helper the contracts call after a successful state change. The manager emits `TransferSent`, `TransferRedeemed`, `MessageAttestedTo`, `ThresholdChanged`, `TransceiverAdded`, `TransceiverRemoved`, `PeerUpdated`, `OutboundTransferCancelled`, `OutboundTransferQueued`, `OutboundTransferRateLimited`, `InboundTransferQueued`, and `MessageAlreadyExecuted`. The transceiver emits `MessageSent`, `MessageReceived`, and `PeerSet`. See [`events.rs`](src/events.rs) for the exact topics and fields.
+Event structs live here so any observer (indexers, the Global Accountant, the integration tests) reads them from one definition. Each has an `emit_*` helper the contracts call after a successful state change. The manager emits `TransferSent`, `TransferRedeemed`, `MessageAttestedTo`, `ThresholdChanged`, `TransceiverAdded`, `TransceiverRemoved`, `PeerUpdated`, `OutboundTransferCancelled`, `OutboundTransferQueued`, `OutboundTransferRateLimited`, `InboundTransferQueued`, and `MessageAlreadyExecuted`. The transceiver emits `MessageSent`, `MessageReceived`, and `PeerSet`. `TransferSent`, `OutboundTransferRateLimited`, and `OutboundTransferCancelled` report amounts in the token's decimals, as on EVM. See [`events.rs`](src/events.rs) for the exact topics and fields.
 
 ## Cross-contract interfaces
 

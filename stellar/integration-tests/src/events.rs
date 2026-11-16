@@ -69,6 +69,15 @@ impl DecodedEvent {
             _ => None,
         }
     }
+
+    /// Returns the named data field as an `i128`, if present and the right
+    /// ScVal variant.
+    pub fn data_i128(&self, name: &str) -> Option<i128> {
+        match self.data_field(name)? {
+            ScVal::I128(n) => Some(n.into()),
+            _ => None,
+        }
+    }
 }
 
 /// Builder for an RPC `getEvents` query scoped to a single contract id.

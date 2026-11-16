@@ -9,7 +9,8 @@ use soroban_sdk::{contractevent, Address, Bytes, BytesN, Env};
 
 // Manager events.
 
-/// Outbound transfer initiated and forwarded to enabled transceivers.
+/// Outbound transfer initiated and forwarded to enabled transceivers. `amount`
+/// is in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransferSent {
@@ -18,7 +19,7 @@ pub struct TransferSent {
     #[topic]
     pub digest: BytesN<32>,
     pub recipient: BytesN<32>,
-    pub amount: u64,
+    pub amount: i128,
     pub fee: i128,
     pub msg_sequence: u64,
 }
@@ -26,7 +27,7 @@ pub struct TransferSent {
 pub fn emit_transfer_sent(
     env: &Env,
     recipient: &BytesN<32>,
-    amount: u64,
+    amount: i128,
     fee: i128,
     recipient_chain: u32,
     msg_sequence: u64,
@@ -159,21 +160,22 @@ pub fn emit_peer_updated(
     .publish(env);
 }
 
-/// Queued outbound transfer cancelled by its original sender.
+/// Queued outbound transfer cancelled by its original sender. `amount` is the
+/// refund, in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutboundTransferCancelled {
     #[topic]
     pub sequence: u64,
     pub recipient: Address,
-    pub amount: u64,
+    pub amount: i128,
 }
 
 pub fn emit_outbound_transfer_cancelled(
     env: &Env,
     sequence: u64,
     recipient: &Address,
-    amount: u64,
+    amount: i128,
 ) {
     OutboundTransferCancelled {
         sequence,
@@ -196,22 +198,23 @@ pub fn emit_outbound_transfer_queued(env: &Env, queue_sequence: u64) {
 }
 
 /// Companion to [`OutboundTransferQueued`] carrying the sender context.
+/// `amount` and `current_capacity` are in the token's decimals.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutboundTransferRateLimited {
     #[topic]
     pub sender: Address,
     pub sequence: u64,
-    pub amount: u64,
-    pub current_capacity: u64,
+    pub amount: i128,
+    pub current_capacity: i128,
 }
 
 pub fn emit_outbound_transfer_rate_limited(
     env: &Env,
     sender: &Address,
     sequence: u64,
-    amount: u64,
-    current_capacity: u64,
+    amount: i128,
+    current_capacity: i128,
 ) {
     OutboundTransferRateLimited {
         sender: sender.clone(),
