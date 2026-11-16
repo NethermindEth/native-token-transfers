@@ -32,7 +32,7 @@ pub fn consume_or_delay_outbound(env: &Env, amount: u64) -> RateLimitResult {
     result
 }
 
-/// Refills outbound capacity when an inbound transfer completes.
+/// Refills outbound capacity when an inbound transfer consumes inbound capacity.
 pub fn refill_outbound(env: &Env, amount: u64) {
     let storage = InstanceStorage::new(env);
     let mut rate_limit = storage.outbound_rate_limit();

@@ -142,8 +142,7 @@ pub struct InboundQueuedTransfer {
     pub recipient: Address,
     /// Amount in local token decimals.
     pub amount: i128,
-    /// Amount at `min(8, local decimals)`, the rate-limit units; refills outbound
-    /// capacity on completion.
+    /// Amount at `min(8, local decimals)`, the rate-limit units.
     pub trimmed_amount: u64,
     /// Ledger timestamp when the transfer becomes releasable.
     pub release_timestamp: u64,
