@@ -43,7 +43,7 @@ pub enum NttManagerError {
     InvalidChainIdZero = 8,
     /// Caller is neither the contract owner nor the designated pauser.
     NotAdminOrPauser = 13,
-    /// Rate limit parameters have not been initialized for this context.
+    /// Rate-limit duration cannot be zero.
     RateLimitNotInitialized = 20,
     /// Required contract state has not been initialized.
     NotInitialized = 30,

@@ -77,6 +77,9 @@ impl ManagerContract {
         if validate_chain_id(chain_id).is_none() {
             panic_with_error!(&env, NttManagerError::ChainIdTooLarge);
         }
+        if rate_limit_duration == 0 {
+            panic_with_error!(&env, NttManagerError::RateLimitNotInitialized);
+        }
 
         ownable::set_owner(&env, &owner);
         storage.set_token(&token);
