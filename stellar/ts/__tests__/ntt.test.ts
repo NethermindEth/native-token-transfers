@@ -216,6 +216,13 @@ describe("StellarNtt config getters", () => {
     await expect(n.getPauser()).resolves.toBeNull();
   });
 
+  it("reads the token decimals on every call", async () => {
+    const n = ntt();
+    await n.getTokenDecimals();
+    overrides = { token_decimals: 9 };
+    await expect(n.getTokenDecimals()).resolves.toEqual(9);
+  });
+
   it("surfaces a renounced owner instead of returning null", async () => {
     overrides = { get_owner: null };
     await expect(ntt().getOwner()).rejects.toThrow(/renounced/);

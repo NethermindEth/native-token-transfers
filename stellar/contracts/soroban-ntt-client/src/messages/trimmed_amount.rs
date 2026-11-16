@@ -94,26 +94,4 @@ impl TrimmedAmount {
     pub fn is_zero(&self) -> bool {
         self.amount == 0
     }
-
-    /// Adds two trimmed amounts, requiring matching decimals.
-    pub fn checked_add(&self, other: &Self) -> Result<Self, NttManagerError> {
-        if self.decimals != other.decimals {
-            return Err(NttManagerError::DecimalMismatch);
-        }
-        Ok(Self {
-            amount: self.amount.saturating_add(other.amount),
-            decimals: self.decimals,
-        })
-    }
-
-    /// Subtracts two trimmed amounts, requiring matching decimals.
-    pub fn checked_sub(&self, other: &Self) -> Result<Self, NttManagerError> {
-        if self.decimals != other.decimals {
-            return Err(NttManagerError::DecimalMismatch);
-        }
-        Ok(Self {
-            amount: self.amount.saturating_sub(other.amount),
-            decimals: self.decimals,
-        })
-    }
 }

@@ -16,7 +16,6 @@ pub enum DataKey {
     /// Separate pauser role for emergency pause operations.
     Pauser,
     Token,
-    TokenDecimals,
     Mode,
     ChainId,
     /// Minimum number of transceiver attestations required to execute a transfer.
