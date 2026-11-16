@@ -13,7 +13,7 @@ mod transceiver;
 use common::{setup_manager, setup_manager_with_token};
 use recipient::record_recipient;
 use messages::ntt_message;
-use soroban_ntt_client::Mode;
+use soroban_ntt_client::{Mode, NttManagerError};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token::StellarAssetClient,
@@ -82,4 +82,80 @@ fn outbound_capacity_refills_over_time() {
     // Advance half the 3600s duration -> refill 1000 * 1800 / 3600 = 500.
     env.ledger().set_timestamp(1800);
     assert_eq!(client.get_outbound_capacity(), 700);
+}
+
+/// Every queued outbound transfer waits the full duration, however small its
+/// deficit, and queueing leaves the bucket untouched.
+#[test]
+fn queued_outbound_waits_full_duration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, token, client) = setup_manager(&env, Mode::Locking, OUR_CHAIN, 300, 3600);
+    add_transceiver(&env, &client, 0, false);
+    let peer_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&PEER_CHAIN, &peer_manager, &7, &u64::MAX);
+    let sender = Address::generate(&env);
+    StellarAssetClient::new(&env, &token).mint(&sender, &903);
+    let recipient = BytesN::from_array(&env, &[0x22; 32]);
+
+    let sequences: [u64; 3] = std::array::from_fn(|_| {
+        client
+            .transfer(&sender, &301, &PEER_CHAIN, &recipient, &true)
+            .sequence
+    });
+    for sequence in &sequences {
+        let queued = client.get_outbound_queue_item(sequence).unwrap();
+        assert_eq!(queued.release_timestamp, 3600);
+    }
+    assert_eq!(client.get_outbound_capacity(), 300);
+
+    env.ledger().set_timestamp(3599);
+    for sequence in &sequences {
+        assert_eq!(
+            client.try_complete_queued_transfer(sequence),
+            Err(Ok(NttManagerError::TransferNotReleasable))
+        );
+    }
+    env.ledger().set_timestamp(3600);
+    for sequence in &sequences {
+        client.complete_queued_transfer(sequence);
+    }
+}
+
+/// Every queued inbound transfer waits the full duration, however small its
+/// deficit, and queueing leaves the peer's bucket untouched.
+#[test]
+fn queued_inbound_waits_full_duration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token = env.register(MockToken, (7u32,));
+    let (_, client) = setup_manager_with_token(&env, Mode::Burning, OUR_CHAIN, 1000, 3600, &token);
+    let transceiver = add_transceiver(&env, &client, 0, false);
+    let peer_manager = BytesN::from_array(&env, &[0x11; 32]);
+    client.set_peer(&PEER_CHAIN, &peer_manager, &7, &300);
+
+    // Distinct recipients give the three messages distinct digests.
+    let digests: [BytesN<32>; 3] = std::array::from_fn(|_| {
+        let recipient = record_recipient(&env, &client, &Address::generate(&env));
+        let (payload, digest) = ntt_message(&env, 301, 7, &recipient, OUR_CHAIN, PEER_CHAIN);
+        client.attestation_received(&transceiver, &PEER_CHAIN, &peer_manager, &payload);
+        digest
+    });
+    for digest in &digests {
+        let queued = client.get_inbound_queue_item(digest).unwrap();
+        assert_eq!(queued.release_timestamp, 3600);
+    }
+    assert_eq!(client.get_inbound_capacity(&PEER_CHAIN), Some(300));
+
+    env.ledger().set_timestamp(3599);
+    for digest in &digests {
+        assert_eq!(
+            client.try_complete_inbound_transfer(digest),
+            Err(Ok(NttManagerError::TransferNotReleasable))
+        );
+    }
+    env.ledger().set_timestamp(3600);
+    for digest in &digests {
+        client.complete_inbound_transfer(digest);
+    }
 }

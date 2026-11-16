@@ -42,8 +42,9 @@ impl RateLimitParams {
 
     /// Attempts to consume capacity for a transfer.
     ///
-    /// Returns `None` if sufficient capacity exists, otherwise returns
-    /// `Some(timestamp)` indicating when the transfer can be released.
+    /// Returns `None` if sufficient capacity exists. Otherwise leaves the bucket
+    /// untouched and returns `Some(timestamp)` a full `duration` from now,
+    /// whatever the deficit, as on EVM, Solana and Sui.
     pub fn consume_or_delay(&mut self, amount: u64, env: &Env, duration: u64) -> Option<u64> {
         let now = env.ledger().timestamp();
         let capacity = self.capacity_at(env, duration);
@@ -53,17 +54,7 @@ impl RateLimitParams {
             self.last_tx_timestamp = now;
             None
         } else {
-            let deficit = amount - capacity;
-            // Guard against division by zero: limit == 0 means "queue all transfers"
-            // (valid configuration, matching EVM behavior). Fall back to the full
-            // rate limit duration since no capacity will ever refill.
-            let time_needed = if self.limit > 0 {
-                ((deficit as u128) * (duration as u128) / (self.limit as u128))
-                    .min(u64::MAX as u128) as u64
-            } else {
-                duration
-            };
-            Some(now + time_needed + 1)
+            Some(now.saturating_add(duration))
         }
     }
 
