@@ -22,6 +22,7 @@ import {
   StellarAddress,
   StellarPlatform,
   StellarUnsignedTransaction,
+  nativeSacId,
   stellarNetworkPassphrase,
 } from "@wormhole-foundation/sdk-stellar";
 import type {
@@ -301,8 +302,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       ),
       "Ntt.completeOutboundQueuedTransfer",
       "NttManager",
-      // Leaves the transceiver fees it pays unchecked.
-      async () => {}
+      this.transferPolicy(from, 0n)
     );
   }
 
@@ -439,8 +439,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       ),
       "Ntt.transfer",
       "NttManager",
-      // Leaves the token and XLM it moves unchecked.
-      async () => {}
+      this.transferPolicy(from, amount)
     );
   }
 
@@ -786,6 +785,72 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         `Rate limit ${amount} is below one trimmed unit of a ${decimals}-decimal token`
       );
     return nativeToScVal(trimmed, { type: "u64" });
+  }
+
+  /**
+   * Returns the policy of a manager call that moves `amount` of the token out
+   * of `from` and pays the transceivers: `transfer`, `transfer_with_payload`,
+   * or `complete_queued_transfer` with an `amount` of 0.
+   *
+   * Below that call, `from` authorizes only the token's `transfer` or `burn`
+   * and native `transfer`s, each out of `from` and with nothing below it. They
+   * move at most `amount` of the token, and at most the core's message fee
+   * once per enabled transceiver in XLM, plus `amount` when the token is XLM.
+   */
+  private transferPolicy(from: string, amount: bigint): AuthPolicy {
+    return async (moves) => {
+      const native = nativeSacId(this.network);
+      let token = 0n;
+      let stroops = 0n;
+      for (const move of moves) {
+        const { contract, method, args, children } = move;
+        const allowed =
+          contract === native
+            ? method === "transfer"
+            : contract === this.tokenAddress &&
+              (method === "transfer" || method === "burn");
+        if (!allowed || children.length > 0) throw unexpectedCall(move);
+
+        const sender = asAddress(args[0]);
+        const value = asBigint(args[method === "burn" ? 1 : 2]);
+        if (value < 0n)
+          throw new Error(`The auth tree moves ${value} of ${contract}`);
+        if (sender !== from)
+          throw new Error(
+            `The auth tree moves ${contract} from ${sender}; ` +
+              `a transfer moves only from ${from}`
+          );
+        if (contract === native) stroops += value;
+        else token += value;
+      }
+
+      if (token > amount)
+        throw new Error(
+          `The auth tree moves ${token} of the token, above the ${amount} sent`
+        );
+      // The fee comes from the core rather than from the transceivers' own
+      // quotes, so a transceiver cannot raise what the sender pays it. The
+      // manager reports how many transceivers are enabled, at most 64.
+      const [fee, enabled] = await Promise.all([
+        StellarPlatform.simulateRead(
+          this.provider,
+          this.network,
+          this.coreAddress,
+          "get_message_fee"
+        ),
+        this.read("get_enabled_bitmap"),
+      ]);
+      const transceivers = [...asBigint(enabled).toString(2)].filter(
+        (bit) => bit === "1"
+      ).length;
+      const limit =
+        asBigint(fee) * BigInt(transceivers) +
+        (this.tokenAddress === native ? amount : 0n);
+      if (stroops > limit)
+        throw new Error(
+          `The auth tree moves ${stroops} stroops of XLM, above the ${limit} a transfer pays`
+        );
+    };
   }
 
   /** Simulates a read-only manager call and returns its decoded result. */

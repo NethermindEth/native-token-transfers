@@ -22,6 +22,7 @@ import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
+  nativeSacId,
   type StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
@@ -84,6 +85,12 @@ const managerState: Record<string, unknown> = {
     release_timestamp: 1700000042n,
   },
   get_outbound_queue_item: null,
+  get_enabled_bitmap: 1n,
+};
+
+/** The Wormhole core's read surface. */
+const coreState: Record<string, unknown> = {
+  get_message_fee: 100n,
 };
 
 /** The transceiver's own read surface, keyed the same way. */
@@ -232,7 +239,12 @@ beforeEach(() => {
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
       calls.push({ method, args });
-      const contract = contractId === MANAGER ? managerState : transceiverState;
+      const contract =
+        contractId === MANAGER
+          ? managerState
+          : contractId === CORE
+            ? coreState
+            : transceiverState;
       const state = method in overrides ? overrides : contract;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
       return state[method];
@@ -872,6 +884,118 @@ describe("StellarNtt.prepare auth checks", () => {
     await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
       /a call other than the one it makes/
     );
+  });
+});
+
+describe("StellarNtt transfer auth bounds", () => {
+  const XLM = nativeSacId("Testnet");
+  const sender = new StellarAddress(OWNER);
+  const destination = {
+    chain: "Ethereum",
+    address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+  } as ChainAddress;
+  const send = (n = ntt()) =>
+    collect(n.transfer(sender, 42n, destination, { queue: false }));
+
+  /** A `transfer` of `amount` out of `from`. */
+  const transferCall = (contract: string, amount: bigint, from = OWNER) =>
+    contractCall(
+      contract,
+      "transfer",
+      new Address(from).toScVal(),
+      new Address(MANAGER).toScVal(),
+      nativeToScVal(amount, { type: "i128" })
+    );
+  /** The same `transfer`, as the auth tree records it. */
+  const move = (contract: string, amount: bigint, from = OWNER) =>
+    authorized(transferCall(contract, amount, from));
+
+  // Two enabled transceivers, each paid the core's 100-stroop message fee.
+  beforeEach(() => (overrides = { get_enabled_bitmap: 0b101n }));
+
+  it("bounds the token by the amount and XLM by the transceiver fees", async () => {
+    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 100n), move(XLM, 100n));
+    await expect(send()).resolves.toHaveLength(1);
+
+    recordAuth = sourceAuth(move(TOKEN, 43n));
+    await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
+    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 201n));
+    await expect(send()).rejects.toThrow(/201 stroops of XLM, above the 200/);
+
+    // Burning mode takes custody with `burn(from, amount)`.
+    const burn = (amount: bigint) =>
+      authorized(
+        contractCall(
+          TOKEN,
+          "burn",
+          new Address(OWNER).toScVal(),
+          nativeToScVal(amount, { type: "i128" })
+        )
+      );
+    recordAuth = sourceAuth(burn(42n));
+    await expect(send()).resolves.toHaveLength(1);
+    recordAuth = sourceAuth(burn(43n));
+    await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
+  });
+
+  it("allows only the token and XLM, moved out of the sender", async () => {
+    recordAuth = sourceAuth(move(TRANSCEIVER, 1n));
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${TRANSCEIVER}.transfer`
+    );
+    recordAuth = sourceAuth(move(TOKEN, 42n, PAUSER));
+    await expect(send()).rejects.toThrow(/moves only from/);
+
+    // A negative move would lower the total the bound compares.
+    recordAuth = sourceAuth(move(TOKEN, -1n), move(TOKEN, 43n));
+    await expect(send()).rejects.toThrow(`The auth tree moves -1 of ${TOKEN}`);
+    // A call below a move would escape the bound.
+    recordAuth = sourceAuth(
+      authorized(transferCall(TOKEN, 42n), move(XLM, 1_000n))
+    );
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${TOKEN}.transfer`
+    );
+    // XLM moves only by `transfer`.
+    recordAuth = sourceAuth(
+      authorized(
+        contractCall(
+          XLM,
+          "approve",
+          new Address(OWNER).toScVal(),
+          new Address(MANAGER).toScVal(),
+          nativeToScVal(1n, { type: "i128" }),
+          nativeToScVal(0, { type: "u32" })
+        )
+      )
+    );
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${XLM}.approve`
+    );
+  });
+
+  it("adds the amount to the XLM bound when the token is XLM", async () => {
+    const xlmNtt = new StellarNtt("Testnet", "Stellar", provider, {
+      ...contracts,
+      ntt: { ...contracts.ntt, token: XLM },
+    });
+    recordAuth = sourceAuth(move(XLM, 42n), move(XLM, 200n));
+    await expect(send(xlmNtt)).resolves.toHaveLength(1);
+    recordAuth = sourceAuth(move(XLM, 43n), move(XLM, 200n));
+    await expect(send(xlmNtt)).rejects.toThrow(
+      /243 stroops of XLM, above the 242/
+    );
+  });
+
+  it("bounds a queued completion by the transceiver fees alone", async () => {
+    const complete = () =>
+      collect(ntt().completeOutboundQueuedTransfer(7n, sender));
+    recordAuth = sourceAuth(move(XLM, 200n));
+    await expect(complete()).resolves.toHaveLength(1);
+
+    // The tokens left custody when the transfer was queued.
+    recordAuth = sourceAuth(move(TOKEN, 1n));
+    await expect(complete()).rejects.toThrow(/1 of the token, above the 0/);
   });
 });
 
