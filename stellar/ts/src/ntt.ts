@@ -939,10 +939,21 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         throw decodeContractError(error, space);
       });
 
-    if (BigInt(prepared.fee) > this.maxFee)
+    if (BigInt(prepared.fee) > this.maxFee) {
+      // A write restores the archived entries it touches, and its resource
+      // fee pays for that; the simulation lists them in the transaction data.
+      const ext = prepared.toEnvelope().v1().tx().ext().sorobanData().ext();
+      const restores =
+        ext.switch() === 1 &&
+        ext.resourceExt().archivedSorobanEntries().length > 0;
       throw new Error(
-        `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})`
+        `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})` +
+          (restores
+            ? ", because it restores archived ledger entries. Restore them " +
+              "in a separate restoreFootprint transaction, then prepare it again"
+            : "")
       );
+    }
 
     const [invoke] = prepared.operations;
     if (invoke?.type === "invokeHostFunction")

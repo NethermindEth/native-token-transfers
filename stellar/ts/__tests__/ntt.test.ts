@@ -1026,6 +1026,33 @@ describe("StellarNtt fee cap", () => {
     );
   });
 
+  it("names auto-restoration when it trips the cap", async () => {
+    // The simulation lists the archived entries the write will restore.
+    const data = new SorobanDataBuilder().setResourceFee(60_000_000).build();
+    data.ext(
+      new xdr.SorobanTransactionDataExt(
+        1,
+        new xdr.SorobanResourcesExtV0({ archivedSorobanEntries: [0] })
+      )
+    );
+    const restoring = new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        prepareTransaction: async (tx: Transaction) =>
+          SorobanRpc.assembleTransaction(tx, {
+            ...simulation(tx),
+            transactionData: data.toXDR("base64"),
+          }).build(),
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+    await expect(collect(restoring.setThreshold(2, owner))).rejects.toThrow(
+      /because it restores archived ledger entries\. Restore them in a separate restoreFootprint/
+    );
+  });
+
   it("leaves room for the costliest write measured on the localnet", async () => {
     // The resource fee of a first delivery against a 19-guardian set signed
     // to mainnet's quorum of 13.
