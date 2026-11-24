@@ -211,24 +211,6 @@ async function submit(
   return result.returnValue ? scValToNative(result.returnValue) : undefined;
 }
 
-/** A JSON-RPC call the SDK cannot make; see {@link ledgerTime}. */
-async function rpcCall(
-  method: string,
-  params: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await fetch(env.rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const { result, error } = (await response.json()) as {
-    result?: Record<string, unknown>;
-    error?: unknown;
-  };
-  if (!result) throw new Error(`${method} failed: ${JSON.stringify(error)}`);
-  return result;
-}
-
 /**
  * Uploads `wasmPath` and instantiates it with `constructorArgs`, returning the
  * new contract id. A fresh salt per call means one wasm can back several
@@ -540,11 +522,12 @@ export async function completeAfterWindow(
 
 /**
  * Gets the ledger close time in seconds, which is the clock the release gate
- * reads. It comes over raw JSON-RPC because `Api.GetLatestLedgerResponse` does
- * not carry it — `@stellar/stellar-sdk@13` predates the field.
+ * reads. `Api.GetLatestLedgerResponse` does not declare `closeTime`, but the
+ * client returns the RPC's whole answer, so the field is narrowed here.
  */
 export async function ledgerTime(): Promise<bigint> {
-  const closeTime = (await rpcCall("getLatestLedger", {}))["closeTime"];
+  const ledger = await rpc.getLatestLedger();
+  const closeTime = "closeTime" in ledger ? ledger.closeTime : undefined;
   if (typeof closeTime !== "string" && typeof closeTime !== "number")
     throw new Error(`getLatestLedger returned no closeTime`);
   return BigInt(closeTime);
