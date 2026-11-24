@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: NethermindEth/wormhole-sdk-ts
-          ref: 04b9806a3c2a1065e5e709d10830669c92652d80
+          ref: eead1ce460728b98044507d18ec0a65f11b5799b
           path: wormhole-sdk-ts-src
       - name: Move it beside this checkout
         run: mv wormhole-sdk-ts-src ../wormhole-sdk-ts
