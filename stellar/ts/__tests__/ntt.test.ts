@@ -139,6 +139,8 @@ let calls: { method: string; args: xdr.ScVal[] }[];
 let recordAuth: (
   call: xdr.InvokeContractArgs
 ) => xdr.SorobanAuthorizationEntry[];
+/** The resource fee the simulation charges, in stroops. */
+let resourceFee: number;
 
 /** The RPC's simulation of `tx`, recording `recordAuth`'s entries. */
 const simulation = (tx: Transaction) => {
@@ -147,8 +149,11 @@ const simulation = (tx: Transaction) => {
   return {
     id: "1",
     latestLedger: 1000,
-    transactionData: new SorobanDataBuilder().build().toXDR("base64"),
-    minResourceFee: "0",
+    transactionData: new SorobanDataBuilder()
+      .setResourceFee(resourceFee)
+      .build()
+      .toXDR("base64"),
+    minResourceFee: String(resourceFee),
     results: [
       {
         auth: auth.map((entry) => entry.toXDR("base64")),
@@ -235,6 +240,7 @@ beforeEach(() => {
   overrides = {};
   calls = [];
   recordAuth = () => [];
+  resourceFee = 0;
   jest
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
@@ -996,6 +1002,37 @@ describe("StellarNtt transfer auth bounds", () => {
     // The tokens left custody when the transfer was queued.
     recordAuth = sourceAuth(move(TOKEN, 1n));
     await expect(complete()).rejects.toThrow(/1 of the token, above the 0/);
+  });
+});
+
+describe("StellarNtt fee cap", () => {
+  const owner = new StellarAddress(OWNER);
+
+  it("refuses a fee above maxFee, and not one at it", async () => {
+    // The 100-stroop inclusion fee plus the resource fee comes to exactly 5 XLM.
+    resourceFee = 49_999_900;
+    await expect(collect(ntt().setThreshold(2, owner))).resolves.toHaveLength(
+      1
+    );
+    resourceFee = 49_999_901;
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      "Ntt.setThreshold costs 50000001 stroops, above maxFee (50000000)"
+    );
+
+    const raised = ntt();
+    raised.maxFee = 100_000_000n;
+    await expect(collect(raised.setThreshold(2, owner))).resolves.toHaveLength(
+      1
+    );
+  });
+
+  it("leaves room for the costliest write measured on the localnet", async () => {
+    // The resource fee of a first delivery against a 19-guardian set signed
+    // to mainnet's quorum of 13.
+    resourceFee = 358_889;
+    await expect(
+      collect(ntt().redeem([attestation], owner))
+    ).resolves.toHaveLength(1);
   });
 });
 

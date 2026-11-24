@@ -89,6 +89,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    */
   readonly transceiverAddress: string | undefined;
   readonly coreAddress: string;
+  /**
+   * The highest fee, in stroops, that {@link prepare} accepts. The RPC sets the
+   * resource fee from its simulation, with no cap of its own, so raise this
+   * only for a write that is known to cost more. Default: 50_000_000 (5 XLM).
+   */
+  maxFee = 50_000_000n;
 
   constructor(
     readonly network: N,
@@ -908,7 +914,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * The source account's envelope signature authorizes every source-account
    * entry the simulation recorded, so this throws unless there is at most one
    * entry, for the source account, rooted at the call that was built. `policy`
-   * checks the calls below that root; by default there may be none.
+   * checks the calls below that root; by default there may be none. It also
+   * throws if the fee is above {@link maxFee}.
    */
   async prepare(
     from: string,
@@ -931,6 +938,11 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       .catch((error: unknown) => {
         throw decodeContractError(error, space);
       });
+
+    if (BigInt(prepared.fee) > this.maxFee)
+      throw new Error(
+        `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})`
+      );
 
     const [invoke] = prepared.operations;
     if (invoke?.type === "invokeHostFunction")
