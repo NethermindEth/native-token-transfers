@@ -5,6 +5,7 @@ import {
   TransactionBuilder,
   nativeToScVal,
   rpc as SorobanRpc,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
 import type { Operation } from "@stellar/stellar-sdk";
@@ -49,6 +50,23 @@ import {
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
 import { StellarNttWormholeTransceiver } from "./transceiver.js";
+
+/**
+ * A call in a write's auth tree: the contract, the method, the arguments as
+ * `scValToNative` decodes them, and the calls it authorizes in turn.
+ */
+export interface AuthorizedCall {
+  contract: string;
+  method: string;
+  args: unknown[];
+  children: AuthorizedCall[];
+}
+
+/**
+ * Checks the calls a write's auth tree authorizes below the call that was
+ * built, and throws on any the write has no reason to authorize.
+ */
+export type AuthPolicy = (children: AuthorizedCall[]) => Promise<void>;
 
 /**
  * NTT bindings for the Soroban manager + Wormhole transceiver contracts.
@@ -281,7 +299,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         addressArg(from),
         sequenceArg(sequence)
       ),
-      "Ntt.completeOutboundQueuedTransfer"
+      "Ntt.completeOutboundQueuedTransfer",
+      "NttManager",
+      // Leaves the transceiver fees it pays unchecked.
+      async () => {}
     );
   }
 
@@ -416,7 +437,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         additionalPayload ? "transfer_with_payload" : "transfer",
         ...args
       ),
-      "Ntt.transfer"
+      "Ntt.transfer",
+      "NttManager",
+      // Leaves the token and XLM it moves unchecked.
+      async () => {}
     );
   }
 
@@ -810,13 +834,18 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Builds, simulates, and assembles a write for the signer to sign and submit.
    * `space` names the contract whose error table decodes a rejection, so a
    * rejection from another NTT contract does not carry a manager error name.
-   * Throws if the write needs an auth entry the source account cannot sign.
+   *
+   * The source account's envelope signature authorizes every source-account
+   * entry the simulation recorded, so this throws unless there is at most one
+   * entry, for the source account, rooted at the call that was built. `policy`
+   * checks the calls below that root; by default there may be none.
    */
   async prepare(
     from: string,
     operation: xdr.Operation,
     description: string,
-    space: ContractErrorSpace = "NttManager"
+    space: ContractErrorSpace = "NttManager",
+    policy: AuthPolicy = noChildren
   ): Promise<StellarUnsignedTransaction<N, C>> {
     const source = await this.provider.getAccount(from);
     const tx = new TransactionBuilder(source, {
@@ -835,7 +864,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 
     const [invoke] = prepared.operations;
     if (invoke?.type === "invokeHostFunction")
-      checkAuth(invoke, from, description);
+      await checkAuth(invoke, from, description, policy);
 
     return new StellarUnsignedTransaction(
       prepared,
@@ -851,17 +880,22 @@ export class StellarNtt<N extends Network, C extends StellarChains>
 }
 
 /**
- * Throws if the simulation recorded an auth entry for an address other than
- * the source account. The signer signs only the envelope, which covers
- * source-account credentials; any other address would have to sign its own
- * entry, and the transaction would fail on chain without it.
+ * Checks the auth entries the simulation recorded for `invoke`.
+ *
+ * The signer signs only the envelope, which covers source-account
+ * credentials; any other address would have to sign its own entry, and the
+ * transaction would fail on chain without it. A write authorizes one call, so
+ * there is at most one entry, and its root is the call `invoke` makes rather
+ * than one the simulation chose. `policy` then checks every call below it.
  */
-function checkAuth(
+async function checkAuth(
   invoke: Operation.InvokeHostFunction,
   from: string,
-  description: string
-): void {
-  for (const entry of invoke.auth ?? []) {
+  description: string,
+  policy: AuthPolicy
+): Promise<void> {
+  const entries = invoke.auth ?? [];
+  for (const entry of entries) {
     const credentials = entry.credentials();
     // By value: the provider's stellar-sdk need not be this package's copy,
     // and each copy has its own enum objects.
@@ -875,7 +909,47 @@ function checkAuth(
           `and only the source account ${from} signs this transaction`
       );
   }
+
+  if (entries.length > 1)
+    throw new Error(
+      `${description} recorded ${entries.length} auth entries; a write authorizes one`
+    );
+  const [entry] = entries;
+  if (entry === undefined) return;
+
+  const root = entry.rootInvocation();
+  const call =
+    xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      invoke.func.invokeContract()
+    );
+  if (root.function().toXDR("base64") !== call.toXDR("base64"))
+    throw new Error(
+      `${description} recorded an auth entry for a call other than the one it makes`
+    );
+  await policy(root.subInvocations().map(decodeCall));
 }
+
+/** Decodes an auth tree; anything but a contract call throws. */
+const decodeCall = (
+  invocation: xdr.SorobanAuthorizedInvocation
+): AuthorizedCall => {
+  const call = invocation.function().contractFn();
+  return {
+    contract: Address.fromScAddress(call.contractAddress()).toString(),
+    method: call.functionName().toString(),
+    args: call.args().map((arg) => scValToNative(arg)),
+    children: invocation.subInvocations().map(decodeCall),
+  };
+};
+
+/** The policy of a write that authorizes nothing below its own call. */
+const noChildren: AuthPolicy = async ([call]) => {
+  if (call !== undefined) throw unexpectedCall(call);
+};
+
+/** Names a call that a write has no reason to authorize. */
+const unexpectedCall = ({ contract, method }: AuthorizedCall): Error =>
+  new Error(`Unexpected call in the auth tree: ${contract}.${method}`);
 
 /** `TrimmedAmount::MAX_DECIMALS` — the ceiling of the shared NTT amount domain. */
 const TRIMMED_DECIMALS = 8;

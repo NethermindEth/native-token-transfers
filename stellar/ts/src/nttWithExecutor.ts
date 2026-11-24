@@ -172,7 +172,9 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
         })
       ),
       "NttWithExecutor.transfer",
-      "NttWithExecutor"
+      "NttWithExecutor",
+      // Leaves the token and XLM it moves unchecked.
+      async () => {}
     );
   }
 

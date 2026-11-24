@@ -5,6 +5,7 @@ import {
   Address,
   Operation,
   SorobanDataBuilder,
+  nativeToScVal,
   scValToNative,
   type Transaction,
   rpc as SorobanRpc,
@@ -160,17 +161,40 @@ const provider = {
   getLatestLedger: async () => ({ sequence: 1000 }),
 } as unknown as SorobanRpc.Server;
 
+/** The arguments of a call to `method` on `contract`. */
+const contractCall = (contract: string, method: string, ...args: xdr.ScVal[]) =>
+  new xdr.InvokeContractArgs({
+    contractAddress: new Address(contract).toScAddress(),
+    functionName: method,
+    args,
+  });
+
 /** An auth tree rooted at `call`, the way a simulation records it. */
 const authorized = (
-  call: xdr.InvokeContractArgs
+  call: xdr.InvokeContractArgs,
+  ...children: xdr.SorobanAuthorizedInvocation[]
 ): xdr.SorobanAuthorizedInvocation =>
   new xdr.SorobanAuthorizedInvocation({
     function:
       xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
         call
       ),
-    subInvocations: [],
+    subInvocations: children,
   });
+
+/**
+ * Records one source-account entry rooted at the write's own call, with
+ * `children` below it: what a simulation returns when the source account is
+ * the address the call authorizes.
+ */
+const sourceAuth =
+  (...children: xdr.SorobanAuthorizedInvocation[]) =>
+  (call: xdr.InvokeContractArgs) => [
+    new xdr.SorobanAuthorizationEntry({
+      credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+      rootInvocation: authorized(call, ...children),
+    }),
+  ];
 
 const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
 
@@ -794,6 +818,60 @@ describe("StellarNtt.prepare auth checks", () => {
       await expect(collect(n.setThreshold(2, owner))).rejects.toThrow(
         `Ntt.setThreshold needs an auth entry signed by ${PAUSER}`
       );
+  });
+
+  it("allows no call below an admin, pause or cancel call", async () => {
+    const peer = {
+      chain: "Ethereum",
+      address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+    } as ChainAddress;
+    const foreign = await foreignNtt();
+    recordAuth = sourceAuth();
+    for (const write of [
+      ntt().setPeer(peer, 18, 1000n, owner),
+      ntt().setThreshold(2, owner),
+      ntt().pause(owner),
+      ntt().cancelOutboundQueuedTransfer(7n, owner),
+      ntt().setTransceiverPeer(0, peer, owner),
+      foreign.setPeer(peer, 18, 1000n, owner),
+    ])
+      await expect(collect(write)).resolves.toHaveLength(1);
+
+    // The owner's signature would authorize this transfer of its tokens too.
+    recordAuth = sourceAuth(
+      authorized(
+        contractCall(
+          TOKEN,
+          "transfer",
+          new Address(OWNER).toScVal(),
+          new Address(PAUSER).toScVal(),
+          nativeToScVal(1n, { type: "i128" })
+        )
+      )
+    );
+    for (const n of [ntt(), foreign])
+      await expect(collect(n.setPeer(peer, 18, 1000n, owner))).rejects.toThrow(
+        `Unexpected call in the auth tree: ${TOKEN}.transfer`
+      );
+  });
+
+  it("allows one auth entry, rooted at the call that was built", async () => {
+    recordAuth = (call) => [...sourceAuth()(call), ...sourceAuth()(call)];
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      /2 auth entries/
+    );
+
+    // An entry for a call this transaction never makes would still be
+    // authorized by its signature.
+    const other = contractCall(
+      MANAGER,
+      "set_threshold",
+      nativeToScVal(9, { type: "u32" })
+    );
+    recordAuth = () => sourceAuth()(other);
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      /a call other than the one it makes/
+    );
   });
 });
 
