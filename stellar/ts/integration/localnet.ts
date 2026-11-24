@@ -7,11 +7,10 @@
  * test guardian verbatim, so both suites run against the same Docker network
  * started by `stellar/integration-tests/scripts/start-localnet.sh`.
  *
- * Every contract call a test makes goes through the package under test; what is
- * built here is what has no binding at all — uploading and instantiating wasm —
- * and the submission step, which cannot go through the signer in
- * `@wormhole-foundation/sdk-stellar` for the protocol-version reason
- * {@link submit} records.
+ * Every contract call a test makes goes through the package under test, and
+ * every transaction through the signer in `@wormhole-foundation/sdk-stellar`;
+ * what is built here is what has no binding at all — uploading and
+ * instantiating wasm.
  */
 import { createECDH, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -43,10 +42,11 @@ import type { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
+  StellarUnsignedTransaction,
+  getStellarSigner,
   nativeSacId,
   stellarNetworkPassphrase,
 } from "@wormhole-foundation/sdk-stellar";
-import type { StellarUnsignedTransaction } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
 import { StellarNttWithExecutor } from "../src/nttWithExecutor.js";
 import { bytesArg } from "../src/scval-types.js";
@@ -159,9 +159,12 @@ async function send(
 
   const simulation = await simulate(tx, description);
   return submit(
-    SorobanRpc.assembleTransaction(tx, simulation).build(),
-    simulation,
-    description
+    new StellarUnsignedTransaction(
+      SorobanRpc.assembleTransaction(tx, simulation).build(),
+      NETWORK,
+      CHAIN,
+      description
+    )
   );
 }
 
@@ -173,16 +176,7 @@ export async function drive(
   txs: AsyncGenerator<StellarUnsignedTransaction<typeof NETWORK, typeof CHAIN>>
 ): Promise<unknown[]> {
   const results: unknown[] = [];
-  for await (const tx of txs)
-    results.push(
-      await submit(
-        tx.transaction,
-        // The binding already simulated to assemble this; simulating again is
-        // how the harness gets at the return value. See `submit`.
-        await simulate(tx.transaction, tx.description),
-        tx.description
-      )
-    );
+  for await (const tx of txs) results.push(await submit(tx));
   return results;
 }
 
@@ -197,51 +191,27 @@ async function simulate(
 }
 
 /**
- * Signs, submits, and confirms one assembled transaction, returning what the
- * invocation returned.
+ * Signs, submits, and confirms one assembled transaction as {@link admin}
+ * through the `StellarSigner` and `StellarPlatform.sendAndConfirm` of
+ * `@wormhole-foundation/sdk-stellar`, the path a consumer takes, and returns
+ * what the invocation returned.
  *
- * The `StellarSigner` and `StellarPlatform.sendAndConfirm` of
- * `@wormhole-foundation/sdk-stellar` are the path a consumer takes, and would
- * be the thing to reuse here, but they cannot run against this network: they
- * confirm through `rpc.getTransaction`, which eagerly parses the response's
- * `resultMetaXdr`, and `@stellar/stellar-sdk@13` — the version this package and
- * `@wormhole-foundation/sdk-stellar` pin — knows only `TransactionMeta` v0-v3.
- * Protocol 23 and up emit v4, so the parse throws `Bad union switch: 4` before
- * any field can be read. Building, simulating, signing, and submitting are all
- * unaffected, so the harness confirms from the raw JSON-RPC status instead.
- *
- * The return value comes from `simulation`, because the applied one lives in
- * that same unreadable meta — the transaction result itself only carries a hash.
- * For everything the suite reads back that is the same value: a wasm hash, a
- * contract id, and the manager's own sequence counter are all decided by state
- * the simulation saw. A value that turned on *ledger time* would not be, which
- * is why the rate-limit tests take "did it queue?" from the queue entry rather
- * than from the flag the call returned.
+ * The signer reports only the hash, so the applied return value is read back
+ * from the confirmed transaction.
  */
 async function submit(
-  transaction: Transaction,
-  simulation: SorobanRpc.Api.SimulateTransactionSuccessResponse,
-  description: string
+  tx: StellarUnsignedTransaction<typeof NETWORK, typeof CHAIN>
 ): Promise<unknown> {
-  transaction.sign(admin);
-  const sent = await rpc.sendTransaction(transaction);
-  if (sent.status !== "PENDING")
-    throw new Error(`${description} was not accepted: ${sent.status}`);
-
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const { status } = await rpcCall("getTransaction", { hash: sent.hash });
-    if (status === "SUCCESS")
-      return simulation.result
-        ? scValToNative(simulation.result.retval)
-        : undefined;
-    if (status !== "NOT_FOUND")
-      throw new Error(`${description} failed: ${String(status)}`);
-    await sleep(1000);
-  }
-  throw new Error(`${description} was never confirmed`);
+  const signer = await getStellarSigner(rpc, admin.secret());
+  const [hash] = await signer.signAndSend([tx]);
+  if (hash === undefined) throw new Error(`${tx.description} returned no hash`);
+  const result = await rpc.getTransaction(hash);
+  if (result.status !== "SUCCESS")
+    throw new Error(`${tx.description} reads back as ${result.status}`);
+  return result.returnValue ? scValToNative(result.returnValue) : undefined;
 }
 
-/** A JSON-RPC call the SDK cannot make; see {@link submit}. */
+/** A JSON-RPC call the SDK cannot make; see {@link ledgerTime}. */
 async function rpcCall(
   method: string,
   params: Record<string, unknown>
