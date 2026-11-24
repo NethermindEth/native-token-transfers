@@ -58,14 +58,12 @@ jobs:
           path: wormhole-sdk-ts-src
       - name: Move it beside this checkout
         run: mv wormhole-sdk-ts-src ../wormhole-sdk-ts
-      # `npm install`, not `npm ci`: that repository's committed lockfile is out
-      # of sync with its package.json. Only the packages this repository links
-      # are built, because a full build fails on sdk-icons, which nothing here
-      # imports.
+      # Only the packages this repository links are built, because a full build
+      # fails on sdk-icons, which nothing here imports.
       - name: Build the Stellar SDK packages
         working-directory: ../wormhole-sdk-ts
         run: |
-          npm install
+          npm ci
           npx turbo build \
             --filter=@wormhole-foundation/sdk-stellar... \
             --filter=@wormhole-foundation/sdk-stellar-core...
