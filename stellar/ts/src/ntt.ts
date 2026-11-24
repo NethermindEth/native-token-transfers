@@ -1,4 +1,5 @@
 import {
+  Address,
   BASE_FEE,
   Contract,
   TransactionBuilder,
@@ -6,6 +7,7 @@ import {
   rpc as SorobanRpc,
   xdr,
 } from "@stellar/stellar-sdk";
+import type { Operation } from "@stellar/stellar-sdk";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
@@ -808,6 +810,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Builds, simulates, and assembles a write for the signer to sign and submit.
    * `space` names the contract whose error table decodes a rejection, so a
    * rejection from another NTT contract does not carry a manager error name.
+   * Throws if the write needs an auth entry the source account cannot sign.
    */
   async prepare(
     from: string,
@@ -830,6 +833,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         throw decodeContractError(error, space);
       });
 
+    const [invoke] = prepared.operations;
+    if (invoke?.type === "invokeHostFunction")
+      checkAuth(invoke, from, description);
+
     return new StellarUnsignedTransaction(
       prepared,
       this.network,
@@ -840,6 +847,33 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       // behind the transfer that queued it.
       false
     );
+  }
+}
+
+/**
+ * Throws if the simulation recorded an auth entry for an address other than
+ * the source account. The signer signs only the envelope, which covers
+ * source-account credentials; any other address would have to sign its own
+ * entry, and the transaction would fail on chain without it.
+ */
+function checkAuth(
+  invoke: Operation.InvokeHostFunction,
+  from: string,
+  description: string
+): void {
+  for (const entry of invoke.auth ?? []) {
+    const credentials = entry.credentials();
+    // By value: the provider's stellar-sdk need not be this package's copy,
+    // and each copy has its own enum objects.
+    if (
+      credentials.switch().value ===
+      xdr.SorobanCredentialsType.sorobanCredentialsAddress().value
+    )
+      throw new Error(
+        `${description} needs an auth entry signed by ` +
+          `${Address.fromScAddress(credentials.address().address()).toString()}, ` +
+          `and only the source account ${from} signs this transaction`
+      );
   }
 }
 

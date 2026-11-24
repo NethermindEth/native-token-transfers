@@ -4,10 +4,11 @@ import {
   Account,
   Address,
   Operation,
+  SorobanDataBuilder,
   scValToNative,
   type Transaction,
-  type rpc as SorobanRpc,
-  type xdr,
+  rpc as SorobanRpc,
+  xdr,
 } from "@stellar/stellar-sdk";
 import { encoding } from "@wormhole-foundation/sdk-base";
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
@@ -123,14 +124,53 @@ const attestation = createVAA("Ntt:WormholeTransfer", {
 
 let overrides: Record<string, unknown>;
 let calls: { method: string; args: xdr.ScVal[] }[];
+/**
+ * The auth entries the simulation records, given the call a write makes; none
+ * by default, as for a write that authorizes nothing.
+ */
+let recordAuth: (
+  call: xdr.InvokeContractArgs
+) => xdr.SorobanAuthorizationEntry[];
 
-// Writes only need the rpc calls `prepare` makes; `prepareTransaction` hands
-// the built transaction straight back so the tests can inspect it.
+/** The RPC's simulation of `tx`, recording `recordAuth`'s entries. */
+const simulation = (tx: Transaction) => {
+  const [operation] = tx.operations as [Operation.InvokeHostFunction];
+  const auth = recordAuth(operation.func.invokeContract());
+  return {
+    id: "1",
+    latestLedger: 1000,
+    transactionData: new SorobanDataBuilder().build().toXDR("base64"),
+    minResourceFee: "0",
+    results: [
+      {
+        auth: auth.map((entry) => entry.toXDR("base64")),
+        xdr: xdr.ScVal.scvVoid().toXDR("base64"),
+      },
+    ],
+  };
+};
+
+// Writes only need the rpc calls `prepare` makes. `prepareTransaction`
+// assembles the built transaction with the simulation, the way the real one
+// does, so the tests can inspect it.
 const provider = {
   getAccount: async (address: string) => new Account(address, "17"),
-  prepareTransaction: async (tx: Transaction) => tx,
+  prepareTransaction: async (tx: Transaction) =>
+    SorobanRpc.assembleTransaction(tx, simulation(tx)).build(),
   getLatestLedger: async () => ({ sequence: 1000 }),
 } as unknown as SorobanRpc.Server;
+
+/** An auth tree rooted at `call`, the way a simulation records it. */
+const authorized = (
+  call: xdr.InvokeContractArgs
+): xdr.SorobanAuthorizedInvocation =>
+  new xdr.SorobanAuthorizedInvocation({
+    function:
+      xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        call
+      ),
+    subInvocations: [],
+  });
 
 const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
 
@@ -163,6 +203,7 @@ const one = async (
 beforeEach(() => {
   overrides = {};
   calls = [];
+  recordAuth = () => [];
   jest
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
@@ -698,6 +739,61 @@ describe("StellarNtt queue completion", () => {
       method: "cancel_queued_transfer",
       args: [OWNER, 7n],
     });
+  });
+});
+
+describe("StellarNtt.prepare auth checks", () => {
+  const owner = new StellarAddress(OWNER);
+
+  /**
+   * Creates a binding whose provider assembles with another copy of
+   * stellar-sdk, as one from `@wormhole-foundation/sdk-stellar` can. Each copy
+   * has its own XDR classes and enum objects.
+   */
+  const foreignNtt = async () => {
+    let sdk: typeof import("@stellar/stellar-sdk") | undefined;
+    await jest.isolateModulesAsync(async () => {
+      sdk = await import("@stellar/stellar-sdk");
+    });
+    expect(sdk!.xdr).not.toBe(xdr);
+    const { Transaction: ForeignTransaction, rpc } = sdk!;
+    return new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        prepareTransaction: async (tx: Transaction) =>
+          rpc
+            .assembleTransaction(
+              new ForeignTransaction(tx.toXDR(), tx.networkPassphrase),
+              simulation(tx)
+            )
+            .build(),
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+  };
+
+  it("refuses an auth entry the source account cannot sign", async () => {
+    // The manager's owner is `PAUSER`, not the account sourcing the call, so
+    // the simulation records address credentials that only it can sign.
+    recordAuth = (call) => [
+      new xdr.SorobanAuthorizationEntry({
+        credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+          new xdr.SorobanAddressCredentials({
+            address: new Address(PAUSER).toScAddress(),
+            nonce: xdr.Int64.fromString("1"),
+            signatureExpirationLedger: 0,
+            signature: xdr.ScVal.scvVoid(),
+          })
+        ),
+        rootInvocation: authorized(call),
+      }),
+    ];
+    for (const n of [ntt(), await foreignNtt()])
+      await expect(collect(n.setThreshold(2, owner))).rejects.toThrow(
+        `Ntt.setThreshold needs an auth entry signed by ${PAUSER}`
+      );
   });
 });
 
