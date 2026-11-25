@@ -33,7 +33,9 @@ export class AddressNotFoundError extends Error {
  * `keccak256(strkey text)`, the identity every NTT message carries on the wire
  * — and it is one-way. The Wormhole core's address registry is the only
  * inverse, so this throws `AddressNotFoundError` unless
- * `StellarNtt.recordAddress` registered that address beforehand.
+ * `StellarNtt.recordAddress` registered that address beforehand. The answer
+ * comes from an RPC simulation, so this also throws unless it hashes back to
+ * `hash`.
  */
 export async function resolveAddress(
   rpc: SorobanRpc.Server,
@@ -61,5 +63,11 @@ export async function resolveAddress(
   }
   if (typeof resolved !== "string")
     throw new Error(`Unexpected get_address_from_hash result: ${resolved}`);
-  return new StellarAddress(resolved);
+  const address = new StellarAddress(resolved);
+  if (!address.equals(hash))
+    throw new Error(
+      `get_address_from_hash returned ${resolved}, which hashes to ` +
+        `${address.toUniversalAddress().toString()}, not ${hash.toString()}`
+    );
+  return address;
 }
