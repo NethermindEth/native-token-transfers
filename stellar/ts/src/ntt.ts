@@ -799,9 +799,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * or `complete_queued_transfer` with an `amount` of 0.
    *
    * Below that call, `from` authorizes only the token's `transfer` or `burn`
-   * and native `transfer`s, each out of `from` and with nothing below it. They
-   * move at most `amount` of the token, and at most the core's message fee
-   * once per enabled transceiver in XLM, plus `amount` when the token is XLM.
+   * and native `transfer`s, each out of `from` and with nothing below it. The
+   * token goes only to the manager, as custody, and XLM only to the configured
+   * transceiver, as its fee, so a manager that pays any other transceiver is
+   * rejected; when the token is XLM, its custody is the native `transfer` to
+   * the manager. They move at most `amount` of the token, and at most the
+   * core's message fee once per enabled transceiver in XLM.
    *
    * Public, like {@link prepare}, because the executor binding checks the
    * moves of the transfer it wraps with this policy.
@@ -829,8 +832,18 @@ export class StellarNtt<N extends Network, C extends StellarChains>
             `The auth tree moves ${contract} from ${sender}; ` +
               `a transfer moves only from ${from}`
           );
-        if (contract === native) stroops += value;
-        else token += value;
+        // A `burn` has no recipient: the manager takes custody by burning.
+        const to = method === "burn" ? this.managerAddress : asAddress(args[1]);
+        if (contract === this.tokenAddress && to === this.managerAddress)
+          token += value;
+        else if (contract === native && to === this.transceiverAddress)
+          stroops += value;
+        else
+          throw new Error(
+            `The auth tree moves ${contract} to ${to}; a transfer moves the ` +
+              `token only to the manager ${this.managerAddress}, and XLM only ` +
+              `to the transceiver ${this.transceiverAddress ?? "(none configured)"}`
+          );
       }
 
       if (token > amount)
@@ -852,9 +865,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       const transceivers = [...asBigint(enabled).toString(2)].filter(
         (bit) => bit === "1"
       ).length;
-      const limit =
-        asBigint(fee) * BigInt(transceivers) +
-        (this.tokenAddress === native ? amount : 0n);
+      const limit = asBigint(fee) * BigInt(transceivers);
       if (stroops > limit)
         throw new Error(
           `The auth tree moves ${stroops} stroops of XLM, above the ${limit} a transfer pays`

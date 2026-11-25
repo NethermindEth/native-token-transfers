@@ -903,29 +903,41 @@ describe("StellarNtt transfer auth bounds", () => {
   const send = (n = ntt()) =>
     collect(n.transfer(sender, 42n, destination, { queue: false }));
 
-  /** A `transfer` of `amount` out of `from`. */
-  const transferCall = (contract: string, amount: bigint, from = OWNER) =>
+  /** A `transfer` of `amount` from `from` to `to`. */
+  const transferCall = (
+    contract: string,
+    to: string,
+    amount: bigint,
+    from = OWNER
+  ) =>
     contractCall(
       contract,
       "transfer",
       new Address(from).toScVal(),
-      new Address(MANAGER).toScVal(),
+      new Address(to).toScVal(),
       nativeToScVal(amount, { type: "i128" })
     );
   /** The same `transfer`, as the auth tree records it. */
-  const move = (contract: string, amount: bigint, from = OWNER) =>
-    authorized(transferCall(contract, amount, from));
+  const move = (contract: string, to: string, amount: bigint, from = OWNER) =>
+    authorized(transferCall(contract, to, amount, from));
 
   // Two enabled transceivers, each paid the core's 100-stroop message fee.
   beforeEach(() => (overrides = { get_enabled_bitmap: 0b101n }));
 
   it("bounds the token by the amount and XLM by the transceiver fees", async () => {
-    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 100n), move(XLM, 100n));
+    recordAuth = sourceAuth(
+      move(TOKEN, MANAGER, 42n),
+      move(XLM, TRANSCEIVER, 100n),
+      move(XLM, TRANSCEIVER, 100n)
+    );
     await expect(send()).resolves.toHaveLength(1);
 
-    recordAuth = sourceAuth(move(TOKEN, 43n));
+    recordAuth = sourceAuth(move(TOKEN, MANAGER, 43n));
     await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
-    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 201n));
+    recordAuth = sourceAuth(
+      move(TOKEN, MANAGER, 42n),
+      move(XLM, TRANSCEIVER, 201n)
+    );
     await expect(send()).rejects.toThrow(/201 stroops of XLM, above the 200/);
 
     // Burning mode takes custody with `burn(from, amount)`.
@@ -945,19 +957,25 @@ describe("StellarNtt transfer auth bounds", () => {
   });
 
   it("allows only the token and XLM, moved out of the sender", async () => {
-    recordAuth = sourceAuth(move(TRANSCEIVER, 1n));
+    recordAuth = sourceAuth(move(TRANSCEIVER, MANAGER, 1n));
     await expect(send()).rejects.toThrow(
       `Unexpected call in the auth tree: ${TRANSCEIVER}.transfer`
     );
-    recordAuth = sourceAuth(move(TOKEN, 42n, PAUSER));
+    recordAuth = sourceAuth(move(TOKEN, MANAGER, 42n, PAUSER));
     await expect(send()).rejects.toThrow(/moves only from/);
 
     // A negative move would lower the total the bound compares.
-    recordAuth = sourceAuth(move(TOKEN, -1n), move(TOKEN, 43n));
+    recordAuth = sourceAuth(
+      move(TOKEN, MANAGER, -1n),
+      move(TOKEN, MANAGER, 43n)
+    );
     await expect(send()).rejects.toThrow(`The auth tree moves -1 of ${TOKEN}`);
     // A call below a move would escape the bound.
     recordAuth = sourceAuth(
-      authorized(transferCall(TOKEN, 42n), move(XLM, 1_000n))
+      authorized(
+        transferCall(TOKEN, MANAGER, 42n),
+        move(XLM, TRANSCEIVER, 1_000n)
+      )
     );
     await expect(send()).rejects.toThrow(
       `Unexpected call in the auth tree: ${TOKEN}.transfer`
@@ -980,27 +998,57 @@ describe("StellarNtt transfer auth bounds", () => {
     );
   });
 
-  it("adds the amount to the XLM bound when the token is XLM", async () => {
+  it("moves the token only to the manager and XLM only to the transceiver", async () => {
+    recordAuth = sourceAuth(move(TOKEN, PAUSER, 42n));
+    await expect(send()).rejects.toThrow(
+      `The auth tree moves ${TOKEN} to ${PAUSER}; a transfer moves the token ` +
+        `only to the manager ${MANAGER}, and XLM only to the transceiver ${TRANSCEIVER}`
+    );
+    // XLM is custody only when it is the token.
+    recordAuth = sourceAuth(move(XLM, MANAGER, 42n));
+    await expect(send()).rejects.toThrow(
+      `The auth tree moves ${XLM} to ${MANAGER}`
+    );
+    recordAuth = sourceAuth(move(XLM, CORE, 100n));
+    await expect(send()).rejects.toThrow(
+      `The auth tree moves ${XLM} to ${CORE}`
+    );
+    // A config with no transceiver has nowhere to pay a fee.
+    const unwired = new StellarNtt("Testnet", "Stellar", provider, {
+      coreBridge: CORE,
+      ntt: { ...contracts.ntt, transceiver: {} },
+    });
+    recordAuth = sourceAuth(move(XLM, TRANSCEIVER, 100n));
+    await expect(send(unwired)).rejects.toThrow(
+      "XLM only to the transceiver (none configured)"
+    );
+  });
+
+  it("counts an XLM token's custody against the amount", async () => {
     const xlmNtt = new StellarNtt("Testnet", "Stellar", provider, {
       ...contracts,
       ntt: { ...contracts.ntt, token: XLM },
     });
-    recordAuth = sourceAuth(move(XLM, 42n), move(XLM, 200n));
-    await expect(send(xlmNtt)).resolves.toHaveLength(1);
-    recordAuth = sourceAuth(move(XLM, 43n), move(XLM, 200n));
-    await expect(send(xlmNtt)).rejects.toThrow(
-      /243 stroops of XLM, above the 242/
+    recordAuth = sourceAuth(
+      move(XLM, MANAGER, 42n),
+      move(XLM, TRANSCEIVER, 200n)
     );
+    await expect(send(xlmNtt)).resolves.toHaveLength(1);
+    recordAuth = sourceAuth(
+      move(XLM, MANAGER, 43n),
+      move(XLM, TRANSCEIVER, 200n)
+    );
+    await expect(send(xlmNtt)).rejects.toThrow(/43 of the token, above the 42/);
   });
 
   it("bounds a queued completion by the transceiver fees alone", async () => {
     const complete = () =>
       collect(ntt().completeOutboundQueuedTransfer(7n, sender));
-    recordAuth = sourceAuth(move(XLM, 200n));
+    recordAuth = sourceAuth(move(XLM, TRANSCEIVER, 200n));
     await expect(complete()).resolves.toHaveLength(1);
 
     // The tokens left custody when the transfer was queued.
-    recordAuth = sourceAuth(move(TOKEN, 1n));
+    recordAuth = sourceAuth(move(TOKEN, MANAGER, 1n));
     await expect(complete()).rejects.toThrow(/1 of the token, above the 0/);
   });
 });
