@@ -1161,7 +1161,10 @@ describe("StellarNtt fee cap", () => {
       contracts
     );
     await expect(collect(restoring.setThreshold(2, owner))).rejects.toThrow(
-      /because it restores archived ledger entries\. Restore them in a separate restoreFootprint/
+      "because it restores archived ledger entries. Restore them in a separate " +
+        "restoreFootprint transaction, signed with @stellar/stellar-sdk directly " +
+        "because StellarSigner signs only a transaction with one " +
+        "invokeHostFunction operation, then prepare it again"
     );
   });
 

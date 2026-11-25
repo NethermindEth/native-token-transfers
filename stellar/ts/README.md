@@ -17,14 +17,15 @@ Every write builds a transaction, simulates it, and yields it for the signer to 
 
 ## Raise the fee cap
 
-The RPC sets the resource fee from its simulation, with no cap of its own. `maxFee` caps the whole fee, in stroops, and defaults to 50,000,000 (5 XLM). It also caps, separately, the XLM a transfer pays its transceivers. To prepare a write that is known to cost more, raise it on the manager binding:
+The RPC sets the resource fee from its simulation, with no cap of its own. `maxFee` caps the whole fee, in stroops, and defaults to 50,000,000 (5 XLM). It also caps, separately, the XLM a transfer pays its transceivers. The signer from `getStellarSigner` caps the fee too, at 5 XLM by default. To prepare and sign a write that is known to cost more, raise both caps:
 
 ```ts
 ntt.maxFee = 100_000_000n; // 10 XLM
+const signer = await getStellarSigner(rpc, secret, { maxFee: 100_000_000n });
 ```
 
 The transceiver and executor bindings prepare their writes through the manager binding, so its `maxFee` applies to them too.
 
 ## Restore archived state
 
-When a write touches persistent state that has been archived, the transaction restores that state before the write runs, and its resource fee pays for the restoration. If that pushes the fee above `maxFee`, the error says that restoring archived entries caused it. To fix it, restore those entries in a separate `restoreFootprint` transaction, and then prepare the write again.
+When a write touches persistent state that has been archived, the transaction restores that state before the write runs, and its resource fee pays for the restoration. If that pushes the fee above `maxFee`, the error says that restoring archived entries caused it. To fix it, restore those entries in a separate `restoreFootprint` transaction, signed with `@stellar/stellar-sdk` directly because `StellarSigner` signs only a transaction with one `invokeHostFunction` operation, and then prepare the write again.

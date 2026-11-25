@@ -958,7 +958,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})` +
           (restores
             ? ", because it restores archived ledger entries. Restore them " +
-              "in a separate restoreFootprint transaction, then prepare it again"
+              "in a separate restoreFootprint transaction, signed with " +
+              "@stellar/stellar-sdk directly because StellarSigner signs only " +
+              "a transaction with one invokeHostFunction operation, then " +
+              "prepare it again"
             : "")
       );
     }
