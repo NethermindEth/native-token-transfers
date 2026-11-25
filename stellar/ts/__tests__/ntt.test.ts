@@ -727,9 +727,8 @@ describe("StellarNtt.redeem", () => {
     );
   });
 
-  it("points a rejected message at the address registry", async () => {
-    // `flatten_call` masks the manager's own error as `ManagerRejectedMessage`,
-    // so the inner code is the only evidence of what actually went wrong.
+  /** The error a redeem fails with when its simulation reports `codes`. */
+  const rejectedWith = async (...codes: number[]) => {
     const failing = new StellarNtt(
       "Testnet",
       "Stellar",
@@ -737,24 +736,44 @@ describe("StellarNtt.redeem", () => {
         ...provider,
         prepareTransaction: async () => {
           throw new Error(
-            "HostError: Error(Contract, #36)\nError(Contract, #66)"
+            `HostError: ${codes.map((code) => `Error(Contract, #${code})`).join("\n")}`
           );
         },
       } as unknown as SorobanRpc.Server,
       contracts
     );
-
-    const rejected = await collect(
+    return (await collect(
       failing.redeem([attestation], new StellarAddress(OWNER))
-    ).catch((error: Error) => error);
+    ).catch((error: Error) => error)) as Error;
+  };
 
-    expect((rejected as Error).message).toMatch(
-      /RecipientNotRegistered.*recordAddress/s
-    );
+  it("points a rejected message at the address registry", async () => {
+    // `flatten_call` masks the manager's own error as `ManagerRejectedMessage`,
+    // so the inner code is the only evidence of what actually went wrong.
+    const rejected = await rejectedWith(36, 66);
+    expect(rejected.message).toMatch(/RecipientNotRegistered.*recordAddress/s);
     // Named once, by `prepare`, not again by the guidance layered on top.
-    expect(
-      (rejected as Error).message.match(/ManagerRejectedMessage/g)
-    ).toHaveLength(1);
+    expect(rejected.message.match(/ManagerRejectedMessage/g)).toHaveLength(1);
+  });
+
+  it("names the code the token rejected the credit with", async () => {
+    const trustline = (await rejectedWith(36, 13)).message;
+    expect(trustline).toContain(
+      "The token rejected the credit with #13 (TrustlineMissing on a Stellar Asset Contract)."
+    );
+    expect(trustline).not.toContain("recordAddress");
+
+    const account = (await rejectedWith(36, 6)).message;
+    expect(account).toContain(
+      "The token rejected the credit with #6 (AccountMissing on a Stellar Asset Contract)."
+    );
+    expect(account).not.toContain("recordAddress");
+  });
+
+  it("gives no registry advice when nothing names the recipient", async () => {
+    const masked = (await rejectedWith(36)).message;
+    expect(masked).toContain("flatten_call masked its error");
+    expect(masked).not.toContain("recordAddress");
   });
 
   it("refuses to redeem without a transceiver to redeem through", async () => {

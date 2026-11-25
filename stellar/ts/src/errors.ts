@@ -91,6 +91,15 @@ export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
 
 /**
+ * Names the Stellar Asset Contract's codes for a credit it refuses: the
+ * recipient holds no trustline for the asset, or its account does not exist.
+ * Below a `ManagerRejectedMessage`, they are what the token raised when the
+ * manager credited the recipient.
+ */
+export const TRUSTLINE_MISSING = 13;
+export const ACCOUNT_MISSING = 6;
+
+/**
  * Identifies the code the core registry reports for a hash it has no address
  * for. `resolveAddress` turns it into `AddressNotFoundError`.
  */
@@ -155,14 +164,14 @@ const TOKEN_ERRORS: Record<number, string> = {
   3: "AlreadyInitialized",
   4: "Unauthorized",
   5: "AuthenticationError",
-  6: "AccountMissing",
+  [ACCOUNT_MISSING]: "AccountMissing",
   7: "AccountIsNotClassic",
   8: "NegativeAmount",
   9: "AllowanceError",
   10: "BalanceError",
   11: "BalanceDeauthorized",
   12: "Overflow",
-  13: "TrustlineMissing",
+  [TRUSTLINE_MISSING]: "TrustlineMissing",
 };
 
 /**
@@ -195,8 +204,8 @@ const SPACES: Record<ContractErrorSpace, Record<number, string>[]> = {
   // The manager custodies through the built-in token contract, so its writes
   // carry a token frame.
   NttManager: [NTT_MANAGER_ERRORS, OZ_ERRORS, TOKEN_ERRORS],
-  // No token frame surfaces here: everything below `receive_message` is masked
-  // as `ManagerRejectedMessage (36)`.
+  // No token code is the outermost one here: everything below `receive_message`
+  // is masked as `ManagerRejectedMessage (36)`.
   Transceiver: [TRANSCEIVER_ERRORS, OZ_ERRORS],
   // Only the core codes this package acts on are named here; the rest of its
   // vocabulary lives in the Wormhole repository. Its registry writes move no
