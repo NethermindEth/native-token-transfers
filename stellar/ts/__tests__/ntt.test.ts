@@ -527,6 +527,38 @@ describe("StellarNtt.transfer", () => {
     ]);
   });
 
+  it("encodes a native recipient of the destination's platform", async () => {
+    // A Stellar recipient goes over the wire as its one-way `hash_address`.
+    const recipient = new StellarAddress(PAUSER);
+    const [tx] = await collect(
+      ntt().transfer(
+        new StellarAddress(OWNER),
+        42n,
+        { chain: "Stellar", address: recipient },
+        { queue: false }
+      )
+    );
+    expect(invocation(tx!).args[3]).toEqual(
+      Buffer.from(recipient.toUniversalAddress().toUint8Array())
+    );
+  });
+
+  it("refuses a native recipient of another platform", async () => {
+    // A Stellar address hashes to bytes no Ethereum recipient owns.
+    await expect(
+      collect(
+        ntt().transfer(
+          new StellarAddress(OWNER),
+          42n,
+          { chain: "Ethereum", address: new StellarAddress(OWNER) },
+          { queue: false }
+        )
+      )
+    ).rejects.toThrow(
+      "A recipient on Ethereum must be universal or of platform Evm, not Stellar"
+    );
+  });
+
   it("refuses an automatic transfer and a sender it cannot sign for", async () => {
     await expect(
       collect(

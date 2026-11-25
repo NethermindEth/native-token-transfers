@@ -13,9 +13,13 @@
  */
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 import type { xdr } from "@stellar/stellar-sdk";
-import { toChainId } from "@wormhole-foundation/sdk-base";
+import { chainToPlatform, toChainId } from "@wormhole-foundation/sdk-base";
 import type { Chain } from "@wormhole-foundation/sdk-base";
-import type { AccountAddress } from "@wormhole-foundation/sdk-definitions";
+import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
+import type {
+  AccountAddress,
+  ChainAddress,
+} from "@wormhole-foundation/sdk-definitions";
 import type {
   Ntt,
   TrimmedAmount,
@@ -296,6 +300,29 @@ export const chainIdArg = (chain: Chain): xdr.ScVal =>
  */
 export const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
   nativeToScVal(Buffer.from(bytes), { type: "bytes" });
+
+/**
+ * Encodes a transfer's destination address as the 32 bytes the manager sends
+ * on.
+ *
+ * A native address converts with its own platform's rules, so one of another
+ * platform than the destination chain's would encode bytes that no recipient
+ * there owns; this throws for it. A `UniversalAddress` passes as it is.
+ */
+export function recipientArg(destination: ChainAddress): xdr.ScVal {
+  const { chain, address } = destination;
+  const expected = chainToPlatform(chain);
+  const platform =
+    "platform" in address.constructor
+      ? address.constructor.platform
+      : undefined;
+  if (!UniversalAddress.instanceof(address) && platform !== expected)
+    throw new Error(
+      `A recipient on ${chain} must be universal or of platform ${expected}, ` +
+        `not ${String(platform)}`
+    );
+  return bytesArg(address.toUniversalAddress().toUint8Array());
+}
 
 /** Encodes a sequence number as the `u64` the contracts take. */
 export const sequenceArg = (sequence: bigint): xdr.ScVal =>

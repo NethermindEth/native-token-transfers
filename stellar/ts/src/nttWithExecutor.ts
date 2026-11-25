@@ -38,6 +38,7 @@ import {
   asNumber,
   bytesArg,
   chainIdArg,
+  recipientArg,
   structArg,
 } from "./scval-types.js";
 
@@ -161,11 +162,7 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
     const wrapper = this.wrapper();
     const executor = this.executor();
     const from = ntt.source(sender, "the sender");
-    // Generic, exactly as `StellarNtt.transfer` does it: the destination's own
-    // address type determines its wire form.
-    const recipient = bytesArg(
-      destination.address.toUniversalAddress().toUint8Array()
-    );
+    const recipient = recipientArg(destination);
     const payee = await this.payee(quote.payeeAddress);
 
     yield await ntt.prepare(

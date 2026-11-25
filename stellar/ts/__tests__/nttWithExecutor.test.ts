@@ -250,6 +250,19 @@ describe("StellarNttWithExecutor transfer", () => {
     await expect(txs.next()).rejects.toThrow(/No ntt-with-executor/);
   });
 
+  it("refuses a native recipient of another platform", async () => {
+    const txs = executor(WRAPPER).transfer(
+      SENDER as unknown as AccountAddress<"Stellar">,
+      { chain: "Ethereum", address: new StellarAddress(SENDER) },
+      AMOUNT,
+      quote(),
+      ntt()
+    );
+    await expect(txs.next()).rejects.toThrow(
+      "A recipient on Ethereum must be universal or of platform Evm, not Stellar"
+    );
+  });
+
   it("rejects a configured wrapper or executor that is not a contract id", () => {
     expect(() => executor(SENDER)).toThrow(
       "wrapperAddress for Stellar is not a contract id"

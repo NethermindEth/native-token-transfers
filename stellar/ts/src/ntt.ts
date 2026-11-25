@@ -48,6 +48,7 @@ import {
   decodeRateLimitParams,
   decodeTransceiverFee,
   decodeTransceiverInfo,
+  recipientArg,
   sequenceArg,
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
@@ -443,7 +444,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       // destination is itself Stellar. The manager hashes `sender` and
       // `source_token` on-chain (`outbound.rs`), so this call passes both
       // unhashed.
-      bytesArg(destination.address.toUniversalAddress().toUint8Array()),
+      recipientArg(destination),
       nativeToScVal(options.queue, { type: "bool" }),
     ];
     if (additionalPayload) args.push(bytesArg(additionalPayload));
