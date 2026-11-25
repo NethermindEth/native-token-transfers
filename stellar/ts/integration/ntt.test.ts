@@ -293,10 +293,8 @@ describe("rate limiting", () => {
     const [result] = await drive(transferOut(OVER_LIMIT, true));
     const { sequence } = decodeTransferResult(result);
 
-    // The queue entry, not the `queued` flag the call returned, is what says it
-    // was held: the flag is read a ledger early (see `submit`), and this is
-    // keyed by sequence rather than by digest, since a queued outbound transfer
-    // has not been turned into a message yet.
+    // The queue entry is keyed by sequence rather than by digest, since a
+    // queued outbound transfer has not been turned into a message yet.
     const item = await stack.ntt.getOutboundQueuedTransfer(sequence);
     expect(item).not.toBeNull();
     expect(item?.sender).toBe(admin.publicKey());
