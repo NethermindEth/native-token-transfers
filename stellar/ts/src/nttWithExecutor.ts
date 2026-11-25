@@ -4,6 +4,7 @@ import {
   nativeToScVal,
   rpc as SorobanRpc,
 } from "@stellar/stellar-sdk";
+import { encoding, toChainId } from "@wormhole-foundation/sdk-base";
 import type { Network } from "@wormhole-foundation/sdk-base";
 import type {
   AccountAddress,
@@ -27,7 +28,18 @@ import type {
 } from "@wormhole-foundation/sdk-stellar";
 import { STELLAR_ADDRESSES } from "./constants.js";
 import { StellarNtt } from "./ntt.js";
-import { addressArg, bytesArg, chainIdArg, structArg } from "./scval-types.js";
+import type { AuthorizedCall } from "./ntt.js";
+import {
+  addressArg,
+  asAddress,
+  asBigint,
+  asBoolean,
+  asBytes,
+  asNumber,
+  bytesArg,
+  chainIdArg,
+  structArg,
+} from "./scval-types.js";
 
 /**
  * Bindings for the `ntt-with-executor` wrapper: one Soroban call that transfers
@@ -39,18 +51,20 @@ import { addressArg, bytesArg, chainIdArg, structArg } from "./scval-types.js";
  * does runs under the single auth tree rooted at the sender, and it takes no
  * custody of its own.
  *
- * The wrapper binds the executor contract at construction, so a caller only
- * ever names the wrapper; the manager is a per-call argument, which is why one
- * wrapper serves every manager on the chain.
+ * The wrapper binds the executor contract at construction, and this binding
+ * names that executor too, to check the call the wrapper makes to it; the
+ * manager is a per-call argument, which is why one wrapper serves every
+ * manager on the chain.
  */
 export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
   implements NttWithExecutor<N, C>
 {
   /**
-   * `wrapperAddress` overrides {@link STELLAR_ADDRESSES}, which is how a
-   * localnet or a private deployment names its own wrapper — the table carries
-   * an entry only where a public deployment exists, and an invented address is
-   * worse than none.
+   * `wrapperAddress` and `contracts.executor` override
+   * {@link STELLAR_ADDRESSES}, which is how a localnet or a private deployment
+   * names its own wrapper and the executor it was built with — the table
+   * carries an entry only where a public deployment exists, and an invented
+   * address is worse than none.
    */
   constructor(
     readonly network: N,
@@ -138,7 +152,13 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
     // Everything that can be settled without the network is settled first, so
     // an unusable call fails on what is wrong with it rather than on an RPC.
     const wrapper = this.wrapper();
+    const executor = this.executor();
     const from = ntt.source(sender, "the sender");
+    // Generic, exactly as `StellarNtt.transfer` does it: the destination's own
+    // address type determines its wire form.
+    const recipient = bytesArg(
+      destination.address.toUniversalAddress().toUint8Array()
+    );
     const payee = await this.payee(quote.payeeAddress);
 
     yield await ntt.prepare(
@@ -148,14 +168,7 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
         addressArg(from),
         addressArg(ntt.managerAddress),
         nativeToScVal(amount, { type: "i128" }),
-        structArg({
-          chain: chainIdArg(destination.chain),
-          // Generic, exactly as `StellarNtt.transfer` does it: the destination's
-          // own address type determines its wire form.
-          recipient: bytesArg(
-            destination.address.toUniversalAddress().toUint8Array()
-          ),
-        }),
+        structArg({ chain: chainIdArg(destination.chain), recipient }),
         structArg({
           dbps: nativeToScVal(Number(quote.referrerFeeDbps), { type: "u32" }),
           referrer: addressArg(referrer),
@@ -174,32 +187,72 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
       ),
       "NttWithExecutor.transfer",
       "NttWithExecutor",
-      // Below the wrapper, the sender authorizes the referrer fee, the manager
-      // transfer, and `request_execution`, whose only call is the executor's
-      // XLM fee. Their moves are bounded together: the token by `amount`, which
-      // includes the referrer fee, and XLM by the transceiver fees plus the
-      // quoted cost. The wrapper exposes no getter for the executor it binds,
-      // so `request_execution` is matched by name.
+      // Below the wrapper, the sender authorizes the referrer fee, one manager
+      // transfer, and `request_execution` on the executor resolved above,
+      // whose only calls pay the payee in XLM. The manager transfer has to carry
+      // this call's sender, destination and `should_queue` of false, and with
+      // the referrer fee it has to add up to `amount`; its own moves then go to
+      // `transferPolicy`. The referrer fee is bounded by the quote's `dbps` of
+      // `amount`, which the wrapper rounds down, and the executor's XLM by the
+      // quoted cost.
       async (children) => {
         const native = nativeSacId(this.network);
-        const moves = children.flatMap((call) => {
+        let transfer: AuthorizedCall | undefined;
+        let referrerFee = 0n;
+        let relayFee = 0n;
+        for (const call of children) {
           if (
             call.contract === ntt.managerAddress &&
             call.method === "transfer"
-          )
-            return call.children;
-          if (
-            call.method === "request_execution" &&
-            call.children.every((fee) => fee.contract === native)
-          )
-            return call.children;
-          if (call.contract === ntt.tokenAddress && call.method === "transfer")
-            return [call];
+          ) {
+            if (transfer !== undefined)
+              throw new Error("The auth tree holds a second manager transfer");
+            transfer = call;
+          } else if (
+            call.contract === executor &&
+            call.method === "request_execution"
+          ) {
+            for (const fee of call.children)
+              relayFee += moved(fee, native, from, payee);
+          } else {
+            referrerFee += moved(
+              call,
+              ntt.tokenAddress,
+              from,
+              referrer.toString()
+            );
+          }
+        }
+        if (transfer === undefined)
+          throw new Error("The auth tree holds no manager transfer");
+
+        const [transferSender, value, chain, to, shouldQueue] = transfer.args;
+        if (
+          asAddress(transferSender) !== from ||
+          asNumber(chain) !== toChainId(destination.chain) ||
+          !encoding.bytes.equals(asBytes(to), recipient.bytes()) ||
+          asBoolean(shouldQueue)
+        )
           throw new Error(
-            `Unexpected call in the auth tree: ${call.contract}.${call.method}`
+            "The auth tree's manager transfer is not the one this call requests"
           );
-        });
-        await ntt.transferPolicy(from, amount, quote.estimatedCost)(moves);
+        const bridged = asBigint(value);
+        if (bridged + referrerFee !== amount)
+          throw new Error(
+            `The auth tree bridges ${bridged} and pays the referrer ` +
+              `${referrerFee}, not the ${amount} sent`
+          );
+        if (referrerFee * DBPS_DENOMINATOR > amount * quote.referrerFeeDbps)
+          throw new Error(
+            `The auth tree pays the referrer ${referrerFee}, above ` +
+              `${quote.referrerFeeDbps} dbps of the ${amount} sent`
+          );
+        if (relayFee > quote.estimatedCost)
+          throw new Error(
+            `The auth tree pays the executor ${relayFee} stroops, above the ` +
+              `${quote.estimatedCost} quoted`
+          );
+        await ntt.transferPolicy(from, bridged)(transfer.children);
       }
     );
   }
@@ -274,7 +327,58 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
       );
     return address;
   }
+
+  /**
+   * Returns the executor the wrapper was built with: the one contract whose
+   * `request_execution` a transfer authorizes.
+   */
+  private executor(): string {
+    const address =
+      this.contracts.executor ?? STELLAR_ADDRESSES[this.network]?.executor;
+    if (address === undefined)
+      throw new Error(
+        `No executor configured for ${this.chain} on ${this.network}`
+      );
+    return address;
+  }
 }
+
+/**
+ * Returns the value a `transfer` of `contract` from `from` to `to` moves, with
+ * nothing below it, and throws for any other call.
+ */
+const moved = (
+  call: AuthorizedCall,
+  contract: string,
+  from: string,
+  to: string
+): bigint => {
+  if (
+    call.contract !== contract ||
+    call.method !== "transfer" ||
+    call.children.length > 0
+  )
+    throw new Error(
+      `Unexpected call in the auth tree: ${call.contract}.${call.method}`
+    );
+  const sender = asAddress(call.args[0]);
+  const recipient = asAddress(call.args[1]);
+  const value = asBigint(call.args[2]);
+  if (value < 0n)
+    throw new Error(`The auth tree moves ${value} of ${contract}`);
+  if (sender !== from || recipient !== to)
+    throw new Error(
+      `The auth tree moves ${contract} from ${sender} to ${recipient}; ` +
+        `this call pays only ${to}, from ${from}`
+    );
+  return value;
+};
 
 /** `FeeArgs.dbps` is `u32` on the ABI but must fit the on-wire `u16` fee field. */
 const MAX_U16 = 0xffffn;
+
+/**
+ * The `ntt-with-executor` fee denominator: `dbps` counts tenths of a basis
+ * point, so 100_000 is 100%.
+ */
+const DBPS_DENOMINATOR = 100_000n;

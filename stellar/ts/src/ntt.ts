@@ -801,13 +801,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Below that call, `from` authorizes only the token's `transfer` or `burn`
    * and native `transfer`s, each out of `from` and with nothing below it. They
    * move at most `amount` of the token, and at most the core's message fee
-   * once per enabled transceiver in XLM, plus `xlm`, plus `amount` when the
-   * token is XLM.
+   * once per enabled transceiver in XLM, plus `amount` when the token is XLM.
    *
    * Public, like {@link prepare}, because the executor binding checks the
    * moves of the transfer it wraps with this policy.
    */
-  transferPolicy(from: string, amount: bigint, xlm = 0n): AuthPolicy {
+  transferPolicy(from: string, amount: bigint): AuthPolicy {
     return async (moves) => {
       const native = nativeSacId(this.network);
       let token = 0n;
@@ -855,7 +854,6 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       ).length;
       const limit =
         asBigint(fee) * BigInt(transceivers) +
-        xlm +
         (this.tokenAddress === native ? amount : 0n);
       if (stroops > limit)
         throw new Error(

@@ -10,9 +10,20 @@ import type { Network } from "@wormhole-foundation/sdk-base";
  * `nttManagerWithExecutorAddresses` and Sui's `SUI_ADDRESSES` hold theirs. The
  * table is empty because no Stellar NTT deployment was public as of 2026-08,
  * and gains an entry per network as deployments ship.
+ *
+ * `Contracts` has an `executor` field, but the core's tables had no Stellar row
+ * for it as of 2026-11, so each entry here pairs the wrapper with the executor
+ * it was built with; a configured `contracts.executor` overrides it.
  */
 export const STELLAR_ADDRESSES: Partial<
-  Record<Network, { nttWithExecutor: string }>
+  Record<
+    Network,
+    {
+      nttWithExecutor: string;
+      /** The Executor the `nttWithExecutor` wrapper was built with. */
+      executor: string;
+    }
+  >
 > = {};
 
 /**
