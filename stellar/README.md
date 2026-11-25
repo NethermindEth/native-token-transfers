@@ -64,7 +64,7 @@ flowchart LR
 | [`contracts/mock-token`](contracts/mock-token)                 | [README](contracts/mock-token/README.md)         | A minimal token used as a test fixture                                                 |
 | [`integration-tests`](integration-tests)                       | [README](integration-tests/README.md)            | On-chain end-to-end tests against a local Stellar network                              |
 | [`vaa-test-signing`](vaa-test-signing)                         | [README](vaa-test-signing/README.md)             | Host-side guardian signing so tests can forge valid VAAs                               |
-| [`ts`](ts)                                                     | —                                                | `@wormhole-foundation/sdk-stellar-ntt`, the TypeScript bindings for these contracts    |
+| [`ts`](ts)                                                     | [README](ts/README.md)                           | `@wormhole-foundation/sdk-stellar-ntt`, the TypeScript bindings for these contracts    |
 
 ## Cross-chain compatibility
 

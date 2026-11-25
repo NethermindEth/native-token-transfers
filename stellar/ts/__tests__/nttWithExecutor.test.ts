@@ -1,3 +1,5 @@
+// ESM Jest does not inject the `jest` global; import it.
+import { jest } from "@jest/globals";
 import {
   Account,
   Address,
@@ -10,9 +12,14 @@ import {
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type { AccountAddress } from "@wormhole-foundation/sdk-definitions";
 import type { NttWithExecutor } from "@wormhole-foundation/sdk-definitions-ntt";
-import { StellarAddress } from "@wormhole-foundation/sdk-stellar";
+import {
+  StellarAddress,
+  StellarPlatform,
+  nativeSacId,
+} from "@wormhole-foundation/sdk-stellar";
 import type { StellarUnsignedTransaction } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
+import type { AuthorizedCall } from "../src/ntt.js";
 import { StellarNttWithExecutor } from "../src/nttWithExecutor.js";
 
 const MANAGER = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
@@ -47,7 +54,8 @@ let probed: xdr.LedgerKey[];
 /** What `prepareTransaction` rejects with, if the simulation is to fail. */
 let simulationError: Error | undefined;
 
-// The wrapper reads no contract state, so a write only needs the rpc calls
+// The wrapper reads no contract state, and this simulation records no auth
+// entries for the policy to check, so a write only needs the rpc calls
 // `prepare` and the payee lookup make; `prepareTransaction` hands the built
 // transaction straight back so the test can inspect it.
 const provider = {
@@ -242,6 +250,94 @@ describe("StellarNttWithExecutor transfer", () => {
       ntt()
     );
     await expect(txs.next()).rejects.toThrow(/No ntt-with-executor/);
+  });
+});
+
+describe("StellarNttWithExecutor transfer auth bounds", () => {
+  const XLM = nativeSacId("Testnet");
+  const EXECUTOR = "CDXO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XO4M7R";
+
+  /** A `transfer` of `amount` out of the sender, as the policy sees it. */
+  const move = (contract: string, to: string, amount: bigint) => ({
+    contract,
+    method: "transfer",
+    args: [SENDER, to, amount],
+    children: [],
+  });
+
+  /**
+   * What the sender authorizes below the wrapper call: the referrer fee, the
+   * manager transfer with its custody and transceiver fee, and the executor
+   * fee, which here is `executorFee`.
+   */
+  const tree = (executorFee: bigint): AuthorizedCall[] => [
+    move(TOKEN, REFERRER, 5_000n),
+    {
+      contract: MANAGER,
+      method: "transfer",
+      args: [],
+      children: [move(TOKEN, MANAGER, 995_000n), move(XLM, TRANSCEIVER, 100n)],
+    },
+    {
+      contract: EXECUTOR,
+      method: "request_execution",
+      args: [],
+      children: [move(XLM, PAYEE_ACCOUNT, executorFee)],
+    },
+  ];
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it("bounds the referrer, transfer and executor fees together", async () => {
+    // One enabled transceiver, paid the core's 100-stroop message fee.
+    const state: Record<string, unknown> = {
+      get_message_fee: 100n,
+      get_enabled_bitmap: 1n,
+    };
+    jest
+      .spyOn(StellarPlatform, "simulateRead")
+      .mockImplementation(
+        async (_rpc, _network, _contract, method) => state[method]
+      );
+    const manager = ntt();
+    const prepare = jest.spyOn(manager, "prepare");
+    await executor(WRAPPER)
+      .transfer(
+        SENDER as unknown as AccountAddress<"Stellar">,
+        destination,
+        AMOUNT,
+        quote(),
+        manager
+      )
+      .next();
+    const policy = prepare.mock.calls[0]![4]!;
+
+    await expect(policy(tree(2_500_000n))).resolves.toBeUndefined();
+    // A referrer fee that, with the bridged amount, is more than `amount`.
+    await expect(
+      policy([move(TOKEN, REFERRER, 5_001n), ...tree(2_500_000n).slice(1)])
+    ).rejects.toThrow(/1000001 of the token, above the 1000000/);
+    // An executor fee above the quote's estimated cost.
+    await expect(policy(tree(2_500_001n))).rejects.toThrow(
+      /2500101 stroops of XLM, above the 2500100/
+    );
+    // XLM moved by the wrapper itself rather than by the executor.
+    await expect(policy([move(XLM, REFERRER, 1n)])).rejects.toThrow(
+      `Unexpected call in the auth tree: ${XLM}.transfer`
+    );
+    // The executor pays itself only in XLM.
+    await expect(
+      policy([
+        {
+          contract: EXECUTOR,
+          method: "request_execution",
+          args: [],
+          children: [move(TOKEN, PAYEE_ACCOUNT, 1n)],
+        },
+      ])
+    ).rejects.toThrow(
+      `Unexpected call in the auth tree: ${EXECUTOR}.request_execution`
+    );
   });
 });
 

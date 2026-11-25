@@ -1,11 +1,14 @@
 import {
+  Address,
   BASE_FEE,
   Contract,
   TransactionBuilder,
   nativeToScVal,
   rpc as SorobanRpc,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
+import type { Operation } from "@stellar/stellar-sdk";
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type {
@@ -19,6 +22,7 @@ import {
   StellarAddress,
   StellarPlatform,
   StellarUnsignedTransaction,
+  nativeSacId,
   stellarNetworkPassphrase,
 } from "@wormhole-foundation/sdk-stellar";
 import type {
@@ -49,6 +53,23 @@ import type { OutboundQueuedTransfer } from "./scval-types.js";
 import { StellarNttWormholeTransceiver } from "./transceiver.js";
 
 /**
+ * A call in a write's auth tree: the contract, the method, the arguments as
+ * `scValToNative` decodes them, and the calls it authorizes in turn.
+ */
+export interface AuthorizedCall {
+  contract: string;
+  method: string;
+  args: unknown[];
+  children: AuthorizedCall[];
+}
+
+/**
+ * Checks the calls a write's auth tree authorizes below the call that was
+ * built, and throws on any the write has no reason to authorize.
+ */
+export type AuthPolicy = (children: AuthorizedCall[]) => Promise<void>;
+
+/**
  * NTT bindings for the Soroban manager + Wormhole transceiver contracts.
  *
  * Every read is a read-only `simulateTransaction` against the manager
@@ -68,6 +89,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    */
   readonly transceiverAddress: string | undefined;
   readonly coreAddress: string;
+  /**
+   * The highest fee, in stroops, that {@link prepare} accepts. The RPC sets the
+   * resource fee from its simulation, with no cap of its own, so raise this
+   * only for a write that is known to cost more. Default: 50_000_000 (5 XLM).
+   */
+  maxFee = 50_000_000n;
 
   constructor(
     readonly network: N,
@@ -279,7 +306,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         addressArg(from),
         sequenceArg(sequence)
       ),
-      "Ntt.completeOutboundQueuedTransfer"
+      "Ntt.completeOutboundQueuedTransfer",
+      "NttManager",
+      this.transferPolicy(from, 0n)
     );
   }
 
@@ -414,7 +443,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         additionalPayload ? "transfer_with_payload" : "transfer",
         ...args
       ),
-      "Ntt.transfer"
+      "Ntt.transfer",
+      "NttManager",
+      this.transferPolicy(from, amount)
     );
   }
 
@@ -762,6 +793,77 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     return nativeToScVal(trimmed, { type: "u64" });
   }
 
+  /**
+   * Returns the policy of a manager call that moves `amount` of the token out
+   * of `from` and pays the transceivers: `transfer`, `transfer_with_payload`,
+   * or `complete_queued_transfer` with an `amount` of 0.
+   *
+   * Below that call, `from` authorizes only the token's `transfer` or `burn`
+   * and native `transfer`s, each out of `from` and with nothing below it. They
+   * move at most `amount` of the token, and at most the core's message fee
+   * once per enabled transceiver in XLM, plus `xlm`, plus `amount` when the
+   * token is XLM.
+   *
+   * Public, like {@link prepare}, because the executor binding checks the
+   * moves of the transfer it wraps with this policy.
+   */
+  transferPolicy(from: string, amount: bigint, xlm = 0n): AuthPolicy {
+    return async (moves) => {
+      const native = nativeSacId(this.network);
+      let token = 0n;
+      let stroops = 0n;
+      for (const move of moves) {
+        const { contract, method, args, children } = move;
+        const allowed =
+          contract === native
+            ? method === "transfer"
+            : contract === this.tokenAddress &&
+              (method === "transfer" || method === "burn");
+        if (!allowed || children.length > 0) throw unexpectedCall(move);
+
+        const sender = asAddress(args[0]);
+        const value = asBigint(args[method === "burn" ? 1 : 2]);
+        if (value < 0n)
+          throw new Error(`The auth tree moves ${value} of ${contract}`);
+        if (sender !== from)
+          throw new Error(
+            `The auth tree moves ${contract} from ${sender}; ` +
+              `a transfer moves only from ${from}`
+          );
+        if (contract === native) stroops += value;
+        else token += value;
+      }
+
+      if (token > amount)
+        throw new Error(
+          `The auth tree moves ${token} of the token, above the ${amount} sent`
+        );
+      // The fee comes from the core rather than from the transceivers' own
+      // quotes, so a transceiver cannot raise what the sender pays it. The
+      // manager reports how many transceivers are enabled, at most 64.
+      const [fee, enabled] = await Promise.all([
+        StellarPlatform.simulateRead(
+          this.provider,
+          this.network,
+          this.coreAddress,
+          "get_message_fee"
+        ),
+        this.read("get_enabled_bitmap"),
+      ]);
+      const transceivers = [...asBigint(enabled).toString(2)].filter(
+        (bit) => bit === "1"
+      ).length;
+      const limit =
+        asBigint(fee) * BigInt(transceivers) +
+        xlm +
+        (this.tokenAddress === native ? amount : 0n);
+      if (stroops > limit)
+        throw new Error(
+          `The auth tree moves ${stroops} stroops of XLM, above the ${limit} a transfer pays`
+        );
+    };
+  }
+
   /** Simulates a read-only manager call and returns its decoded result. */
   private read(method: string, ...args: xdr.ScVal[]): Promise<unknown> {
     return StellarPlatform.simulateRead(
@@ -808,12 +910,19 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * Builds, simulates, and assembles a write for the signer to sign and submit.
    * `space` names the contract whose error table decodes a rejection, so a
    * rejection from another NTT contract does not carry a manager error name.
+   *
+   * The source account's envelope signature authorizes every source-account
+   * entry the simulation recorded, so this throws unless there is at most one
+   * entry, for the source account, rooted at the call that was built. `policy`
+   * checks the calls below that root; by default there may be none. It also
+   * throws if the fee is above {@link maxFee}.
    */
   async prepare(
     from: string,
     operation: xdr.Operation,
     description: string,
-    space: ContractErrorSpace = "NttManager"
+    space: ContractErrorSpace = "NttManager",
+    policy: AuthPolicy = noChildren
   ): Promise<StellarUnsignedTransaction<N, C>> {
     const source = await this.provider.getAccount(from);
     const tx = new TransactionBuilder(source, {
@@ -830,6 +939,26 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         throw decodeContractError(error, space);
       });
 
+    if (BigInt(prepared.fee) > this.maxFee) {
+      // A write restores the archived entries it touches, and its resource
+      // fee pays for that; the simulation lists them in the transaction data.
+      const ext = prepared.toEnvelope().v1().tx().ext().sorobanData().ext();
+      const restores =
+        ext.switch() === 1 &&
+        ext.resourceExt().archivedSorobanEntries().length > 0;
+      throw new Error(
+        `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})` +
+          (restores
+            ? ", because it restores archived ledger entries. Restore them " +
+              "in a separate restoreFootprint transaction, then prepare it again"
+            : "")
+      );
+    }
+
+    const [invoke] = prepared.operations;
+    if (invoke?.type === "invokeHostFunction")
+      await checkAuth(invoke, from, description, policy);
+
     return new StellarUnsignedTransaction(
       prepared,
       this.network,
@@ -842,6 +971,78 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     );
   }
 }
+
+/**
+ * Checks the auth entries the simulation recorded for `invoke`.
+ *
+ * The signer signs only the envelope, which covers source-account
+ * credentials; any other address would have to sign its own entry, and the
+ * transaction would fail on chain without it. A write authorizes one call, so
+ * there is at most one entry, and its root is the call `invoke` makes rather
+ * than one the simulation chose. `policy` then checks every call below it.
+ */
+async function checkAuth(
+  invoke: Operation.InvokeHostFunction,
+  from: string,
+  description: string,
+  policy: AuthPolicy
+): Promise<void> {
+  const entries = invoke.auth ?? [];
+  for (const entry of entries) {
+    const credentials = entry.credentials();
+    // By value: the provider's stellar-sdk need not be this package's copy,
+    // and each copy has its own enum objects.
+    if (
+      credentials.switch().value ===
+      xdr.SorobanCredentialsType.sorobanCredentialsAddress().value
+    )
+      throw new Error(
+        `${description} needs an auth entry signed by ` +
+          `${Address.fromScAddress(credentials.address().address()).toString()}, ` +
+          `and only the source account ${from} signs this transaction`
+      );
+  }
+
+  if (entries.length > 1)
+    throw new Error(
+      `${description} recorded ${entries.length} auth entries; a write authorizes one`
+    );
+  const [entry] = entries;
+  if (entry === undefined) return;
+
+  const root = entry.rootInvocation();
+  const call =
+    xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      invoke.func.invokeContract()
+    );
+  if (root.function().toXDR("base64") !== call.toXDR("base64"))
+    throw new Error(
+      `${description} recorded an auth entry for a call other than the one it makes`
+    );
+  await policy(root.subInvocations().map(decodeCall));
+}
+
+/** Decodes an auth tree; anything but a contract call throws. */
+const decodeCall = (
+  invocation: xdr.SorobanAuthorizedInvocation
+): AuthorizedCall => {
+  const call = invocation.function().contractFn();
+  return {
+    contract: Address.fromScAddress(call.contractAddress()).toString(),
+    method: call.functionName().toString(),
+    args: call.args().map((arg) => scValToNative(arg)),
+    children: invocation.subInvocations().map(decodeCall),
+  };
+};
+
+/** The policy of a write that authorizes nothing below its own call. */
+const noChildren: AuthPolicy = async ([call]) => {
+  if (call !== undefined) throw unexpectedCall(call);
+};
+
+/** Names a call that a write has no reason to authorize. */
+const unexpectedCall = ({ contract, method }: AuthorizedCall): Error =>
+  new Error(`Unexpected call in the auth tree: ${contract}.${method}`);
 
 /** `TrimmedAmount::MAX_DECIMALS` — the ceiling of the shared NTT amount domain. */
 const TRIMMED_DECIMALS = 8;

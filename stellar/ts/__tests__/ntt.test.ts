@@ -4,10 +4,12 @@ import {
   Account,
   Address,
   Operation,
+  SorobanDataBuilder,
+  nativeToScVal,
   scValToNative,
   type Transaction,
-  type rpc as SorobanRpc,
-  type xdr,
+  rpc as SorobanRpc,
+  xdr,
 } from "@stellar/stellar-sdk";
 import { encoding } from "@wormhole-foundation/sdk-base";
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
@@ -20,6 +22,7 @@ import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
 import {
   StellarAddress,
   StellarPlatform,
+  nativeSacId,
   type StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
@@ -82,6 +85,12 @@ const managerState: Record<string, unknown> = {
     release_timestamp: 1700000042n,
   },
   get_outbound_queue_item: null,
+  get_enabled_bitmap: 1n,
+};
+
+/** The Wormhole core's read surface. */
+const coreState: Record<string, unknown> = {
+  get_message_fee: 100n,
 };
 
 /** The transceiver's own read surface, keyed the same way. */
@@ -123,14 +132,81 @@ const attestation = createVAA("Ntt:WormholeTransfer", {
 
 let overrides: Record<string, unknown>;
 let calls: { method: string; args: xdr.ScVal[] }[];
+/**
+ * The auth entries the simulation records, given the call a write makes; none
+ * by default, as for a write that authorizes nothing.
+ */
+let recordAuth: (
+  call: xdr.InvokeContractArgs
+) => xdr.SorobanAuthorizationEntry[];
+/** The resource fee the simulation charges, in stroops. */
+let resourceFee: number;
 
-// Writes only need the rpc calls `prepare` makes; `prepareTransaction` hands
-// the built transaction straight back so the tests can inspect it.
+/** The RPC's simulation of `tx`, recording `recordAuth`'s entries. */
+const simulation = (tx: Transaction) => {
+  const [operation] = tx.operations as [Operation.InvokeHostFunction];
+  const auth = recordAuth(operation.func.invokeContract());
+  return {
+    id: "1",
+    latestLedger: 1000,
+    transactionData: new SorobanDataBuilder()
+      .setResourceFee(resourceFee)
+      .build()
+      .toXDR("base64"),
+    minResourceFee: String(resourceFee),
+    results: [
+      {
+        auth: auth.map((entry) => entry.toXDR("base64")),
+        xdr: xdr.ScVal.scvVoid().toXDR("base64"),
+      },
+    ],
+  };
+};
+
+// Writes only need the rpc calls `prepare` makes. `prepareTransaction`
+// assembles the built transaction with the simulation, the way the real one
+// does, so the tests can inspect it.
 const provider = {
   getAccount: async (address: string) => new Account(address, "17"),
-  prepareTransaction: async (tx: Transaction) => tx,
+  prepareTransaction: async (tx: Transaction) =>
+    SorobanRpc.assembleTransaction(tx, simulation(tx)).build(),
   getLatestLedger: async () => ({ sequence: 1000 }),
 } as unknown as SorobanRpc.Server;
+
+/** The arguments of a call to `method` on `contract`. */
+const contractCall = (contract: string, method: string, ...args: xdr.ScVal[]) =>
+  new xdr.InvokeContractArgs({
+    contractAddress: new Address(contract).toScAddress(),
+    functionName: method,
+    args,
+  });
+
+/** An auth tree rooted at `call`, the way a simulation records it. */
+const authorized = (
+  call: xdr.InvokeContractArgs,
+  ...children: xdr.SorobanAuthorizedInvocation[]
+): xdr.SorobanAuthorizedInvocation =>
+  new xdr.SorobanAuthorizedInvocation({
+    function:
+      xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        call
+      ),
+    subInvocations: children,
+  });
+
+/**
+ * Records one source-account entry rooted at the write's own call, with
+ * `children` below it: what a simulation returns when the source account is
+ * the address the call authorizes.
+ */
+const sourceAuth =
+  (...children: xdr.SorobanAuthorizedInvocation[]) =>
+  (call: xdr.InvokeContractArgs) => [
+    new xdr.SorobanAuthorizationEntry({
+      credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+      rootInvocation: authorized(call, ...children),
+    }),
+  ];
 
 const ntt = () => new StellarNtt("Testnet", "Stellar", provider, contracts);
 
@@ -163,11 +239,18 @@ const one = async (
 beforeEach(() => {
   overrides = {};
   calls = [];
+  recordAuth = () => [];
+  resourceFee = 0;
   jest
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
       calls.push({ method, args });
-      const contract = contractId === MANAGER ? managerState : transceiverState;
+      const contract =
+        contractId === MANAGER
+          ? managerState
+          : contractId === CORE
+            ? coreState
+            : transceiverState;
       const state = method in overrides ? overrides : contract;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
       return state[method];
@@ -698,6 +781,285 @@ describe("StellarNtt queue completion", () => {
       method: "cancel_queued_transfer",
       args: [OWNER, 7n],
     });
+  });
+});
+
+describe("StellarNtt.prepare auth checks", () => {
+  const owner = new StellarAddress(OWNER);
+
+  /**
+   * Creates a binding whose provider assembles with another copy of
+   * stellar-sdk, as one from `@wormhole-foundation/sdk-stellar` can. Each copy
+   * has its own XDR classes and enum objects.
+   */
+  const foreignNtt = async () => {
+    let sdk: typeof import("@stellar/stellar-sdk") | undefined;
+    await jest.isolateModulesAsync(async () => {
+      sdk = await import("@stellar/stellar-sdk");
+    });
+    expect(sdk!.xdr).not.toBe(xdr);
+    const { Transaction: ForeignTransaction, rpc } = sdk!;
+    return new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        prepareTransaction: async (tx: Transaction) =>
+          rpc
+            .assembleTransaction(
+              new ForeignTransaction(tx.toXDR(), tx.networkPassphrase),
+              simulation(tx)
+            )
+            .build(),
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+  };
+
+  it("refuses an auth entry the source account cannot sign", async () => {
+    // The manager's owner is `PAUSER`, not the account sourcing the call, so
+    // the simulation records address credentials that only it can sign.
+    recordAuth = (call) => [
+      new xdr.SorobanAuthorizationEntry({
+        credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+          new xdr.SorobanAddressCredentials({
+            address: new Address(PAUSER).toScAddress(),
+            nonce: xdr.Int64.fromString("1"),
+            signatureExpirationLedger: 0,
+            signature: xdr.ScVal.scvVoid(),
+          })
+        ),
+        rootInvocation: authorized(call),
+      }),
+    ];
+    for (const n of [ntt(), await foreignNtt()])
+      await expect(collect(n.setThreshold(2, owner))).rejects.toThrow(
+        `Ntt.setThreshold needs an auth entry signed by ${PAUSER}`
+      );
+  });
+
+  it("allows no call below an admin, pause or cancel call", async () => {
+    const peer = {
+      chain: "Ethereum",
+      address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+    } as ChainAddress;
+    const foreign = await foreignNtt();
+    recordAuth = sourceAuth();
+    for (const write of [
+      ntt().setPeer(peer, 18, 1000n, owner),
+      ntt().setThreshold(2, owner),
+      ntt().pause(owner),
+      ntt().cancelOutboundQueuedTransfer(7n, owner),
+      ntt().setTransceiverPeer(0, peer, owner),
+      foreign.setPeer(peer, 18, 1000n, owner),
+    ])
+      await expect(collect(write)).resolves.toHaveLength(1);
+
+    // The owner's signature would authorize this transfer of its tokens too.
+    recordAuth = sourceAuth(
+      authorized(
+        contractCall(
+          TOKEN,
+          "transfer",
+          new Address(OWNER).toScVal(),
+          new Address(PAUSER).toScVal(),
+          nativeToScVal(1n, { type: "i128" })
+        )
+      )
+    );
+    for (const n of [ntt(), foreign])
+      await expect(collect(n.setPeer(peer, 18, 1000n, owner))).rejects.toThrow(
+        `Unexpected call in the auth tree: ${TOKEN}.transfer`
+      );
+  });
+
+  it("allows one auth entry, rooted at the call that was built", async () => {
+    recordAuth = (call) => [...sourceAuth()(call), ...sourceAuth()(call)];
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      /2 auth entries/
+    );
+
+    // An entry for a call this transaction never makes would still be
+    // authorized by its signature.
+    const other = contractCall(
+      MANAGER,
+      "set_threshold",
+      nativeToScVal(9, { type: "u32" })
+    );
+    recordAuth = () => sourceAuth()(other);
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      /a call other than the one it makes/
+    );
+  });
+});
+
+describe("StellarNtt transfer auth bounds", () => {
+  const XLM = nativeSacId("Testnet");
+  const sender = new StellarAddress(OWNER);
+  const destination = {
+    chain: "Ethereum",
+    address: new UniversalAddress(new Uint8Array(32).fill(0x11)),
+  } as ChainAddress;
+  const send = (n = ntt()) =>
+    collect(n.transfer(sender, 42n, destination, { queue: false }));
+
+  /** A `transfer` of `amount` out of `from`. */
+  const transferCall = (contract: string, amount: bigint, from = OWNER) =>
+    contractCall(
+      contract,
+      "transfer",
+      new Address(from).toScVal(),
+      new Address(MANAGER).toScVal(),
+      nativeToScVal(amount, { type: "i128" })
+    );
+  /** The same `transfer`, as the auth tree records it. */
+  const move = (contract: string, amount: bigint, from = OWNER) =>
+    authorized(transferCall(contract, amount, from));
+
+  // Two enabled transceivers, each paid the core's 100-stroop message fee.
+  beforeEach(() => (overrides = { get_enabled_bitmap: 0b101n }));
+
+  it("bounds the token by the amount and XLM by the transceiver fees", async () => {
+    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 100n), move(XLM, 100n));
+    await expect(send()).resolves.toHaveLength(1);
+
+    recordAuth = sourceAuth(move(TOKEN, 43n));
+    await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
+    recordAuth = sourceAuth(move(TOKEN, 42n), move(XLM, 201n));
+    await expect(send()).rejects.toThrow(/201 stroops of XLM, above the 200/);
+
+    // Burning mode takes custody with `burn(from, amount)`.
+    const burn = (amount: bigint) =>
+      authorized(
+        contractCall(
+          TOKEN,
+          "burn",
+          new Address(OWNER).toScVal(),
+          nativeToScVal(amount, { type: "i128" })
+        )
+      );
+    recordAuth = sourceAuth(burn(42n));
+    await expect(send()).resolves.toHaveLength(1);
+    recordAuth = sourceAuth(burn(43n));
+    await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
+  });
+
+  it("allows only the token and XLM, moved out of the sender", async () => {
+    recordAuth = sourceAuth(move(TRANSCEIVER, 1n));
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${TRANSCEIVER}.transfer`
+    );
+    recordAuth = sourceAuth(move(TOKEN, 42n, PAUSER));
+    await expect(send()).rejects.toThrow(/moves only from/);
+
+    // A negative move would lower the total the bound compares.
+    recordAuth = sourceAuth(move(TOKEN, -1n), move(TOKEN, 43n));
+    await expect(send()).rejects.toThrow(`The auth tree moves -1 of ${TOKEN}`);
+    // A call below a move would escape the bound.
+    recordAuth = sourceAuth(
+      authorized(transferCall(TOKEN, 42n), move(XLM, 1_000n))
+    );
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${TOKEN}.transfer`
+    );
+    // XLM moves only by `transfer`.
+    recordAuth = sourceAuth(
+      authorized(
+        contractCall(
+          XLM,
+          "approve",
+          new Address(OWNER).toScVal(),
+          new Address(MANAGER).toScVal(),
+          nativeToScVal(1n, { type: "i128" }),
+          nativeToScVal(0, { type: "u32" })
+        )
+      )
+    );
+    await expect(send()).rejects.toThrow(
+      `Unexpected call in the auth tree: ${XLM}.approve`
+    );
+  });
+
+  it("adds the amount to the XLM bound when the token is XLM", async () => {
+    const xlmNtt = new StellarNtt("Testnet", "Stellar", provider, {
+      ...contracts,
+      ntt: { ...contracts.ntt, token: XLM },
+    });
+    recordAuth = sourceAuth(move(XLM, 42n), move(XLM, 200n));
+    await expect(send(xlmNtt)).resolves.toHaveLength(1);
+    recordAuth = sourceAuth(move(XLM, 43n), move(XLM, 200n));
+    await expect(send(xlmNtt)).rejects.toThrow(
+      /243 stroops of XLM, above the 242/
+    );
+  });
+
+  it("bounds a queued completion by the transceiver fees alone", async () => {
+    const complete = () =>
+      collect(ntt().completeOutboundQueuedTransfer(7n, sender));
+    recordAuth = sourceAuth(move(XLM, 200n));
+    await expect(complete()).resolves.toHaveLength(1);
+
+    // The tokens left custody when the transfer was queued.
+    recordAuth = sourceAuth(move(TOKEN, 1n));
+    await expect(complete()).rejects.toThrow(/1 of the token, above the 0/);
+  });
+});
+
+describe("StellarNtt fee cap", () => {
+  const owner = new StellarAddress(OWNER);
+
+  it("refuses a fee above maxFee, and not one at it", async () => {
+    // The 100-stroop inclusion fee plus the resource fee comes to exactly 5 XLM.
+    resourceFee = 49_999_900;
+    await expect(collect(ntt().setThreshold(2, owner))).resolves.toHaveLength(
+      1
+    );
+    resourceFee = 49_999_901;
+    await expect(collect(ntt().setThreshold(2, owner))).rejects.toThrow(
+      "Ntt.setThreshold costs 50000001 stroops, above maxFee (50000000)"
+    );
+
+    const raised = ntt();
+    raised.maxFee = 100_000_000n;
+    await expect(collect(raised.setThreshold(2, owner))).resolves.toHaveLength(
+      1
+    );
+  });
+
+  it("names auto-restoration when it trips the cap", async () => {
+    // The simulation lists the archived entries the write will restore.
+    const data = new SorobanDataBuilder().setResourceFee(60_000_000).build();
+    data.ext(
+      new xdr.SorobanTransactionDataExt(
+        1,
+        new xdr.SorobanResourcesExtV0({ archivedSorobanEntries: [0] })
+      )
+    );
+    const restoring = new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        prepareTransaction: async (tx: Transaction) =>
+          SorobanRpc.assembleTransaction(tx, {
+            ...simulation(tx),
+            transactionData: data.toXDR("base64"),
+          }).build(),
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+    await expect(collect(restoring.setThreshold(2, owner))).rejects.toThrow(
+      /because it restores archived ledger entries\. Restore them in a separate restoreFootprint/
+    );
+  });
+
+  it("leaves room for the costliest write measured on the localnet", async () => {
+    // The resource fee of a first delivery against a 19-guardian set signed
+    // to mainnet's quorum of 13.
+    resourceFee = 358_889;
+    await expect(
+      collect(ntt().redeem([attestation], owner))
+    ).resolves.toHaveLength(1);
   });
 });
 

@@ -18,6 +18,7 @@ import type {
 import {
   StellarAddress,
   StellarPlatform,
+  nativeSacId,
 } from "@wormhole-foundation/sdk-stellar";
 import type {
   StellarChains,
@@ -172,7 +173,34 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
         })
       ),
       "NttWithExecutor.transfer",
-      "NttWithExecutor"
+      "NttWithExecutor",
+      // Below the wrapper, the sender authorizes the referrer fee, the manager
+      // transfer, and `request_execution`, whose only call is the executor's
+      // XLM fee. Their moves are bounded together: the token by `amount`, which
+      // includes the referrer fee, and XLM by the transceiver fees plus the
+      // quoted cost. The wrapper exposes no getter for the executor it binds,
+      // so `request_execution` is matched by name.
+      async (children) => {
+        const native = nativeSacId(this.network);
+        const moves = children.flatMap((call) => {
+          if (
+            call.contract === ntt.managerAddress &&
+            call.method === "transfer"
+          )
+            return call.children;
+          if (
+            call.method === "request_execution" &&
+            call.children.every((fee) => fee.contract === native)
+          )
+            return call.children;
+          if (call.contract === ntt.tokenAddress && call.method === "transfer")
+            return [call];
+          throw new Error(
+            `Unexpected call in the auth tree: ${call.contract}.${call.method}`
+          );
+        });
+        await ntt.transferPolicy(from, amount, quote.estimatedCost)(moves);
+      }
     );
   }
 
