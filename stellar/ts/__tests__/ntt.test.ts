@@ -85,12 +85,6 @@ const managerState: Record<string, unknown> = {
     release_timestamp: 1700000042n,
   },
   get_outbound_queue_item: null,
-  get_enabled_bitmap: 1n,
-};
-
-/** The Wormhole core's read surface. */
-const coreState: Record<string, unknown> = {
-  get_message_fee: 100n,
 };
 
 /** The transceiver's own read surface, keyed the same way. */
@@ -245,12 +239,7 @@ beforeEach(() => {
     .spyOn(StellarPlatform, "simulateRead")
     .mockImplementation(async (_rpc, _network, contractId, method, ...args) => {
       calls.push({ method, args });
-      const contract =
-        contractId === MANAGER
-          ? managerState
-          : contractId === CORE
-            ? coreState
-            : transceiverState;
+      const contract = contractId === MANAGER ? managerState : transceiverState;
       const state = method in overrides ? overrides : contract;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
       return state[method];
@@ -921,10 +910,7 @@ describe("StellarNtt transfer auth bounds", () => {
   const move = (contract: string, to: string, amount: bigint, from = OWNER) =>
     authorized(transferCall(contract, to, amount, from));
 
-  // Two enabled transceivers, each paid the core's 100-stroop message fee.
-  beforeEach(() => (overrides = { get_enabled_bitmap: 0b101n }));
-
-  it("bounds the token by the amount and XLM by the transceiver fees", async () => {
+  it("bounds the token by the amount", async () => {
     recordAuth = sourceAuth(
       move(TOKEN, MANAGER, 42n),
       move(XLM, TRANSCEIVER, 100n),
@@ -934,11 +920,6 @@ describe("StellarNtt transfer auth bounds", () => {
 
     recordAuth = sourceAuth(move(TOKEN, MANAGER, 43n));
     await expect(send()).rejects.toThrow(/43 of the token, above the 42/);
-    recordAuth = sourceAuth(
-      move(TOKEN, MANAGER, 42n),
-      move(XLM, TRANSCEIVER, 201n)
-    );
-    await expect(send()).rejects.toThrow(/201 stroops of XLM, above the 200/);
 
     // Burning mode takes custody with `burn(from, amount)`.
     const burn = (amount: bigint) =>
@@ -998,6 +979,23 @@ describe("StellarNtt transfer auth bounds", () => {
     );
   });
 
+  it("bounds the XLM by maxFee, not by what the core and manager report", async () => {
+    // 64 enabled transceivers at a 10 XLM message fee would allow 640 XLM.
+    overrides = {
+      get_message_fee: 100_000_000n,
+      get_enabled_bitmap: 2n ** 64n - 1n,
+    };
+    const fee = (stroops: bigint) =>
+      sourceAuth(move(TOKEN, MANAGER, 42n), move(XLM, TRANSCEIVER, stroops));
+    recordAuth = fee(50_000_000n);
+    await expect(send()).resolves.toHaveLength(1);
+    recordAuth = fee(50_000_001n);
+    await expect(send()).rejects.toThrow(
+      "The auth tree moves 50000001 stroops of XLM to the transceiver, above maxFee (50000000)"
+    );
+    expect(calls).toEqual([]);
+  });
+
   it("moves the token only to the manager and XLM only to the transceiver", async () => {
     recordAuth = sourceAuth(move(TOKEN, PAUSER, 42n));
     await expect(send()).rejects.toThrow(
@@ -1041,7 +1039,7 @@ describe("StellarNtt transfer auth bounds", () => {
     await expect(send(xlmNtt)).rejects.toThrow(/43 of the token, above the 42/);
   });
 
-  it("bounds a queued completion by the transceiver fees alone", async () => {
+  it("lets a queued completion pay transceiver fees and move no token", async () => {
     const complete = () =>
       collect(ntt().completeOutboundQueuedTransfer(7n, sender));
     recordAuth = sourceAuth(move(XLM, TRANSCEIVER, 200n));

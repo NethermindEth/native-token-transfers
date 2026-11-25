@@ -12,11 +12,7 @@ import {
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
 import type { AccountAddress } from "@wormhole-foundation/sdk-definitions";
 import type { NttWithExecutor } from "@wormhole-foundation/sdk-definitions-ntt";
-import {
-  StellarAddress,
-  StellarPlatform,
-  nativeSacId,
-} from "@wormhole-foundation/sdk-stellar";
+import { StellarAddress, nativeSacId } from "@wormhole-foundation/sdk-stellar";
 import type { StellarUnsignedTransaction } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
 import type { AuthorizedCall } from "../src/ntt.js";
@@ -346,21 +342,6 @@ describe("StellarNttWithExecutor transfer auth bounds", () => {
       .next();
     return prepare.mock.calls[0]![4]!;
   };
-
-  beforeEach(() => {
-    // One enabled transceiver, paid the core's 100-stroop message fee.
-    const state: Record<string, unknown> = {
-      get_message_fee: 100n,
-      get_enabled_bitmap: 1n,
-    };
-    jest
-      .spyOn(StellarPlatform, "simulateRead")
-      .mockImplementation(
-        async (_rpc, _network, _contract, method) => state[method]
-      );
-  });
-
-  afterEach(() => jest.restoreAllMocks());
 
   it("allows the referrer fee, the manager transfer and the relay fee", async () => {
     await expect((await policy())(tree())).resolves.toBeUndefined();

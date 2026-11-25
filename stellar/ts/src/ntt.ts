@@ -92,7 +92,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * The highest fee, in stroops, that {@link prepare} accepts. The RPC sets the
    * resource fee from its simulation, with no cap of its own, so raise this
-   * only for a write that is known to cost more. Default: 50_000_000 (5 XLM).
+   * only for a write that is known to cost more. It also caps, separately, the
+   * XLM a transfer pays its transceivers (see {@link transferPolicy}). Default:
+   * 50_000_000 (5 XLM).
    */
   maxFee = 50_000_000n;
 
@@ -803,8 +805,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * token goes only to the manager, as custody, and XLM only to the configured
    * transceiver, as its fee, so a manager that pays any other transceiver is
    * rejected; when the token is XLM, its custody is the native `transfer` to
-   * the manager. They move at most `amount` of the token, and at most the
-   * core's message fee once per enabled transceiver in XLM.
+   * the manager. They move at most `amount` of the token, and at most
+   * {@link maxFee} in XLM. That bound is the caller's own rather than a read:
+   * the core's message fee and the manager's transceiver count would come from
+   * the RPC and from the contracts this check distrusts.
    *
    * Public, like {@link prepare}, because the executor binding checks the
    * moves of the transfer it wraps with this policy.
@@ -850,25 +854,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         throw new Error(
           `The auth tree moves ${token} of the token, above the ${amount} sent`
         );
-      // The fee comes from the core rather than from the transceivers' own
-      // quotes, so a transceiver cannot raise what the sender pays it. The
-      // manager reports how many transceivers are enabled, at most 64.
-      const [fee, enabled] = await Promise.all([
-        StellarPlatform.simulateRead(
-          this.provider,
-          this.network,
-          this.coreAddress,
-          "get_message_fee"
-        ),
-        this.read("get_enabled_bitmap"),
-      ]);
-      const transceivers = [...asBigint(enabled).toString(2)].filter(
-        (bit) => bit === "1"
-      ).length;
-      const limit = asBigint(fee) * BigInt(transceivers);
-      if (stroops > limit)
+      if (stroops > this.maxFee)
         throw new Error(
-          `The auth tree moves ${stroops} stroops of XLM, above the ${limit} a transfer pays`
+          `The auth tree moves ${stroops} stroops of XLM to the transceiver, ` +
+            `above maxFee (${this.maxFee})`
         );
     };
   }
