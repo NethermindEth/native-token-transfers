@@ -2,6 +2,7 @@ import {
   Address,
   BASE_FEE,
   Contract,
+  StrKey,
   TransactionBuilder,
   nativeToScVal,
   rpc as SorobanRpc,
@@ -107,6 +108,14 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     if (!contracts.ntt) throw new Error(`NTT contracts for ${chain} not found`);
     if (!contracts.coreBridge)
       throw new Error(`CoreBridge address for ${chain} not found`);
+    for (const [field, address] of [
+      ["ntt.manager", contracts.ntt.manager],
+      ["ntt.token", contracts.ntt.token],
+      ["coreBridge", contracts.coreBridge],
+      ["ntt.transceiver.wormhole", contracts.ntt.transceiver["wormhole"]],
+    ] as const)
+      if (address !== undefined && !StrKey.isValidContract(address))
+        throw new Error(`${field} for ${chain} is not a contract id`);
 
     this.managerAddress = contracts.ntt.manager;
     this.tokenAddress = contracts.ntt.token;

@@ -264,6 +264,21 @@ describe("StellarNtt construction", () => {
     ).toThrow(/CoreBridge/);
   });
 
+  it("rejects a configured address that is not a contract id", () => {
+    const configured = (ntt: Partial<typeof contracts.ntt>) => () =>
+      new StellarNtt("Testnet", "Stellar", {} as SorobanRpc.Server, {
+        coreBridge: CORE,
+        ntt: { ...contracts.ntt, ...ntt },
+      });
+    expect(configured({ manager: OWNER })).toThrow(
+      "ntt.manager for Stellar is not a contract id"
+    );
+    // The last character carries the checksum.
+    expect(configured({ token: TOKEN.slice(0, -1) + "A" })).toThrow(
+      "ntt.token for Stellar is not a contract id"
+    );
+  });
+
   it("accepts a manager whose transceiver is not registered yet", () => {
     // `verifyAddresses` is what reports that, so it has to be constructible.
     expect(

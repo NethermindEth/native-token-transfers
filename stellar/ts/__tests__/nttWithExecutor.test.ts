@@ -250,6 +250,22 @@ describe("StellarNttWithExecutor transfer", () => {
     await expect(txs.next()).rejects.toThrow(/No ntt-with-executor/);
   });
 
+  it("rejects a configured wrapper or executor that is not a contract id", () => {
+    expect(() => executor(SENDER)).toThrow(
+      "wrapperAddress for Stellar is not a contract id"
+    );
+    expect(
+      () =>
+        new StellarNttWithExecutor(
+          "Testnet",
+          "Stellar",
+          provider,
+          { ...contracts, executor: SENDER },
+          WRAPPER
+        )
+    ).toThrow("contracts.executor for Stellar is not a contract id");
+  });
+
   it("refuses to guess the executor the wrapper was built with", async () => {
     // The table has no entry either, and the executor is resolved before the
     // payee lookup, so nothing reaches the rpc.

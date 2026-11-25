@@ -72,7 +72,14 @@ export class StellarNttWithExecutor<N extends Network, C extends StellarChains>
     readonly provider: SorobanRpc.Server,
     readonly contracts: Contracts & { ntt?: Ntt.Contracts },
     readonly wrapperAddress?: string
-  ) {}
+  ) {
+    for (const [field, address] of [
+      ["wrapperAddress", wrapperAddress],
+      ["contracts.executor", contracts.executor],
+    ] as const)
+      if (address !== undefined && !StrKey.isValidContract(address))
+        throw new Error(`${field} for ${chain} is not a contract id`);
+  }
 
   /**
    * Creates a binding for the chain the RPC endpoint serves.
