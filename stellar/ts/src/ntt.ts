@@ -43,6 +43,7 @@ import {
   asNumber,
   asAddress,
   bytesArg,
+  chainAddressArg,
   chainIdArg,
   decodeInboundQueuedTransfer,
   decodeMode,
@@ -564,7 +565,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       "Ntt.setPeer",
       "set_peer",
       chainIdArg(peer.chain),
-      bytesArg(peer.address.toUniversalAddress().toUint8Array()),
+      chainAddressArg(peer, "peer"),
       nativeToScVal(tokenDecimals, { type: "u32" }),
       await this.trimArg(inboundLimit)
     );

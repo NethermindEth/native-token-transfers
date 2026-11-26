@@ -33,6 +33,7 @@ import {
   asBoolean,
   asBytes,
   bytesArg,
+  chainAddressArg,
   chainIdArg,
   decodePeerInfo,
   sequenceArg,
@@ -106,7 +107,7 @@ export class StellarNttWormholeTransceiver<
       "Transceiver.setPeer",
       "set_peer",
       chainIdArg(peer.chain),
-      bytesArg(peer.address.toUniversalAddress().toUint8Array())
+      chainAddressArg(peer, "peer")
     );
   }
 

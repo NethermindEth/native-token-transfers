@@ -612,6 +612,19 @@ describe("StellarNtt admin setters", () => {
     });
   });
 
+  it("refuses a native peer address of another platform", async () => {
+    // A Stellar address hashes to bytes no Ethereum manager owns.
+    const stellarPeer = {
+      chain: "Ethereum",
+      address: new StellarAddress(OWNER),
+    } as ChainAddress;
+    await expect(
+      collect(ntt().setPeer(stellarPeer, 18, 1000n, owner))
+    ).rejects.toThrow(
+      "A peer on Ethereum must be universal or of platform Evm, not Stellar"
+    );
+  });
+
   it("manages the threshold and the transceiver registry", async () => {
     expect(await one(ntt().setThreshold(2, owner))).toEqual({
       contract: MANAGER,
@@ -1340,6 +1353,20 @@ describe("StellarNttWormholeTransceiver", () => {
       method: "set_peer_enabled",
       args: [2, false],
     });
+  });
+
+  it("refuses a native peer emitter of another platform", async () => {
+    // Set once, so a wrong emitter needs an upgrade to correct.
+    await expect(
+      collect(
+        xcvr().setPeer(
+          { chain: "Ethereum", address: new StellarAddress(OWNER) },
+          owner
+        )
+      )
+    ).rejects.toThrow(
+      "A peer on Ethereum must be universal or of platform Evm, not Stellar"
+    );
   });
 
   it("checks replay by the VAA's emitter and sequence, not the digest", async () => {
