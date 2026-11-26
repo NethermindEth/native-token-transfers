@@ -242,7 +242,11 @@ beforeEach(() => {
       const contract = contractId === MANAGER ? managerState : transceiverState;
       const state = method in overrides ? overrides : contract;
       if (!(method in state)) throw new Error(`unstubbed read: ${method}`);
-      return state[method];
+      // A function entry answers from the read's decoded arguments.
+      const answer = state[method];
+      return typeof answer === "function"
+        ? answer(...args.map((arg) => scValToNative(arg)))
+        : answer;
     });
 });
 
