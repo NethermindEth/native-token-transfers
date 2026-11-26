@@ -723,6 +723,74 @@ describe("StellarNtt admin setters", () => {
 });
 
 describe("StellarNtt.redeem", () => {
+  /** An attestation whose transfer names OWNER, the payer below, as recipient. */
+  const toPayer = createVAA("Ntt:WormholeTransfer", {
+    ...attestation,
+    payload: {
+      ...attestation.payload,
+      nttManagerPayload: {
+        ...message,
+        payload: {
+          ...message.payload,
+          recipientAddress: new StellarAddress(OWNER).toUniversalAddress(),
+        },
+      },
+    },
+  });
+  const notRecorded = () => {
+    throw new Error("HostError: Error(Contract, #43)");
+  };
+  const receive = {
+    contract: TRANSCEIVER,
+    method: "receive_message",
+    args: [Buffer.from(serialize(toPayer))],
+  };
+
+  it("records the payer before it redeems a transfer to itself", async () => {
+    overrides = { get_address_from_hash: notRecorded };
+    const txs = await collect(
+      ntt().redeem([toPayer], new StellarAddress(OWNER))
+    );
+    expect(txs.map((tx) => invocation(tx))).toEqual([
+      { contract: CORE, method: "record_address", args: [OWNER] },
+      receive,
+    ]);
+    // The registry the manager resolves through is the core's.
+    expect(StellarPlatform.simulateRead).toHaveBeenCalledWith(
+      provider,
+      "Testnet",
+      CORE,
+      "get_address_from_hash",
+      expect.anything()
+    );
+  });
+
+  it("does not record a payer the registry already holds", async () => {
+    overrides = { get_address_from_hash: OWNER };
+    const txs = await collect(
+      ntt().redeem([toPayer], new StellarAddress(OWNER))
+    );
+    expect(txs.map((tx) => invocation(tx))).toEqual([receive]);
+  });
+
+  it("rejects with a registry read that fails for another reason", async () => {
+    overrides = {
+      get_address_from_hash: () => {
+        throw new Error("connection refused");
+      },
+    };
+    const txs = ntt().redeem([toPayer], new StellarAddress(OWNER));
+    await expect(txs.next()).rejects.toThrow("connection refused");
+  });
+
+  it("reads no registry entry for a recipient that is not the payer", async () => {
+    overrides = { get_address_from_hash: notRecorded };
+    await expect(
+      collect(ntt().redeem([attestation], new StellarAddress(OWNER)))
+    ).resolves.toHaveLength(1);
+    expect(calls.map((c) => c.method)).not.toContain("get_address_from_hash");
+  });
+
   it("hands each VAA to the transceiver in its own transaction", async () => {
     const txs = await collect(
       ntt().redeem([attestation, attestation], new StellarAddress(OWNER))

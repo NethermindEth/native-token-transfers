@@ -30,6 +30,12 @@ The transceiver and executor bindings prepare their writes through the manager b
 
 When a write touches persistent state that has been archived, the transaction restores that state before the write runs, and its resource fee pays for the restoration. If that pushes the fee above `maxFee`, the error says that restoring archived entries caused it. To fix it, restore those entries in a separate `restoreFootprint` transaction, signed with `@stellar/stellar-sdk` directly because `StellarSigner` signs only a transaction with one `invokeHostFunction` operation, and then prepare the write again.
 
+## Redeem a transfer
+
+The manager pays only a recipient recorded on the core address registry, because an NTT message carries the recipient's one-way `hash_address`. When a transfer names the payer of `redeem` as its recipient and the registry has no entry for it, `redeem` first yields a `recordAddress` transaction for the payer. Any other recipient, such as a `C…` contract or a transfer someone else redeems, has to be recorded first with `recordAddress`.
+
+Submit each transaction `redeem` yields and wait until it lands before you resume the generator, as `signSendWait` does. A receive simulated before the record lands fails with the `RecipientNotRegistered` guidance.
+
 ## Replace a transceiver
 
 The manager keeps a removed transceiver's registry index and disables it. A binding still configured with that transceiver fails to redeem with `TransceiverNotEnabled` (80), and `verifyAddresses` reports the enabled transceiver to configure instead.

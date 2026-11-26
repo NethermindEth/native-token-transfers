@@ -216,6 +216,33 @@ describe("burning manager", () => {
     ).rejects.toThrow("TransceiverError::ReplayDetected (34)");
     expect(await balanceOf(stack.token, recipient.publicKey())).toBe(AMOUNT);
   });
+
+  it("records the payer before it redeems a transfer to itself", async () => {
+    // Nothing has recorded the admin on this stack's core.
+    const before = await balanceOf(stack.token, admin.publicKey());
+    const vaa = inboundVaa({
+      emitterChain: PEER_CHAIN,
+      emitter: PEER,
+      sequence: 2n,
+      sourceNttManager: PEER,
+      recipientNttManager: hashAddress(stack.manager),
+      nttManagerPayload: transferTo(admin.publicKey()),
+    });
+
+    expect(await drive(stack.ntt.redeem([vaa], adminAddress()))).toHaveLength(
+      2
+    );
+    expect(await balanceOf(stack.token, admin.publicKey())).toBe(
+      before + AMOUNT
+    );
+    const resolved = await resolveAddress(
+      rpc,
+      NETWORK,
+      stack.core,
+      adminAddress().toUniversalAddress()
+    );
+    expect(resolved.toString()).toBe(admin.publicKey());
+  });
 });
 
 /**

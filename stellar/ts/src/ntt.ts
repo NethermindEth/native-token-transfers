@@ -31,6 +31,7 @@ import type {
   StellarChains,
   StellarPlatformType,
 } from "@wormhole-foundation/sdk-stellar";
+import { AddressNotFoundError, resolveAddress } from "./address.js";
 import { decodeContractError } from "./errors.js";
 import type { ContractErrorSpace } from "./errors.js";
 import {
@@ -667,14 +668,39 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * VAA against the core and forwards it to the manager. One transaction per
    * attestation: the transceiver takes a single VAA, and each carries its own
    * replay protection, so the caller can resume a batch that fails part-way.
+   *
+   * The manager pays only a recipient recorded on the core address registry.
+   * When a transfer names `payer` as its recipient and the registry has no
+   * entry for it, this first yields the {@link recordAddress} transaction, as
+   * Solana's `redeem` creates the payer's token account. Any other recipient
+   * has to be recorded first. Submit each yielded transaction and wait until
+   * it lands before resuming the generator, as `signSendWait` does: a receive
+   * simulated before the record lands fails with the
+   * `RecipientNotRegistered` guidance.
    */
   async *redeem(
     attestations: Ntt.Attestation[],
     payer?: AccountAddress<C>
   ): AsyncGenerator<StellarUnsignedTransaction<N, C>> {
     const transceiver = this.transceiver(0);
-    for (const attestation of attestations)
+    const from = new StellarAddress(this.source(payer, "the payer"));
+    for (const attestation of attestations) {
+      const recipient = managerMessage(attestation)[1].payload.recipientAddress;
+      if (from.equals(recipient)) {
+        try {
+          await resolveAddress(
+            this.provider,
+            this.network,
+            this.coreAddress,
+            recipient
+          );
+        } catch (error) {
+          if (!(error instanceof AddressNotFoundError)) throw error;
+          yield* this.recordAddress(from as AccountAddress<C>, from);
+        }
+      }
       yield* transceiver.receive(attestation, payer);
+    }
   }
 
   /**
@@ -685,6 +711,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * address being recorded. Until this transaction confirms, a transfer to
    * that recipient fails with `RecipientNotRegistered`; the entry is persistent
    * storage, so a long-idle registration can also need restoring.
+   * {@link redeem} does this itself for a payer who is the recipient.
    */
   async *recordAddress(
     payer: AccountAddress<C>,
