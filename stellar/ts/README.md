@@ -47,3 +47,11 @@ The manager keeps a removed transceiver's registry index and disables it. A bind
 A new transceiver has a new emitter, its raw contract id. It needs `set_peer` for every peer chain, and every peer chain has to register that id. A peer chain that registered the old transceiver can do that only with a new transceiver of its own, because a transceiver peer is set once on every chain. Upgrading the transceiver in place keeps its address and its peers and needs no config change, so prefer an upgrade.
 
 A stale config also fails every transfer in `prepare` once the new transceiver charges a fee, because the binding pays XLM only to the configured transceiver. While both transceivers are enabled, a transfer through this binding fails in `prepare` if both charge a fee, as described in [Transaction checks](#transaction-checks).
+
+## Name Stellar addresses
+
+One Stellar contract has two 32-byte forms. The core identifies an emitter by its raw contract id, and NTT messages and manager peers carry the `hash_address`, the keccak256 hash of the StrKey text that `StellarAddress.toUniversalAddress()` returns. Each call takes one of them:
+
+- A recipient on Stellar is its `hash_address`. Build it as a `StellarAddress`, for example with `Wormhole.chainAddress("Stellar", text)`, which checks the StrKey. `toUniversal("Stellar", text)` hashes the text without checking it, so a mistyped, lowercase, or muxed `M…` address gives a hash that no address can be recorded under. Raw bytes, such as a key or a contract id, are kept unhashed and are never a `hash_address`. Tokens sent to either can never be redeemed. A direct `transfer` call on another chain encodes whatever destination it is given, so pass it a `StellarAddress`.
+- A peer chain registers the Stellar manager by its `hash_address`, `StellarAddress.toUniversalAddress()`.
+- A peer chain registers the Stellar transceiver by the raw contract id that `StellarNttWormholeTransceiver.getAddress()` returns, never by its `hash_address`. In general, register each transceiver peer with what the peer chain's own binding returns from `getAddress()` on its Wormhole transceiver, as the NTT CLI's `push` command does. A transceiver peer is set once on every chain (`PeerAlreadySet`), so a wrong one is corrected on the chain that holds it, by upgrading its transceiver to code that can overwrite a peer.

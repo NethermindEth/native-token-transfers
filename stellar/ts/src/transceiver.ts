@@ -96,7 +96,9 @@ export class StellarNttWormholeTransceiver<
    * emitter address its VAAs carry — for a Stellar peer, that address is what
    * {@link getAddress} returns. One-shot: a second call for the same chain
    * fails with `PeerAlreadySet`, so {@link setPeerEnabled} is the way to turn
-   * a peer off and a redeploy the only way to correct one.
+   * a peer off, and an upgrade to code that can overwrite a peer the only way
+   * to correct one, since a new transceiver needs a new peer on every other
+   * chain.
    */
   async *setPeer(
     peer: ChainAddress<Chain>,
