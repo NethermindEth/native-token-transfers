@@ -346,8 +346,9 @@ export async function deployStack(
 /**
  * Deploys the `ntt-with-executor` wrapper against a freshly deployed Executor
  * rail. The wrapper binds its executor at construction, so the two are one unit;
- * the binding takes the wrapper address as its constructor override, since
- * `STELLAR_ADDRESSES` has no localnet entry to look up.
+ * the binding takes the wrapper address as its constructor override and the
+ * executor in its contracts, since `STELLAR_ADDRESSES` has no localnet entry to
+ * look up.
  */
 export async function deployExecutor(
   ntt: StellarNtt<typeof NETWORK, typeof CHAIN>
@@ -367,7 +368,7 @@ export async function deployExecutor(
       NETWORK,
       CHAIN,
       rpc,
-      ntt.contracts,
+      { ...ntt.contracts, executor },
       wrapper
     ),
   };

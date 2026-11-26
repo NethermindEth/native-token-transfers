@@ -20,8 +20,10 @@ import type {
   StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import {
+  ACCOUNT_MISSING,
   MANAGER_REJECTED_MESSAGE,
   RECIPIENT_NOT_REGISTERED,
+  TRUSTLINE_MISSING,
   contractErrorCodes,
 } from "./errors.js";
 import type { StellarNtt } from "./ntt.js";
@@ -288,21 +290,30 @@ export class StellarNttWormholeTransceiver<
  *
  * `receive_message` forwards to the manager through `flatten_call`, which
  * collapses every manager failure into `ManagerRejectedMessage` — the real
- * cause survives only in the simulation's inner frames. The retryable one is
- * the recipient never having been recorded on the core address registry, so
- * this names it and says what to do about it.
+ * cause survives only in the simulation's inner frames. This names the causes
+ * a caller can act on: the recipient never having been recorded on the core
+ * address registry, which `recordAddress` fixes, and the token refusing to
+ * credit the recipient.
  */
 const redeemGuidance = (error: unknown): unknown => {
   const codes = contractErrorCodes(error);
   if (!codes.includes(MANAGER_REJECTED_MESSAGE)) return error;
 
+  // Neither the manager nor the core raises 13 or 6 below a 36, so both are
+  // the token's.
   const masked = codes.includes(RECIPIENT_NOT_REGISTERED)
-    ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66)."
-    : "The manager rejected the message and flatten_call masked its error.";
+    ? "The recipient is not registered (NttManagerError::RecipientNotRegistered, 66). " +
+      "If the recipient has never been recorded, run " +
+      "StellarNtt.recordAddress(payer, recipient) and redeem again."
+    : codes.includes(TRUSTLINE_MISSING)
+      ? "The token rejected the credit with #13 (TrustlineMissing on a Stellar Asset Contract). " +
+        "Once the recipient holds a trustline for the asset, redeem again."
+      : codes.includes(ACCOUNT_MISSING)
+        ? "The token rejected the credit with #6 (AccountMissing on a Stellar Asset Contract). " +
+          "Once the recipient's account exists, redeem again."
+        : "The manager rejected the message and flatten_call masked its error.";
   return new Error(
-    `${error instanceof Error ? error.message : String(error)}\n${masked} ` +
-      `If the recipient has never been recorded, run ` +
-      `StellarNtt.recordAddress(payer, recipient) and redeem again.`,
+    `${error instanceof Error ? error.message : String(error)}\n${masked}`,
     { cause: error }
   );
 };

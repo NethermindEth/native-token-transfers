@@ -2,6 +2,7 @@ import {
   Address,
   BASE_FEE,
   Contract,
+  StrKey,
   TransactionBuilder,
   nativeToScVal,
   rpc as SorobanRpc,
@@ -47,6 +48,7 @@ import {
   decodeRateLimitParams,
   decodeTransceiverFee,
   decodeTransceiverInfo,
+  recipientArg,
   sequenceArg,
 } from "./scval-types.js";
 import type { OutboundQueuedTransfer } from "./scval-types.js";
@@ -92,7 +94,9 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   /**
    * The highest fee, in stroops, that {@link prepare} accepts. The RPC sets the
    * resource fee from its simulation, with no cap of its own, so raise this
-   * only for a write that is known to cost more. Default: 50_000_000 (5 XLM).
+   * only for a write that is known to cost more. It also caps, separately, the
+   * XLM a transfer pays its transceivers (see {@link transferPolicy}). Default:
+   * 50_000_000 (5 XLM).
    */
   maxFee = 50_000_000n;
 
@@ -105,6 +109,14 @@ export class StellarNtt<N extends Network, C extends StellarChains>
     if (!contracts.ntt) throw new Error(`NTT contracts for ${chain} not found`);
     if (!contracts.coreBridge)
       throw new Error(`CoreBridge address for ${chain} not found`);
+    for (const [field, address] of [
+      ["ntt.manager", contracts.ntt.manager],
+      ["ntt.token", contracts.ntt.token],
+      ["coreBridge", contracts.coreBridge],
+      ["ntt.transceiver.wormhole", contracts.ntt.transceiver["wormhole"]],
+    ] as const)
+      if (address !== undefined && !StrKey.isValidContract(address))
+        throw new Error(`${field} for ${chain} is not a contract id`);
 
     this.managerAddress = contracts.ntt.manager;
     this.tokenAddress = contracts.ntt.token;
@@ -432,7 +444,7 @@ export class StellarNtt<N extends Network, C extends StellarChains>
       // destination is itself Stellar. The manager hashes `sender` and
       // `source_token` on-chain (`outbound.rs`), so this call passes both
       // unhashed.
-      bytesArg(destination.address.toUniversalAddress().toUint8Array()),
+      recipientArg(destination),
       nativeToScVal(options.queue, { type: "bool" }),
     ];
     if (additionalPayload) args.push(bytesArg(additionalPayload));
@@ -799,15 +811,19 @@ export class StellarNtt<N extends Network, C extends StellarChains>
    * or `complete_queued_transfer` with an `amount` of 0.
    *
    * Below that call, `from` authorizes only the token's `transfer` or `burn`
-   * and native `transfer`s, each out of `from` and with nothing below it. They
-   * move at most `amount` of the token, and at most the core's message fee
-   * once per enabled transceiver in XLM, plus `xlm`, plus `amount` when the
-   * token is XLM.
+   * and native `transfer`s, each out of `from` and with nothing below it. The
+   * token goes only to the manager, as custody, and XLM only to the configured
+   * transceiver, as its fee, so a manager that pays any other transceiver is
+   * rejected; when the token is XLM, its custody is the native `transfer` to
+   * the manager. They move at most `amount` of the token, and at most
+   * {@link maxFee} in XLM. That bound is the caller's own rather than a read:
+   * the core's message fee and the manager's transceiver count would come from
+   * the RPC and from the contracts this check distrusts.
    *
    * Public, like {@link prepare}, because the executor binding checks the
    * moves of the transfer it wraps with this policy.
    */
-  transferPolicy(from: string, amount: bigint, xlm = 0n): AuthPolicy {
+  transferPolicy(from: string, amount: bigint): AuthPolicy {
     return async (moves) => {
       const native = nativeSacId(this.network);
       let token = 0n;
@@ -830,36 +846,28 @@ export class StellarNtt<N extends Network, C extends StellarChains>
             `The auth tree moves ${contract} from ${sender}; ` +
               `a transfer moves only from ${from}`
           );
-        if (contract === native) stroops += value;
-        else token += value;
+        // A `burn` has no recipient: the manager takes custody by burning.
+        const to = method === "burn" ? this.managerAddress : asAddress(args[1]);
+        if (contract === this.tokenAddress && to === this.managerAddress)
+          token += value;
+        else if (contract === native && to === this.transceiverAddress)
+          stroops += value;
+        else
+          throw new Error(
+            `The auth tree moves ${contract} to ${to}; a transfer moves the ` +
+              `token only to the manager ${this.managerAddress}, and XLM only ` +
+              `to the transceiver ${this.transceiverAddress ?? "(none configured)"}`
+          );
       }
 
       if (token > amount)
         throw new Error(
           `The auth tree moves ${token} of the token, above the ${amount} sent`
         );
-      // The fee comes from the core rather than from the transceivers' own
-      // quotes, so a transceiver cannot raise what the sender pays it. The
-      // manager reports how many transceivers are enabled, at most 64.
-      const [fee, enabled] = await Promise.all([
-        StellarPlatform.simulateRead(
-          this.provider,
-          this.network,
-          this.coreAddress,
-          "get_message_fee"
-        ),
-        this.read("get_enabled_bitmap"),
-      ]);
-      const transceivers = [...asBigint(enabled).toString(2)].filter(
-        (bit) => bit === "1"
-      ).length;
-      const limit =
-        asBigint(fee) * BigInt(transceivers) +
-        xlm +
-        (this.tokenAddress === native ? amount : 0n);
-      if (stroops > limit)
+      if (stroops > this.maxFee)
         throw new Error(
-          `The auth tree moves ${stroops} stroops of XLM, above the ${limit} a transfer pays`
+          `The auth tree moves ${stroops} stroops of XLM to the transceiver, ` +
+            `above maxFee (${this.maxFee})`
         );
     };
   }
@@ -950,7 +958,10 @@ export class StellarNtt<N extends Network, C extends StellarChains>
         `${description} costs ${prepared.fee} stroops, above maxFee (${this.maxFee})` +
           (restores
             ? ", because it restores archived ledger entries. Restore them " +
-              "in a separate restoreFootprint transaction, then prepare it again"
+              "in a separate restoreFootprint transaction, signed with " +
+              "@stellar/stellar-sdk directly because StellarSigner signs only " +
+              "a transaction with one invokeHostFunction operation, then " +
+              "prepare it again"
             : "")
       );
     }

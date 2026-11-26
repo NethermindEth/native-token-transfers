@@ -68,6 +68,18 @@ describe("resolveAddress", () => {
     }
   );
 
+  it("rejects an address that does not hash back to the hash asked for", async () => {
+    const [asked, answered] = HASH_ADDRESS_VECTORS;
+    jest
+      .spyOn(StellarPlatform, "simulateRead")
+      .mockResolvedValue(answered.strkey);
+
+    await expect(resolve(new StellarAddress(asked.strkey))).rejects.toThrow(
+      `get_address_from_hash returned ${answered.strkey}, which hashes to ` +
+        `0x${answered.hash}, not 0x${asked.hash}`
+    );
+  });
+
   it("reports an unrecorded hash as AddressNotFoundError", async () => {
     jest
       .spyOn(StellarPlatform, "simulateRead")
