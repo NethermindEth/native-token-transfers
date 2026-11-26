@@ -702,10 +702,12 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * Gets the transceiver at `ix`, or `null` if the manager has none there.
-   * Stellar registers only the Wormhole transceiver, at index 0. Unlike the
-   * private accessor the write paths use, this reports a missing one rather
-   * than throwing: asking which transceivers exist is a legitimate question.
+   * Gets the transceiver at `ix`, or `null` if this binding has none there.
+   * Index 0 is this binding's slot for its configured Wormhole transceiver,
+   * not the manager's registry index, and Stellar binds no other transceiver
+   * type. Unlike the private accessor the write paths use, this reports a
+   * missing one rather than throwing: asking which transceivers exist is a
+   * legitimate question.
    */
   async getTransceiver(
     ix: number
@@ -715,21 +717,41 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * Compares the configured token and transceiver against the manager's own,
-   * returning the fields that differ, or `null` when every one of them
-   * matches.
+   * Compares the configured token with the manager's, and the configured
+   * transceiver with the manager's enabled set. Returns the fields that
+   * differ, or `null` when the token matches and the configured transceiver is
+   * enabled at any registry index.
+   *
+   * A mismatched transceiver is reported as the lowest-index enabled one, or
+   * as `{ transceiver: {} }` when none is enabled. Membership rather than the
+   * first index keeps a binding clean while a replacement has both
+   * transceivers enabled.
    */
   async verifyAddresses(): Promise<Partial<Ntt.Contracts> | null> {
-    const [token, transceiver] = await Promise.all([
+    const [token, bitmap] = await Promise.all([
       this.read("get_token"),
-      this.read("get_transceiver_info", nativeToScVal(0, { type: "u32" })),
+      this.read("get_enabled_bitmap"),
     ]);
+
+    // The manager sets and clears a bit together with its entry's `enabled`
+    // flag, so the set bits are the enabled transceivers.
+    const enabled = asBigint(bitmap);
+    const indices = [...Array(64).keys()].filter(
+      (i) => (enabled >> BigInt(i)) & 1n
+    );
+    const infos = await Promise.all(
+      indices.map((i) =>
+        this.read("get_transceiver_info", nativeToScVal(i, { type: "u32" }))
+      )
+    );
+    const addresses = infos.flatMap((info) =>
+      info === null ? [] : [decodeTransceiverInfo(info).address]
+    );
 
     const onChainToken = asAddress(token);
     const onChainTransceiver =
-      transceiver === null
-        ? undefined
-        : decodeTransceiverInfo(transceiver).address;
+      addresses.find((address) => address === this.transceiverAddress) ??
+      addresses[0];
 
     const mismatches: Partial<Ntt.Contracts> = {
       ...(onChainToken !== this.tokenAddress && { token: onChainToken }),
@@ -758,8 +780,8 @@ export class StellarNtt<N extends Network, C extends StellarChains>
   }
 
   /**
-   * Returns the transceiver at `ix`; Stellar registers only the Wormhole
-   * transceiver, and only at index 0.
+   * Returns the transceiver at `ix`. Index 0 is this binding's slot for its
+   * configured Wormhole transceiver, not the manager's registry index.
    */
   private transceiver(ix: number): StellarNttWormholeTransceiver<N, C> {
     if (ix !== 0 || this.transceiverAddress === undefined)

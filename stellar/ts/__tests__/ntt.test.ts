@@ -5,6 +5,7 @@ import {
   Address,
   Operation,
   SorobanDataBuilder,
+  StrKey,
   nativeToScVal,
   scValToNative,
   type Transaction,
@@ -34,6 +35,8 @@ const TRANSCEIVER = "CBOBIVCYTPASAMHAKQVIXN73PLY6MFJQSWJCPLCFGDXW2ZBUC3RCZN5S";
 const CORE = "CDKTO4XRUS3SHEFSYEAAGVR5MCWIYDR5EFUVH5AUZXX5MAEM4KB5BSED";
 const OWNER = "GA5KWLHVHDUXW4YUM7A5MFEJ3CDNN4C3Z3T3VGG2DQUWIZMJSWIN56CF";
 const PAUSER = "GC4E6RZNOREPKUIGQR3BLPNGPUT3MAPLZV4LGF7UTLR2G5JKHKVYQVHZ";
+/** A second transceiver, as a replacement registers it. */
+const OTHER = StrKey.encodeContract(Buffer.alloc(32, 0x77));
 
 const contracts = {
   coreBridge: CORE,
@@ -55,7 +58,9 @@ const managerState: Record<string, unknown> = {
   token_decimals: 7,
   get_chain_id: 61,
   get_token: TOKEN,
-  get_transceiver_info: { address: TRANSCEIVER, enabled: true, index: 0 },
+  get_enabled_bitmap: 1n,
+  get_transceiver_info: (index: number) =>
+    index === 0 ? { address: TRANSCEIVER, enabled: true, index: 0 } : null,
   get_peer: {
     address: Buffer.alloc(32, 0xab),
     token_decimals: 18,
@@ -1333,7 +1338,42 @@ describe("StellarNtt.verifyAddresses", () => {
   });
 
   it("reports an unregistered transceiver as a mismatch", async () => {
-    overrides = { get_transceiver_info: null };
+    overrides = { get_enabled_bitmap: 0n };
     await expect(ntt().verifyAddresses()).resolves.toEqual({ transceiver: {} });
+    expect(calls.map((c) => c.method)).not.toContain("get_transceiver_info");
+  });
+
+  /** A manager that registered OTHER at index 1, with these flags. */
+  const replaced = (firstEnabled: boolean) => ({
+    get_enabled_bitmap: firstEnabled ? 0b11n : 0b10n,
+    get_transceiver_info: (index: number) =>
+      [
+        { address: TRANSCEIVER, enabled: firstEnabled, index: 0 },
+        { address: OTHER, enabled: true, index: 1 },
+      ][index] ?? null,
+  });
+  /** A binding configured with OTHER as its transceiver. */
+  const otherNtt = () =>
+    new StellarNtt("Testnet", "Stellar", provider, {
+      ...contracts,
+      ntt: { ...contracts.ntt, transceiver: { wormhole: OTHER } },
+    });
+
+  it("reports the enabled transceiver when the configured one was disabled", async () => {
+    overrides = replaced(false);
+    await expect(ntt().verifyAddresses()).resolves.toEqual({
+      transceiver: { wormhole: OTHER },
+    });
+  });
+
+  it("accepts a configured transceiver that replaced the first one", async () => {
+    overrides = replaced(false);
+    await expect(otherNtt().verifyAddresses()).resolves.toBeNull();
+  });
+
+  it("accepts either transceiver while both are enabled", async () => {
+    overrides = replaced(true);
+    await expect(ntt().verifyAddresses()).resolves.toBeNull();
+    await expect(otherNtt().verifyAddresses()).resolves.toBeNull();
   });
 });
