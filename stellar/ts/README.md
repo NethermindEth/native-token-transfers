@@ -29,3 +29,11 @@ The transceiver and executor bindings prepare their writes through the manager b
 ## Restore archived state
 
 When a write touches persistent state that has been archived, the transaction restores that state before the write runs, and its resource fee pays for the restoration. If that pushes the fee above `maxFee`, the error says that restoring archived entries caused it. To fix it, restore those entries in a separate `restoreFootprint` transaction, signed with `@stellar/stellar-sdk` directly because `StellarSigner` signs only a transaction with one `invokeHostFunction` operation, and then prepare the write again.
+
+## Replace a transceiver
+
+The manager keeps a removed transceiver's registry index and disables it. A binding still configured with that transceiver fails to redeem with `TransceiverNotEnabled` (80), and `verifyAddresses` reports the enabled transceiver to configure instead.
+
+A new transceiver has a new emitter, its raw contract id. It needs `set_peer` for every peer chain, and every peer chain has to register that id. A peer chain that registered the old transceiver can do that only with a new transceiver of its own, because a transceiver peer is set once on every chain. Upgrading the transceiver in place keeps its address and its peers and needs no config change, so prefer an upgrade.
+
+A stale config also fails every transfer in `prepare` once the new transceiver charges a fee, because the binding pays XLM only to the configured transceiver. While both transceivers are enabled, a transfer through this binding fails in `prepare` if both charge a fee, as described in [Transaction checks](#transaction-checks).

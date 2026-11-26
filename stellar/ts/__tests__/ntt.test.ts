@@ -779,6 +779,13 @@ describe("StellarNtt.redeem", () => {
     expect(account).not.toContain("recordAddress");
   });
 
+  it("names a transceiver the manager has disabled", async () => {
+    const disabled = (await rejectedWith(36, 80)).message;
+    expect(disabled).toMatch(/TransceiverNotEnabled.*verifyAddresses/s);
+    expect(disabled).toContain(TRANSCEIVER);
+    expect(disabled).not.toContain("recordAddress");
+  });
+
   it("gives no registry advice when nothing names the recipient", async () => {
     const masked = (await rejectedWith(36)).message;
     expect(masked).toContain("flatten_call masked its error");
