@@ -3,9 +3,12 @@ import { jest } from "@jest/globals";
 import {
   Account,
   Address,
+  Contract,
+  Networks,
   Operation,
   SorobanDataBuilder,
   StrKey,
+  TransactionBuilder,
   nativeToScVal,
   scValToNative,
   type Transaction,
@@ -27,6 +30,7 @@ import {
   type StellarUnsignedTransaction,
 } from "@wormhole-foundation/sdk-stellar";
 import { StellarNtt } from "../src/ntt.js";
+import { structArg } from "../src/scval-types.js";
 import { StellarNttWormholeTransceiver } from "../src/transceiver.js";
 
 const MANAGER = "CDMLFMKMMD7MWZP3FKUBZPVHTUEDLSX4BYGYKH4GCESXYHS3IHQ4EIG4";
@@ -1450,5 +1454,136 @@ describe("StellarNtt.verifyAddresses", () => {
     overrides = replaced(true);
     await expect(ntt().verifyAddresses()).resolves.toBeNull();
     await expect(otherNtt().verifyAddresses()).resolves.toBeNull();
+  });
+});
+
+describe("StellarNtt.getTransferResult", () => {
+  const digest = Buffer.alloc(32, 0x5a);
+  /** What a transfer method returns, as the RPC reports it. */
+  const returned = (queued: boolean) =>
+    structArg({
+      sequence: nativeToScVal(9n, { type: "u64" }),
+      queued: nativeToScVal(queued),
+      digest: nativeToScVal(digest),
+    });
+  /** A transaction that makes one call to `method` on `contract`. */
+  const callTo = (contract: string, method: string) =>
+    new TransactionBuilder(new Account(OWNER, "17"), {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(new Contract(contract).call(method))
+      .setTimeout(30)
+      .build();
+
+  /**
+   * Creates a binding whose RPC serves `passphrase` and answers
+   * `getTransaction` with `answer`. One provider object per binding, because
+   * `chainFromRpc` caches the network per provider.
+   */
+  const reading = (answer: unknown, passphrase: string = Networks.TESTNET) => {
+    const getTransaction = jest.fn(async () => answer);
+    const n = new StellarNtt(
+      "Testnet",
+      "Stellar",
+      {
+        ...provider,
+        getNetwork: async () => ({ passphrase }),
+        getTransaction,
+      } as unknown as SorobanRpc.Server,
+      contracts
+    );
+    return { n, getTransaction };
+  };
+  /** The hash a caller holds for `tx`. */
+  const hashOf = (tx: { hash(): Buffer }) => tx.hash().toString("hex");
+  const success = (
+    tx: { toEnvelope(): xdr.TransactionEnvelope },
+    queued = true
+  ) => ({
+    status: "SUCCESS",
+    envelopeXdr: tx.toEnvelope(),
+    returnValue: returned(queued),
+  });
+
+  it("reads the sequence, queued flag and digest of a confirmed transfer", async () => {
+    const tx = callTo(MANAGER, "transfer");
+    const { n } = reading(success(tx));
+    await expect(n.getTransferResult(hashOf(tx))).resolves.toEqual({
+      sequence: 9n,
+      queued: true,
+      digest,
+    });
+  });
+
+  it("reads a completed queued transfer", async () => {
+    const tx = callTo(MANAGER, "complete_queued_transfer");
+    const { n } = reading(success(tx, false));
+    // Hex in either case names the same transaction.
+    await expect(
+      n.getTransferResult(hashOf(tx).toUpperCase())
+    ).resolves.toEqual({
+      sequence: 9n,
+      queued: false,
+      digest,
+    });
+  });
+
+  it("reads through a fee bump", async () => {
+    const bumped = TransactionBuilder.buildFeeBumpTransaction(
+      PAUSER,
+      "200",
+      callTo(MANAGER, "transfer"),
+      Networks.TESTNET
+    );
+    // A fee bump is found by its own hash and by its inner one.
+    for (const hash of [hashOf(bumped), hashOf(bumped.innerTransaction)])
+      await expect(
+        reading(success(bumped)).n.getTransferResult(hash)
+      ).resolves.toMatchObject({ sequence: 9n });
+  });
+
+  it("rejects a transaction that did not call this manager's transfer", async () => {
+    const token = callTo(TOKEN, "transfer");
+    await expect(
+      reading(success(token)).n.getTransferResult(hashOf(token))
+    ).rejects.toThrow(`calls ${TOKEN}.transfer, not a transfer on the manager`);
+    const admin = callTo(MANAGER, "set_threshold");
+    await expect(
+      reading(success(admin)).n.getTransferResult(hashOf(admin))
+    ).rejects.toThrow(`calls ${MANAGER}.set_threshold`);
+  });
+
+  it("rejects an RPC that answers with another transaction", async () => {
+    const asked = callTo(MANAGER, "transfer_with_payload");
+    const { n } = reading(success(callTo(MANAGER, "transfer")));
+    await expect(n.getTransferResult(hashOf(asked))).rejects.toThrow(
+      `The RPC answered Stellar tx ${hashOf(asked)} with tx`
+    );
+  });
+
+  it("names a transaction the RPC no longer holds", async () => {
+    const { n } = reading({ status: "NOT_FOUND", oldestLedger: 123 });
+    await expect(n.getTransferResult("ab")).rejects.toThrow(
+      "oldest ledger 123"
+    );
+  });
+
+  it("names an RPC of another network", async () => {
+    const { n, getTransaction } = reading(
+      success(callTo(MANAGER, "transfer")),
+      Networks.PUBLIC
+    );
+    await expect(n.getTransferResult("ab")).rejects.toThrow(
+      "is for Testnet, but the RPC serves Mainnet"
+    );
+    expect(getTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a failed transaction", async () => {
+    const { n } = reading({ status: "FAILED" });
+    await expect(n.getTransferResult("ab")).rejects.toThrow(
+      "did not succeed: FAILED"
+    );
   });
 });

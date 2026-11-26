@@ -36,6 +36,10 @@ The manager pays only a recipient recorded on the core address registry, because
 
 Submit each transaction `redeem` yields and wait until it lands before you resume the generator, as `signSendWait` does. A receive simulated before the record lands fails with the `RecipientNotRegistered` guidance.
 
+## Read a transfer's sequence
+
+A queued transfer is completed or cancelled by its sequence. `getTransferResult(hash)` reads the sequence, the queued flag and the digest from the confirmed transaction, given the hash that `signSendWait` or `signAndSend` returned. It reads the transaction's return value, so it works only while the RPC still holds the transaction.
+
 ## Replace a transceiver
 
 The manager keeps a removed transceiver's registry index and disables it. A binding still configured with that transceiver fails to redeem with `TransceiverNotEnabled` (80), and `verifyAddresses` reports the enabled transceiver to configure instead.
