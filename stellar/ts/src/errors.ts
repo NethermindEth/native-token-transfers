@@ -91,6 +91,13 @@ export const MANAGER_REJECTED_MESSAGE = 36;
 export const RECIPIENT_NOT_REGISTERED = 66;
 
 /**
+ * Identifies the manager's code for a message delivered by a transceiver it
+ * has disabled. Below a `ManagerRejectedMessage`, it means the binding is
+ * configured with a transceiver the manager no longer accepts.
+ */
+export const TRANSCEIVER_NOT_ENABLED = 80;
+
+/**
  * Names the Stellar Asset Contract's codes for a credit it refuses: the
  * recipient holds no trustline for the asset, or its account does not exist.
  * Below a `ManagerRejectedMessage`, they are what the token raised when the

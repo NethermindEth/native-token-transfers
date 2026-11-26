@@ -16,9 +16,12 @@ import {
 } from "@wormhole-foundation/sdk-definitions";
 import type { ChainAddress } from "@wormhole-foundation/sdk-definitions";
 import { Ntt } from "@wormhole-foundation/sdk-definitions-ntt";
-import { StellarAddress } from "@wormhole-foundation/sdk-stellar";
+import {
+  StellarAddress,
+  getStellarSigner,
+} from "@wormhole-foundation/sdk-stellar";
 import { AddressNotFoundError, resolveAddress } from "../src/address.js";
-import { asBytes, decodeTransferResult } from "../src/scval-types.js";
+import { asBytes } from "../src/scval-types.js";
 import type { Stack } from "./localnet.js";
 import {
   admin,
@@ -216,6 +219,33 @@ describe("burning manager", () => {
     ).rejects.toThrow("TransceiverError::ReplayDetected (34)");
     expect(await balanceOf(stack.token, recipient.publicKey())).toBe(AMOUNT);
   });
+
+  it("records the payer before it redeems a transfer to itself", async () => {
+    // Nothing has recorded the admin on this stack's core.
+    const before = await balanceOf(stack.token, admin.publicKey());
+    const vaa = inboundVaa({
+      emitterChain: PEER_CHAIN,
+      emitter: PEER,
+      sequence: 2n,
+      sourceNttManager: PEER,
+      recipientNttManager: hashAddress(stack.manager),
+      nttManagerPayload: transferTo(admin.publicKey()),
+    });
+
+    expect(await drive(stack.ntt.redeem([vaa], adminAddress()))).toHaveLength(
+      2
+    );
+    expect(await balanceOf(stack.token, admin.publicKey())).toBe(
+      before + AMOUNT
+    );
+    const resolved = await resolveAddress(
+      rpc,
+      NETWORK,
+      stack.core,
+      adminAddress().toUniversalAddress()
+    );
+    expect(resolved.toString()).toBe(admin.publicKey());
+  });
 });
 
 /**
@@ -290,8 +320,13 @@ describe("rate limiting", () => {
     expect(await stack.ntt.getRateLimitDuration()).toBe(DURATION);
     await drive(transferOut(LIMIT, false));
 
-    const [result] = await drive(transferOut(OVER_LIMIT, true));
-    const { sequence } = decodeTransferResult(result);
+    // Signed as a caller signs it, which gets back only the hash.
+    const signer = await getStellarSigner(rpc, admin.secret());
+    const hashes: string[] = [];
+    for await (const tx of transferOut(OVER_LIMIT, true))
+      hashes.push(...(await signer.signAndSend([tx])));
+    const { sequence, queued } = await stack.ntt.getTransferResult(hashes[0]!);
+    expect(queued).toBe(true);
 
     // The queue entry is keyed by sequence rather than by digest, since a
     // queued outbound transfer has not been turned into a message yet.

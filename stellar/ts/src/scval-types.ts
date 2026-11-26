@@ -302,15 +302,19 @@ export const bytesArg = (bytes: Uint8Array): xdr.ScVal =>
   nativeToScVal(Buffer.from(bytes), { type: "bytes" });
 
 /**
- * Encodes a transfer's destination address as the 32 bytes the manager sends
- * on.
+ * Encodes an address on another chain, such as a peer or a transfer's
+ * recipient, as the 32 bytes the contracts store or send on.
  *
  * A native address converts with its own platform's rules, so one of another
- * platform than the destination chain's would encode bytes that no recipient
- * there owns; this throws for it. A `UniversalAddress` passes as it is.
+ * platform than its chain's would encode bytes that nothing there owns; this
+ * throws for it, naming the address by `noun`. A `UniversalAddress` passes as
+ * it is.
  */
-export function recipientArg(destination: ChainAddress): xdr.ScVal {
-  const { chain, address } = destination;
+export function chainAddressArg(
+  chainAddress: ChainAddress,
+  noun: string
+): xdr.ScVal {
+  const { chain, address } = chainAddress;
   const expected = chainToPlatform(chain);
   const platform =
     "platform" in address.constructor
@@ -318,11 +322,18 @@ export function recipientArg(destination: ChainAddress): xdr.ScVal {
       : undefined;
   if (!UniversalAddress.instanceof(address) && platform !== expected)
     throw new Error(
-      `A recipient on ${chain} must be universal or of platform ${expected}, ` +
+      `A ${noun} on ${chain} must be universal or of platform ${expected}, ` +
         `not ${String(platform)}`
     );
   return bytesArg(address.toUniversalAddress().toUint8Array());
 }
+
+/**
+ * Encodes a transfer's destination address as the 32 bytes the manager sends
+ * on, with the platform check of {@link chainAddressArg}.
+ */
+export const recipientArg = (destination: ChainAddress): xdr.ScVal =>
+  chainAddressArg(destination, "recipient");
 
 /** Encodes a sequence number as the `u64` the contracts take. */
 export const sequenceArg = (sequence: bigint): xdr.ScVal =>
